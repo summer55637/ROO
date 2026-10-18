@@ -11,7 +11,8 @@ function makeGnd(surfaceStride = 56, minor = 7) {
   const height = 1;
   const texturePath = Buffer.alloc(80);
   texturePath.write('texture\\ground\\prontera.bmp', 0, 'latin1');
-  const buffer = Buffer.alloc(26 + texturePath.length + 16 + 4 + surfaceStride + 28);
+  const waterBytes = minor === 8 ? 36 : minor === 9 ? 56 : 0;
+  const buffer = Buffer.alloc(26 + texturePath.length + 16 + 4 + surfaceStride + 28 + waterBytes);
   buffer.write('GRGN', 0, 'ascii');
   buffer.writeUInt8(1, 4);
   buffer.writeUInt8(minor, 5);
@@ -48,6 +49,28 @@ function makeGnd(surfaceStride = 56, minor = 7) {
   buffer.writeInt32LE(0, cubeOffset + 16);
   buffer.writeInt32LE(-1, cubeOffset + 20);
   buffer.writeInt32LE(-1, cubeOffset + 24);
+
+  if (minor >= 8) {
+    const waterOffset = buffer.length - waterBytes;
+    buffer.writeFloatLE(0.25, waterOffset);
+    buffer.writeInt32LE(2, waterOffset + 4);
+    buffer.writeFloatLE(0.1, waterOffset + 8);
+    buffer.writeFloatLE(0.2, waterOffset + 12);
+    buffer.writeFloatLE(0, waterOffset + 16);
+    buffer.writeInt32LE(4, waterOffset + 20);
+    buffer.writeInt32LE(1, waterOffset + 24);
+    buffer.writeInt32LE(1, waterOffset + 28);
+    if (minor === 8) {
+      buffer.writeFloatLE(0.25, waterOffset + 32);
+    } else {
+      buffer.writeFloatLE(0.25, waterOffset + 32);
+      buffer.writeInt32LE(2, waterOffset + 36);
+      buffer.writeFloatLE(0.1, waterOffset + 40);
+      buffer.writeFloatLE(0.2, waterOffset + 44);
+      buffer.writeFloatLE(0, waterOffset + 48);
+      buffer.writeInt32LE(4, waterOffset + 52);
+    }
+  }
   return buffer;
 }
 
@@ -74,6 +97,17 @@ assert.deepEqual(mesh.buckets[0].uvs.slice(0, 2), [0, 0]);
 const compact = parseGndBuffer(makeGnd(40));
 assert.equal(compact.surfaceRecordBytes, 40);
 assert.equal(buildGndMeshData(compact).quadCount, 1);
+
+const water18 = parseGndBuffer(makeGnd(56, 8));
+assert.equal(water18.version, '1.8');
+assert.equal(water18.water.gridU, 1);
+assert.equal(water18.water.gridV, 1);
+assert.equal(water18.water.level, 0.25);
+
+const water19 = parseGndBuffer(makeGnd(56, 9));
+assert.equal(water19.version, '1.9');
+assert.equal(water19.water.gridU, 1);
+assert.equal(water19.water.gridV, 1);
 
 let badHeaderRejected = false;
 try {
@@ -119,4 +153,4 @@ assert.throws(() => resolveRagassetsMapUrls('prontera', {
   files: { ...manifest.files, gat: 'other.gat' },
 }), /檔名不符合/);
 
-console.log('RO 原生 GND 地圖解析／幾何／素材 URL 測試通過（16 assertions）');
+console.log('RO 原生 GND 1.7–1.9 解析、幾何與素材 URL 測試通過');
