@@ -228,6 +228,7 @@ export function buildGndMeshData(gnd, worldScale = 0.2) {
     if (surfaceIndex < 0 || surfaceIndex >= surfaces.length) return;
     const surface = surfaces[surfaceIndex];
     const textureIndex = surface.textureIndex;
+    if (textureIndex === -1) return;
     const bucketKey = textureIndex >= 0 && textureIndex < gnd.textures.length ? textureIndex : -1;
     let bucket = buckets.get(bucketKey);
     if (!bucket) {
