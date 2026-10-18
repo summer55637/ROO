@@ -813,7 +813,130 @@ export function parseRswBuffer(input) {
   };
 }
 
-export function buildGndMeshData(gnd, worldScale = 0.2) {
+export function buildGndLightmapAtlasData(gnd, posterizationLevel = 16) {
+  if (!gnd || !Array.isArray(gnd.lightmapSlices)) {
+    throw new TypeError('必須提供已解析的 GND lightmap slices。');
+  }
+  if (!Number.isInteger(posterizationLevel) || posterizationLevel < 0 || posterizationLevel > 255) {
+    throw new Error('lightmap posterization 必須是 0–255 的整數。');
+  }
+  const slices = gnd.lightmapSlices;
+  if (!slices.length) return null;
+  if (slices.length > 16384) throw new Error('GND lightmap 超過 16384 個 slice 的安全上限。');
+
+  const sliceWidth = slices[0].width;
+  const sliceHeight = slices[0].height;
+  const channels = slices[0].channels || 4;
+  if (!Number.isInteger(sliceWidth) || !Number.isInteger(sliceHeight)
+    || sliceWidth < 1 || sliceHeight < 1 || sliceWidth > 128 || sliceHeight > 128) {
+    throw new Error('GND lightmap slice 尺寸無效。');
+  }
+  for (const [index, slice] of slices.entries()) {
+    const pixelCount = slice.width * slice.height;
+    const channelCount = slice.channels || 4;
+    if (slice.width !== sliceWidth || slice.height !== sliceHeight
+      || (channelCount !== 3 && channelCount !== 4)
+      || !slice.colorPixels || slice.colorPixels.length !== pixelCount * channelCount
+      || slice.shadowPixels && slice.shadowPixels.length !== pixelCount) {
+      throw new Error('GND lightmap slice ' + index + ' 尺寸或像素長度無效。');
+    }
+  }
+
+  const columns = Math.ceil(Math.sqrt(slices.length));
+  const rows = Math.ceil(slices.length / columns);
+  const gutter = 1;
+  const cellWidth = sliceWidth + gutter * 2;
+  const cellHeight = sliceHeight + gutter * 2;
+  const width = columns * cellWidth;
+  const height = rows * cellHeight;
+  const pixelBytes = width * height * 4;
+  if (!Number.isSafeInteger(pixelBytes) || pixelBytes > 128 * 1024 * 1024) {
+    throw new Error('GND lightmap atlas 超過 128 MiB 安全上限。');
+  }
+
+  const lightMapPixels = new Uint8Array(pixelBytes);
+  const aoMapPixels = new Uint8Array(pixelBytes);
+  lightMapPixels.fill(255);
+  aoMapPixels.fill(255);
+
+  function setRgba(target, x, y, rgba) {
+    const at = (y * width + x) * 4;
+    target[at] = rgba[0];
+    target[at + 1] = rgba[1];
+    target[at + 2] = rgba[2];
+    target[at + 3] = 255;
+  }
+
+  const uvsBySlice = [];
+  for (let sliceIndex = 0; sliceIndex < slices.length; sliceIndex++) {
+    const slice = slices[sliceIndex];
+    const sourceChannels = slice.channels || 4;
+    const column = sliceIndex % columns;
+    const row = Math.floor(sliceIndex / columns);
+    const baseX = column * cellWidth + gutter;
+    const baseY = row * cellHeight + gutter;
+
+    for (let y = 0; y < sliceHeight; y++) {
+      for (let x = 0; x < sliceWidth; x++) {
+        const pixel = y * sliceWidth + x;
+        const src = pixel * sourceChannels;
+        let r = slice.colorPixels[src];
+        let g = slice.colorPixels[src + 1];
+        let b = slice.colorPixels[src + 2];
+        if (posterizationLevel > 1) {
+          r = Math.floor(r / posterizationLevel) * posterizationLevel;
+          g = Math.floor(g / posterizationLevel) * posterizationLevel;
+          b = Math.floor(b / posterizationLevel) * posterizationLevel;
+        }
+        setRgba(lightMapPixels, baseX + x, baseY + y, [r, g, b]);
+        const ao = slice.shadowPixels
+          ? slice.shadowPixels[pixel]
+          : sourceChannels === 4 ? slice.colorPixels[src + 3] : 255;
+        setRgba(aoMapPixels, baseX + x, baseY + y, [ao, ao, ao]);
+      }
+    }
+
+    // Duplicate each slice's border pixels into the atlas gutter to prevent bleed.
+    for (let y = 0; y < sliceHeight; y++) {
+      for (const target of [lightMapPixels, aoMapPixels]) {
+        const rowAt = (baseY + y) * width * 4;
+        const firstAt = rowAt + baseX * 4;
+        const lastAt = rowAt + (baseX + sliceWidth - 1) * 4;
+        target.set(target.subarray(firstAt, firstAt + 4), rowAt + (baseX - 1) * 4);
+        target.set(target.subarray(lastAt, lastAt + 4), rowAt + (baseX + sliceWidth) * 4);
+      }
+    }
+    for (let x = 0; x < sliceWidth + 2; x++) {
+      for (const target of [lightMapPixels, aoMapPixels]) {
+        const topAt = (baseY * width + baseX - 1 + x) * 4;
+        const bottomAt = ((baseY + sliceHeight - 1) * width + baseX - 1 + x) * 4;
+        target.set(target.subarray(topAt, topAt + 4), ((baseY - 1) * width + baseX - 1 + x) * 4);
+        target.set(target.subarray(bottomAt, bottomAt + 4), ((baseY + sliceHeight) * width + baseX - 1 + x) * 4);
+      }
+    }
+
+    const u0 = (column * cellWidth + gutter + 0.5) / width;
+    const u1 = (column * cellWidth + gutter + sliceWidth - 0.5) / width;
+    const v0 = (row * cellHeight + gutter + 0.5) / height;
+    const v1 = (row * cellHeight + gutter + sliceHeight - 0.5) / height;
+    uvsBySlice.push([[u0, v0], [u1, v0], [u0, v1], [u1, v1]]);
+  }
+
+  return {
+    width,
+    height,
+    columns,
+    rows,
+    sliceWidth,
+    sliceHeight,
+    channels,
+    lightMapPixels,
+    aoMapPixels,
+    uvsBySlice,
+  };
+}
+
+export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
   if (!gnd || !Array.isArray(gnd.cubes) || !Array.isArray(gnd.surfaces)) {
     throw new TypeError('必須提供已解析的 GND 地圖。');
   }
@@ -840,7 +963,7 @@ export function buildGndMeshData(gnd, worldScale = 0.2) {
     const bucketKey = textureIndex >= 0 && textureIndex < gnd.textures.length ? textureIndex : -1;
     let bucket = buckets.get(bucketKey);
     if (!bucket) {
-      bucket = { textureIndex: bucketKey, positions: [], uvs: [], colors: [], indices: [] };
+      bucket = { textureIndex: bucketKey, positions: [], uvs: [], lightmapUvs: [], colors: [], indices: [] };
       buckets.set(bucketKey, bucket);
     }
     const base = bucket.positions.length / 3;
@@ -853,7 +976,12 @@ export function buildGndMeshData(gnd, worldScale = 0.2) {
       );
       const uv = surface.uv[corner.uvIndex];
       bucket.uvs.push(uv[0], uv[1]);
-      const color = (vertexColors && vertexColors[corner.uvIndex]) || surface.color || [1, 1, 1, 1];
+      const lightmapUvs = lightmapAtlas && surface.lightmapIndex >= 0
+        ? lightmapAtlas.uvsBySlice[surface.lightmapIndex] : null;
+      const lightmapUv = lightmapUvs && lightmapUvs[corner.uvIndex] || [0, 0];
+      bucket.lightmapUvs.push(lightmapUv[0], lightmapUv[1]);
+      const color = surface.colors && surface.colors[corner.uvIndex]
+        || (vertexColors && vertexColors[corner.uvIndex]) || surface.color || [1, 1, 1, 1];
       bucket.colors.push(color[0], color[1], color[2]);
     }
     bucket.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
