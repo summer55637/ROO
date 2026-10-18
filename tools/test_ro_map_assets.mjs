@@ -119,13 +119,13 @@ assert.deepEqual(
 );
 assert.throws(() => insetGndTextureUvs([0, 0], 0, 32), /正整數/);
 
-const water18 = parseGndBuffer(makeGnd(56, 8));
+const water18 = parseGndBuffer(makeGnd(40, 8));
 assert.equal(water18.version, '1.8');
 assert.equal(water18.water.gridU, 1);
 assert.equal(water18.water.gridV, 1);
 assert.equal(water18.water.level, 0.25);
 
-const water19 = parseGndBuffer(makeGnd(56, 9));
+const water19 = parseGndBuffer(makeGnd(40, 9));
 assert.equal(water19.version, '1.9');
 assert.equal(water19.water.gridU, 1);
 assert.equal(water19.water.gridV, 1);
