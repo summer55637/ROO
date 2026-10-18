@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   RAGASSETS_BASE_URL,
+  buildGndLightmapAtlasData,
   normalizeModelName,
   normalizeTextureName,
   parseGndBuffer,
@@ -35,6 +36,10 @@ async function validateMap(mapId) {
   const gnd = parseGndBuffer(gndBytes);
   assert.ok(['standard-split', 'legacy-rgba'].includes(gnd.lightmapLayout), mapId + ' recognized GND lightmap layout');
   assert.equal(gnd.lightmapSlices.length, gnd.lightmapCount, mapId + ' lightmap slice count');
+  const lightmapAtlas = buildGndLightmapAtlasData(gnd);
+  assert.ok(lightmapAtlas, mapId + ' lightmap atlas was built');
+  assert.equal(lightmapAtlas.uvsBySlice.length, gnd.lightmapCount, mapId + ' lightmap atlas UV count');
+  assert.ok(lightmapAtlas.width <= 4096 && lightmapAtlas.height <= 4096, mapId + ' atlas fits common GPU limits');
   const rsw = parseRswBuffer(rswBytes);
   assert.ok(rsw.models.length > 0, mapId + ' RSW has map model instances');
   assert.ok(rsw.light.ambient.every(Number.isFinite), mapId + ' RSW ambient light is finite');
@@ -98,6 +103,7 @@ async function validateMap(mapId) {
       + ', GAT ' + gatWidth + '×' + gatHeight
       + ', surfaces ' + gnd.surfaces.length
       + ', lightmaps ' + gnd.lightmapCount + ' (' + gnd.lightmapLayout + ')'
+      + ', atlas ' + lightmapAtlas.width + '×' + lightmapAtlas.height
       + ', RSW ' + rsw.version + ' with ' + rsw.models.length + ' model placements'
       + ', sample RSM versions ' + versionSummary
       + ', sample model faces ' + parsedModels.reduce((sum, model) => sum + model.faces, 0)
