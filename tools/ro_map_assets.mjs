@@ -696,6 +696,95 @@ export function buildRsm2NodeTransformData(node, parentNode = null, worldScale =
   return { position, rotation, scale: [1, 1, 1] };
 }
 
+
+function sampleRsmKeyframeSegment(keyframes, time) {
+  if (!Array.isArray(keyframes)) throw new TypeError('RSM keyframes 必須是陣列。');
+  if (!Number.isFinite(time)) throw new TypeError('RSM 動畫時間必須是有限數值。');
+  if (!keyframes.length) return null;
+  for (const key of keyframes) {
+    if (!key || !Number.isFinite(key.frame) || !Array.isArray(key.value)
+      || !key.value.every(Number.isFinite)) {
+      throw new TypeError('RSM 動畫 keyframe 格式無效。');
+    }
+  }
+
+  const ordered = keyframes.length > 1
+    ? [...keyframes].sort((a, b) => a.frame - b.frame)
+    : keyframes;
+  if (time <= ordered[0].frame) return { from: ordered[0], to: ordered[0], alpha: 0 };
+  for (let i = 1; i < ordered.length; i++) {
+    const from = ordered[i - 1];
+    const to = ordered[i];
+    if (time <= to.frame) {
+      const span = to.frame - from.frame;
+      const alpha = span > 0 ? Math.max(0, Math.min(1, (time - from.frame) / span)) : 1;
+      return { from, to, alpha };
+    }
+  }
+  const last = ordered[ordered.length - 1];
+  return { from: last, to: last, alpha: 0 };
+}
+
+function normalizedRsmQuaternion(value, major) {
+  const [x, y, z, w] = value;
+  // RSM1 uses Y-down model space; RSM2 uses the Z-mirrored RO render space.
+  const converted = major === 1 ? [x, -y, -z, w] : [-x, -y, z, w];
+  const length = Math.hypot(...converted);
+  return length < 1e-12 ? [0, 0, 0, 1] : converted.map(component => component / length);
+}
+
+function slerpRsmQuaternion(a, b, alpha) {
+  let target = b;
+  let dot = a.reduce((sum, value, index) => sum + value * target[index], 0);
+  if (dot < 0) {
+    target = target.map(value => -value);
+    dot = -dot;
+  }
+  if (dot > 0.9995) {
+    const value = a.map((component, index) => component + (target[index] - component) * alpha);
+    const length = Math.hypot(...value);
+    return length < 1e-12 ? [0, 0, 0, 1] : value.map(component => component / length);
+  }
+  const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+  const sine = Math.sin(angle);
+  if (Math.abs(sine) < 1e-12) return a.slice();
+  const fromWeight = Math.sin((1 - alpha) * angle) / sine;
+  const toWeight = Math.sin(alpha * angle) / sine;
+  return a.map((component, index) => component * fromWeight + target[index] * toWeight);
+}
+
+/** Sample the RSM transform channels at a source-frame timestamp. */
+export function sampleRsmAnimationPose(track, time, major, worldScale = 0.2) {
+  if (!track || typeof track !== 'object') throw new TypeError('必須提供 RSM 動畫軌道。');
+  if (major !== 1 && major !== 2) throw new Error('RSM 動畫版本只支援 1.x 或 2.x。');
+  if (!Number.isFinite(worldScale) || worldScale <= 0 || worldScale > 10) {
+    throw new Error('RSM 動畫世界比例必須大於 0，且不可大於 10。');
+  }
+  const pose = {};
+  const rotation = sampleRsmKeyframeSegment(track.rotationKeyframes || [], time);
+  if (rotation) {
+    pose.rotation = slerpRsmQuaternion(
+      normalizedRsmQuaternion(rotation.from.value, major),
+      normalizedRsmQuaternion(rotation.to.value, major),
+      rotation.alpha
+    );
+  }
+  const scale = sampleRsmKeyframeSegment(track.scaleKeyframes || [], time);
+  if (scale) {
+    pose.scale = scale.from.value.map((value, index) =>
+      value + (scale.to.value[index] - value) * scale.alpha);
+  }
+  if (major === 2) {
+    const translation = sampleRsmKeyframeSegment(track.translationKeyframes || [], time);
+    if (translation) {
+      const value = translation.from.value.map((component, index) =>
+        component + (translation.to.value[index] - component) * translation.alpha);
+      pose.translation = [value[0] * worldScale, value[1] * worldScale, -value[2] * worldScale];
+    }
+  }
+  return pose;
+}
+
 export function parseRsmBuffer(input) {
   const view = asView(input);
   let offset = 0;
