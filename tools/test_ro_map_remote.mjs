@@ -3,11 +3,13 @@ import {
   RAGASSETS_BASE_URL,
   analyzeRswPlacementBounds,
   buildGndLightmapAtlasData,
+  buildRsmNodeTransformData,
   compareGndGatHeights,
   normalizeModelName,
   normalizeTextureName,
   parseGndBuffer,
   parseRsmBuffer,
+  transformRsmVertex,
   parseRswBuffer,
   resolveRagassetsMapUrls,
 } from './ro_map_assets.mjs';
@@ -59,12 +61,40 @@ async function validateMap(mapId) {
     assert.deepEqual([...bytes.slice(0, 4)], [71, 82, 83, 77], mapId + ' model ' + name + ' GRSM signature');
     const model = parseRsmBuffer(buffer);
     assert.ok(model.nodes.length > 0, mapId + ' model ' + name + ' has nodes');
+    let transformedNodes = 0;
+    let transformedVertices = 0;
+    if (model.major === 1) {
+      for (const node of model.nodes) {
+        const transform = buildRsmNodeTransformData(node, 0.2);
+        assert.ok(
+          [...transform.position, ...transform.rotation, ...transform.scale].every(Number.isFinite),
+          mapId + ' model ' + name + ' node ' + node.name + ' has finite transforms'
+        );
+        transformedNodes++;
+        for (const vertex of node.vertices) {
+          const point = transformRsmVertex(node, vertex, 0.2);
+          assert.ok(
+            point.every(Number.isFinite),
+            mapId + ' model ' + name + ' node ' + node.name + ' has finite transformed vertices'
+          );
+          transformedVertices++;
+        }
+      }
+    }
     return {
       version: model.version,
       nodes: model.nodes.length,
       faces: model.nodes.reduce((sum, node) => sum + node.faces.length, 0),
+      transformedNodes,
+      transformedVertices,
     };
   }));
+  const transformedNodeCount = parsedModels.reduce((sum, model) => sum + model.transformedNodes, 0);
+  const transformedVertexCount = parsedModels.reduce((sum, model) => sum + model.transformedVertices, 0);
+  if (parsedModels.some(model => model.version.startsWith('1.'))) {
+    assert.ok(transformedNodeCount > 0, mapId + ' real RSM1 nodes have transform checks');
+    assert.ok(transformedVertexCount > 0, mapId + ' real RSM1 vertices have transform checks');
+  }
   const versionCounts = {};
   for (const model of parsedModels) versionCounts[model.version] = (versionCounts[model.version] || 0) + 1;
   const versionSummary = Object.entries(versionCounts).map(([version, count]) => version + '×' + count).join(', ');
@@ -126,6 +156,7 @@ async function validateMap(mapId) {
       + ', RSW ' + rsw.version + ' with ' + rsw.models.length + ' model placements'
       + ', sample RSM versions ' + versionSummary
       + ', sample model faces ' + parsedModels.reduce((sum, model) => sum + model.faces, 0)
+      + ', RSM1 transform checks ' + transformedNodeCount + ' nodes/' + transformedVertexCount + ' vertices'
       + ', height Δ mean/P95/max ' + heightAlignment.meanAbsoluteError.toFixed(3) + '/'
       + heightAlignment.p95AbsoluteError.toFixed(3) + '/' + heightAlignment.maxAbsoluteError.toFixed(3)
       + ' world units (' + heightAlignment.samples + ' samples)'
