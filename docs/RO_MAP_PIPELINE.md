@@ -77,7 +77,7 @@ js/map_pathfinding.js 提供解碼器、格子判定、A* 八方向尋路、最�
 `tools/ro_explorer.html` 新增「原生地圖（測試）」模式，不經第三方模擬器 iframe，直接從公開 ragassets 端點載入同名 `.manifest.json`、`.gnd`、`.gat` 與共享 PNG 材質，再以 Three.js 組出 GND 地表；點擊地面會使用既有 GAT A* 通行格尋路。地圖 ID 可輸入，例如 `prontera` 或 `tra_fild`。這只是開發驗證工具，公開素材服務屬 best-effort，無 SLA；端點停用、跨來源政策或素材缺檔時，請切回公開模擬器或使用本機 GLB/GAT。
 
 新增的 `tools/ro_map_assets.mjs` 負責：
-- 驗證 GND 1.7／1.8／1.9 標頭、尺寸、surface 與 cube 索引，並支援 56-byte 標準 surface 及已見的 40-byte compact 變體；不符合精確檔案長度就拒絕。
+- 驗證 GND 1.7／1.8／1.9 標頭、尺寸、40-byte surface 與 cube 索引；不符合精確檔案長度就拒絕。地表網格也會參照鄰接方格的頂點色，並在貼圖載入後做半像素 UV 內縮，減少接縫。
 - 依 GND 的 UV、四角高度、地表／牆面 surface，組出可供 Three.js 使用的頂點、UV、色彩及索引資料。
 - 僅接受符合 ragassets 約定的共享材質 blob 路徑，拒絕外部網域與路徑跳脫；資源請求仍由瀏覽器直接發出。
 
