@@ -43,9 +43,17 @@ js/map_pathfinding.js 提供解碼器、格子判定、A* 八方向尋路、最�
 - [RSW 格式](https://github.com/rdw-archive/RagnarokFileFormats/blob/master/RSW.MD)：地圖場景設定、物件位置與關聯資源。
 - [rAthena 地形判定](https://github.com/rathena/rathena/blob/master/src/map/map.cpp)：核對 GAT 地形種類是否可走。
 
-### 可參考的實作
-- [roBrowser](https://github.com/vthibault/roBrowser)：JavaScript／WebGL 的 RO 瀏覽器端實作。可研究其 GND、GAT、RSW loader 與地圖 renderer；它是完整客戶端專案，不應直接把整個線上客戶端當成 ROO 的依賴。複製或移植程式碼前，必須先確認 GPL-3.0 與本倉庫授權條款的相容性。
-- [ragassets](https://github.com/adsonpleal/ragassets)：MIT 授權的素材解析／服務程式，文件列出 GAT、GND、RSW 與貼圖的資源組織方式；其程式倉庫不包含遊戲素材，公開示範服務也明確標示為 best-effort。適合當格式與抽取流程參考，不把外部示範服務當成遊戲執行時依賴。
+### 可參考的實作與工具
+- [ragx](https://github.com/joaopedrosgs/ragx)：MIT 授權的本機轉換工具，支援 GAT 1.2／1.3、GND 1.7–1.9、RSW 1.9–2.7，可從本機客戶端 GRF 輸出 glTF／GLB。程式碼的 MIT 授權不等於 RO 素材授權；輸入只用作者已獲授權的客戶端素材。
+- [roBrowser](https://github.com/vthibault/roBrowser)：JavaScript／WebGL 的 RO 瀏覽器端實作。可研究其 GND、GAT、RSW loader 與地圖 renderer；移植程式碼前，先確認 GPL-3.0 與本倉庫條款的相容性。
+- [ragassets](https://github.com/adsonpleal/ragassets)：MIT 授權的素材解析／服務程式，適合參考資源組織；正式遊戲不把公開示範服務當執行時依賴。
+
+### 地圖座標校對
+使用作者獲授權的本機 RO 客戶端轉換單張地圖，先驗證 GND 與 GAT 格線重疊；不必先轉換整個世界。
+
+    ragx maps prontera --client "C:/Gravity/Ragnarok" --format glb --world-scale 0.2 --out ./tmp/roo-map
+
+輸出 GLB 後，開啟 tools/map_preview.html，選取 tmp/roo-map/maps/prontera.glb 與相同地圖的原始 .gat 檔。預覽工具可旋轉／縮放並疊加可走、阻擋與水域標記；它只供開發校對，未加入遊戲執行流程。Three.js 使用固定版本 CDN 僅限這個工具頁，遊戲本體仍不依賴它。
 
 ## 尚未完成的下一階段
 
