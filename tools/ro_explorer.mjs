@@ -21,6 +21,7 @@ import {
   parseRswBuffer,
   resolveRagassetsMapUrls,
   sampleGndHeightAtGatCell,
+  sampleRoWaterWaveOffset,
 } from './ro_map_assets.mjs';
 
 const stage = document.getElementById('stage');
@@ -456,7 +457,38 @@ function clearNativeWaterAnimation() {
 
 function advanceNativeWater(now) {
   const animation = nativeWaterAnimation;
-  if (!animation || animation.textures.length < 2) return;
+  if (!animation) return;
+
+  if (animation.waveEnabled && animation.basePositions && animation.tileCoordinates) {
+    if (animation.waveStartedAt === null) animation.waveStartedAt = now;
+    const elapsedSeconds = Math.max(0, (now - animation.waveStartedAt) / 1000);
+    const positionAttribute = animation.mesh.geometry.getAttribute('position');
+    const positions = positionAttribute.array;
+    const diagonalCount = animation.mapWidth + animation.mapHeight + 1;
+    const waveOffsets = new Float32Array(diagonalCount);
+
+    // Wave crests travel along the map's (1, 1) diagonal. Reuse the sample for
+    // each diagonal so neighbouring water tiles share exactly the same heights.
+    for (let diagonal = 0; diagonal < diagonalCount; diagonal++) {
+      waveOffsets[diagonal] = sampleRoWaterWaveOffset(
+        animation.waterConfig, diagonal, 0, elapsedSeconds, animation.worldScale
+      );
+    }
+    for (let tile = 0; tile < animation.tileCoordinates.length / 2; tile++) {
+      const x = animation.tileCoordinates[tile * 2];
+      const z = animation.tileCoordinates[tile * 2 + 1];
+      const base = tile * 12;
+      // Vertex layout: (x,z+1), (x+1,z+1), (x,z), (x+1,z).
+      positions[base + 1] = animation.basePositions[base + 1] + waveOffsets[x + z + 1];
+      positions[base + 4] = animation.basePositions[base + 4] + waveOffsets[x + z + 2];
+      positions[base + 7] = animation.basePositions[base + 7] + waveOffsets[x + z];
+      positions[base + 10] = animation.basePositions[base + 10] + waveOffsets[x + z + 1];
+    }
+    positionAttribute.needsUpdate = true;
+  }
+
+  // Texture cycling and vertex waves are independent in the RO map format.
+  if (animation.textures.length < 2) return;
   if (!animation.nextFrameAt) {
     animation.nextFrameAt = now + animation.intervalMs;
     return;
@@ -813,13 +845,23 @@ async function addNativeWater(root, gat, waterConfig, urls, scale) {
   root.add(mesh);
 
   const interval = Number(waterConfig.textureCyclingInterval);
+  const waveEnabled = Number.isFinite(waterConfig.waveHeight) && Math.abs(waterConfig.waveHeight) > 1e-8;
+  const textureCyclingEnabled = availableTextures.length > 1;
   return {
-    animation: availableTextures.length ? {
+    animation: waveEnabled || textureCyclingEnabled ? {
       mesh,
       textures: availableTextures,
       frameIndex: 0,
       nextFrameAt: 0,
       intervalMs: Math.max(50, Math.min(4000, (Number.isFinite(interval) && interval > 0 ? interval : 3) * (1000 / 30))),
+      waveEnabled,
+      waterConfig,
+      worldScale: scale,
+      mapWidth: gat.width,
+      mapHeight: gat.height,
+      tileCoordinates: Uint32Array.from(data.tileCoordinates),
+      basePositions: Float32Array.from(data.positions),
+      waveStartedAt: null,
     } : null,
     waterTileCount: data.waterTileCount,
     waterFrameCount: availableTextures.length,
@@ -974,7 +1016,7 @@ async function loadRagassetsMap(mapName) {
     finishOrRefreshScene();
     setStatus('原生地圖已載入：地表＋RSM 模型 ' + nextRenderStats.renderedPlacements
       + ' 個／' + parsedRsw.models.length + ' 個擺放位置；水域 ' + nextWaterStats.waterTileCount
-      + ' 格、動畫影格 ' + nextWaterStats.waterFrameCount + ' 張。GND lightmap 仍待實作。');
+      + ' 格、動畫影格 ' + nextWaterStats.waterFrameCount + ' 張。GND lightmap/AO 與頂點水波已啟用，實際畫面仍待校驗。');
     updateStats();
   } catch (error) {
     setStatus('公開原生地圖載入失敗：' + error.message
