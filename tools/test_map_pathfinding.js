@@ -132,4 +132,18 @@ try {
 } catch (e) { malformedRejected = true; }
 t.ok('不完整的通行格資料會被拒絕', malformedRejected);
 
+const largeMap = g.decodeRoWalkMapData({
+  format: 'roo-walkmap-v1',
+  mapId: 'large_open_map',
+  width: 512,
+  height: 512,
+  walkableRle: '262144:1',
+});
+const largePath = g.findRoPath(largeMap, { x: 0, y: 0 }, { x: 511, y: 511 });
+t.ok('較大地圖可完成尋路', Array.isArray(largePath) && largePath.length === 512);
+if (largePath) {
+  t.eq('較大地圖路徑終點正確',
+    largePath[largePath.length - 1].x + ',' + largePath[largePath.length - 1].y, '511,511');
+}
+
 process.exit(t.report('RO 地圖通行格與尋路'));
