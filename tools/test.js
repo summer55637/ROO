@@ -56,6 +56,7 @@ const SUITES = [
   'test_saveio.js',      // 存檔匯出/匯入：序列化、遷移、覆寫與失敗還原
   'test_exploration.js', // 探索移動：位置範圍、切圖重設、舊存檔遷移
   'test_map_pathfinding.js', // GAT 通行格、A* 繞路與地圖座標轉換
+  'test_ro_map_assets.mjs', // GND 地表解析、幾何與公開素材 URL 驗證
 ];
 
 let failed = 0;
