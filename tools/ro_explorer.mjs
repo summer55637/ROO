@@ -558,7 +558,7 @@ function buildRsmTemplate(rsm, urls, scale) {
   for (let index = 0; index < rsm.nodes.length; index++) {
     const node = rsm.nodes[index];
     const children = nodesByName.get(node.parentName) || [];
-    const parentIndex = children.find(childIndex => childIndex !== index && !parented.has(childIndex));
+    const parentIndex = children.find(childIndex => childIndex !== index);
     if (node.parentName && parentIndex !== undefined) {
       nodeGroups[parentIndex].add(nodeGroups[index]);
       parented.add(index);
