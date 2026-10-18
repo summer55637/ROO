@@ -53,9 +53,8 @@ function validateSurfaceReferences(cubes, surfaceCount) {
 
 /**
  * Parse modern Ragnarok GND 1.7–1.9 terrain files.
- * Supports both the documented 56-byte surface record and the compact
- * 40-byte variant found in some client assets; record size is validated
- * against the exact cube/water tail length before data is accepted.
+ * Each surface is the 40-byte layout: eight float UV values, two int16
+ * indices, and one BGRA vertex tint. Lengths are checked before allocation.
  */
 export function parseGndBuffer(input) {
   const view = asView(input);
@@ -116,64 +115,55 @@ export function parseGndBuffer(input) {
     throw new Error('GND surface 數量無效。');
   }
 
-  const cubeBytes = cubeCount * 28;
-  const candidates = [];
-  for (const stride of [56, 40]) {
-    const cubeOffset = offset + surfaceCount * stride;
-    const tailOffset = cubeOffset + cubeBytes;
-    if (tailOffset > length || !validWaterTail(view, tailOffset, [major, minor])) continue;
+  const surfaceStride = 40;
+  const cubeOffset = offset + surfaceCount * surfaceStride;
+  const tailOffset = cubeOffset + cubeCount * 28;
+  if (tailOffset > length || !validWaterTail(view, tailOffset, [major, minor])) {
+    throw new Error('GND surface／cube 區段長度不符；預期 40-byte surface 記錄。');
+  }
 
-    const cubes = [];
-    let valid = true;
-    for (let i = 0; i < cubeCount; i++) {
-      const at = cubeOffset + i * 28;
-      const heights = [
-        view.getFloat32(at, true),
-        view.getFloat32(at + 4, true),
-        view.getFloat32(at + 8, true),
-        view.getFloat32(at + 12, true),
-      ];
-      const topSurface = view.getInt32(at + 16, true);
-      const northSurface = view.getInt32(at + 20, true);
-      const eastSurface = view.getInt32(at + 24, true);
-      if (!heights.every(Number.isFinite) || heights.some(value => Math.abs(value) > 1000000)
-        || [topSurface, northSurface, eastSurface].some(index => index < -1 || index >= surfaceCount)) {
-        valid = false;
-        break;
-      }
-      cubes.push({ hSW: heights[0], hSE: heights[1], hNW: heights[2], hNE: heights[3],
-        topSurface, northSurface, eastSurface });
+  const cubes = [];
+  for (let i = 0; i < cubeCount; i++) {
+    const at = cubeOffset + i * 28;
+    const heights = [
+      view.getFloat32(at, true),
+      view.getFloat32(at + 4, true),
+      view.getFloat32(at + 8, true),
+      view.getFloat32(at + 12, true),
+    ];
+    const topSurface = view.getInt32(at + 16, true);
+    const northSurface = view.getInt32(at + 20, true);
+    const eastSurface = view.getInt32(at + 24, true);
+    if (!heights.every(Number.isFinite) || heights.some(value => Math.abs(value) > 1000000)
+      || [topSurface, northSurface, eastSurface].some(index => index < -1 || index >= surfaceCount)) {
+      throw new Error('GND 第 ' + i + ' 個 cube 的高度或 surface 索引無效。');
     }
-    if (valid && validateSurfaceReferences(cubes, surfaceCount)) candidates.push({ stride, cubeOffset, cubes, tailOffset });
+    cubes.push({ hSW: heights[0], hSE: heights[1], hNW: heights[2], hNE: heights[3],
+      topSurface, northSurface, eastSurface });
+  }
+  if (!validateSurfaceReferences(cubes, surfaceCount)) {
+    throw new Error('GND cube 引用了不存在的 surface。');
   }
 
-  if (!candidates.length) {
-    throw new Error('GND surface／cube 區段長度或索引無效；不會以錯位資料繼續渲染。');
-  }
-  const chosen = candidates[0];
   const surfaces = [];
   for (let i = 0; i < surfaceCount; i++) {
-    const at = offset + i * chosen.stride;
+    const at = offset + i * surfaceStride;
     const uv = [];
     for (let j = 0; j < 4; j++) uv.push(view.getFloat32(at + j * 4, true));
     for (let j = 0; j < 4; j++) uv.push(view.getFloat32(at + 16 + j * 4, true));
     const textureIndex = view.getInt16(at + 32, true);
-    const lightmapIndex = view.getUint16(at + (chosen.stride === 56 ? 36 : 34), true);
-    const colorOffset = at + (chosen.stride === 56 ? 40 : 36);
-    const colors = [];
-    for (let j = 0; j < (chosen.stride === 56 ? 4 : 1); j++) {
-      const c = colorOffset + j * 4;
-      colors.push([
-        view.getUint8(c + 2) / 255,
-        view.getUint8(c + 1) / 255,
-        view.getUint8(c) / 255,
-        view.getUint8(c + 3) / 255,
-      ]);
-    }
-    if (chosen.stride === 40) while (colors.length < 4) colors.push(colors[0].slice());
+    const lightmapIndex = view.getInt16(at + 34, true);
+    const c = at + 36;
+    const color = [
+      view.getUint8(c + 2) / 255,
+      view.getUint8(c + 1) / 255,
+      view.getUint8(c) / 255,
+      view.getUint8(c + 3) / 255,
+    ];
     if (!uv.every(Number.isFinite)
-      || textureIndex < -1 || textureIndex >= textureCount) {
-      throw new Error('GND 第 ' + i + ' 個 surface 的 UV 或材質索引無效。');
+      || textureIndex < -1 || textureIndex >= textureCount
+      || lightmapIndex < -1 || lightmapIndex >= lightmapCount && lightmapCount > 0) {
+      throw new Error('GND 第 ' + i + ' 個 surface 的 UV、材質或 lightmap 索引無效。');
     }
     surfaces.push({
       uv: [
@@ -182,13 +172,13 @@ export function parseGndBuffer(input) {
       ],
       textureIndex,
       lightmapIndex,
-      colors,
+      color,
     });
   }
 
   let water = null;
   if (minor >= 8) {
-    const base = chosen.tailOffset;
+    const base = tailOffset;
     water = {
       level: view.getFloat32(base, true),
       type: view.getInt32(base + 4, true),
@@ -212,9 +202,9 @@ export function parseGndBuffer(input) {
     lightmapWidth,
     lightmapHeight,
     cellsPerGrid,
-    surfaceRecordBytes: chosen.stride,
+    surfaceRecordBytes: surfaceStride,
     surfaces,
-    cubes: chosen.cubes,
+    cubes,
     water,
   };
 }
@@ -252,7 +242,7 @@ export function buildGndMeshData(gnd, worldScale = 0.2) {
       );
       const uv = surface.uv[corner.uvIndex];
       bucket.uvs.push(uv[0], uv[1]);
-      const color = surface.colors[corner.uvIndex] || [1, 1, 1, 1];
+      const color = corner.color || surface.color || [1, 1, 1, 1];
       bucket.colors.push(color[0], color[1], color[2]);
     }
     bucket.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
