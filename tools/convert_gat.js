@@ -55,13 +55,16 @@ function parseGatBuffer(buffer, mapId, sourceName) {
   let walkableCount = 0;
   let waterCount = 0;
   for (let i = 0; i < cellCount; i++) {
-    const rawType = buffer.readUInt32LE(14 + i * 20 + 16);
-    const terrainType = (rawType >>> 24) & 0xff;
-    const isWalkable = terrainType !== 1 && terrainType !== 5;
+    const tileOffset = 14 + i * 20;
+    const terrainType = buffer.readUInt16LE(tileOffset + 16);
+    const waterFlag = buffer.readUInt16LE(tileOffset + 18);
+    // 與 rAthena map_gat2cell() 一致；未知旗標採保守阻擋。
+    const isWalkable = terrainType === 0 || terrainType === 2
+      || terrainType === 3 || terrainType === 4 || terrainType === 6;
     walkable[i] = isWalkable ? 1 : 0;
     terrainCounts[terrainType] = (terrainCounts[terrainType] || 0) + 1;
     if (isWalkable) walkableCount++;
-    if ((rawType & 0x80) !== 0) waterCount++;
+    if (waterFlag !== 0) waterCount++;
   }
 
   return {
