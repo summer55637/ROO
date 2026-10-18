@@ -13,11 +13,98 @@ let creationAlloc = { str: 0, agi: 0, vit: 0, int: 0, dex: 0, luk: 0 };
 let creationBudget = 15;
 let selectedGender = 'male';
 let activeTab = 'map';
+const EXPLORE_MOVE_STEP_X = 0.03;
+const EXPLORE_MOVE_STEP_Y = 0.05;
+let explorationControlsBound = false;
+
+function explorationInputAllowed() {
+  const screen = document.getElementById('screen-game');
+  return !!(state && screen && screen.classList.contains('active')
+    && !document.querySelector('.modal-overlay:not(.hidden)'));
+}
+
+function applyExploreMovement() {
+  const scene = document.getElementById('battle-scene');
+  const playerArea = scene && scene.querySelector('.player-area');
+  if (!scene || !playerArea || !scene.clientWidth || !scene.clientHeight || !state) return;
+  const pos = normalizeExploreOffset(state.exploreOffset);
+  state.exploreOffset = pos;
+  const x = Math.round(pos.x * scene.clientWidth);
+  const y = Math.round(pos.y * scene.clientHeight);
+  playerArea.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+}
+
+function movePlayer(dx, dy) {
+  if (!explorationInputAllowed()) return;
+  const pos = normalizeExploreOffset(state.exploreOffset);
+  state.exploreOffset = normalizeExploreOffset({
+    x: pos.x + dx * EXPLORE_MOVE_STEP_X,
+    y: pos.y + dy * EXPLORE_MOVE_STEP_Y,
+  });
+  applyExploreMovement();
+  saveGameThrottled();
+}
+
+function resetExplorePosition() {
+  if (!explorationInputAllowed()) return;
+  state.exploreOffset = { x: 0, y: 0 };
+  applyExploreMovement();
+  saveGameThrottled();
+}
+
+function bindExplorationControls() {
+  if (explorationControlsBound) return;
+  explorationControlsBound = true;
+
+  document.addEventListener('keydown', ev => {
+    if (!explorationInputAllowed()) return;
+    const target = ev.target;
+    if (target && (target.isContentEditable
+      || /^(INPUT|SELECT|TEXTAREA)$/.test(target.tagName))) return;
+
+    const key = ev.key.toLowerCase();
+    const dirs = {
+      arrowup: [0, -1], w: [0, -1],
+      arrowdown: [0, 1], s: [0, 1],
+      arrowleft: [-1, 0], a: [-1, 0],
+      arrowright: [1, 0], d: [1, 0],
+    };
+    if (key === 'home') {
+      ev.preventDefault();
+      resetExplorePosition();
+      return;
+    }
+    const dir = dirs[key];
+    if (!dir) return;
+    ev.preventDefault();
+    movePlayer(dir[0], dir[1]);
+  });
+
+  window.addEventListener('resize', applyExploreMovement);
+  const scene = document.getElementById('battle-scene');
+  if (!scene) return;
+  scene.addEventListener('click', ev => {
+    if (!explorationInputAllowed()) return;
+    const target = ev.target;
+    if (target && target.closest && target.closest(
+      '.explore-controls, .monster-slot, .damage-container, .btn-mute, .btn-ally, .gm-panel, .idle-report-panel, .ally-panel'
+    )) return;
+    const rect = scene.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    state.exploreOffset = normalizeExploreOffset({
+      x: (ev.clientX - rect.left) / rect.width - (1 / 6),
+      y: (ev.clientY - rect.top) / rect.height - 0.5,
+    });
+    applyExploreMovement();
+    saveGameThrottled();
+  });
+}
 
 /* ---------------- 初始畫面切換 ---------------- */
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
   document.getElementById(id).classList.add('active');
+  if (id === 'screen-game') applyExploreMovement();
 }
 
 let slotPage = 0;
@@ -26,6 +113,7 @@ const SLOTS_PER_PAGE = 3;
 function initApp() {
   renderCreationStats();
   bindSearchComposition();
+  bindExplorationControls();
   renderDisclaimers();          // 免責聲明（#118）：四個位置一次填好
   showScreen('screen-title');
   maybeShowConsent();           // 首次開啟才出現的一次性確認（#121）
@@ -418,6 +506,7 @@ function onTickUI() {
     }
     updateSkillAura();
     updatePlayerSprite();   // 換武器要即時換騎乘圖；key 沒變時這個函式會直接 return
+    applyExploreMovement();
     renderGmPanel();
     applyFarmModeTheme();     // 打寶模式的介面染色（#111）
     syncForgeTabBtn();        // 轉職／學會鍛造技能後，分頁列上的「🔨 鍛造」要自己出現
@@ -830,6 +919,7 @@ function updateBuffCountdown() {
 }
 
 function renderAll() {
+  applyExploreMovement();
   renderTopBar();
   renderMonster();
   switchTab(activeTab);
@@ -5318,6 +5408,7 @@ function selectMap(mapId) {
     renderMapBackground();
     playMapMusic();
     renderMapTab();
+    applyExploreMovement();
   }
 }
 
