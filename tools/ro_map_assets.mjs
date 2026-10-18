@@ -372,15 +372,19 @@ export function buildRsmNodeTransformData(node, worldScale = 0.2) {
   const positionSource = vec3(node.translation2, 'position');
   const offsetSource = vec3(node.translation1, 'mesh offset', [0, 0, 0]);
   const scale = vec3(node.scale, 'scale', [1, 1, 1]);
+  function worldCoordinate(value, sign = 1) {
+    const coordinate = value * worldScale * sign;
+    return coordinate === 0 ? 0 : coordinate;
+  }
   const position = [
-    positionSource[0] * worldScale,
-    -positionSource[1] * worldScale,
-    -positionSource[2] * worldScale,
+    worldCoordinate(positionSource[0]),
+    worldCoordinate(positionSource[1], -1),
+    worldCoordinate(positionSource[2], -1),
   ];
   const meshOffset = [
-    offsetSource[0] * worldScale,
-    -offsetSource[1] * worldScale,
-    -offsetSource[2] * worldScale,
+    worldCoordinate(offsetSource[0]),
+    worldCoordinate(offsetSource[1], -1),
+    worldCoordinate(offsetSource[2], -1),
   ];
 
   // Convert the column-major source 3×3 to the mirrored Three.js axes.
