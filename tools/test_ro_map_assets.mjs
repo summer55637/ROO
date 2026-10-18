@@ -257,7 +257,9 @@ const rsmNodeTransform = buildRsmNodeTransformData({
   rotationKeyframes: [],
 }, 0.2);
 assert.deepEqual(rsmNodeTransform.position, [2, -4, -6]);
-assert.deepEqual(rsmNodeTransform.meshOffset, [0.2, -0.4, -0.6]);
+[0.2, -0.4, -0.6].forEach((value, index) => {
+  assert.ok(Math.abs(rsmNodeTransform.meshOffset[index] - value) < 1e-6);
+});
 const expectedRsmNodeMatrix = [
   4, 3, 0, 0,
   -2, 0, 0, 0,
