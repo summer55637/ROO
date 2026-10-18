@@ -74,17 +74,18 @@ js/map_pathfinding.js 提供解碼器、格子判定、A* 八方向尋路、最�
 
 ## 原生公開 GND/GAT 測試模式（2026-10-18）
 
-`tools/ro_explorer.html` 新增「原生地圖（測試）」模式，不經第三方模擬器 iframe，直接從公開 ragassets 端點載入同名 `.manifest.json`、`.gnd`、`.gat` 與共享 PNG 材質，再以 Three.js 組出 GND 地表；點擊地面會使用既有 GAT A* 通行格尋路。地圖 ID 可輸入，例如 `prontera` 或 `tra_fild`。這只是開發驗證工具，公開素材服務屬 best-effort，無 SLA；端點停用、跨來源政策或素材缺檔時，請切回公開模擬器或使用本機 GLB/GAT。
+`tools/ro_explorer.html` 新增「原生地圖（測試）」模式，不經第三方模擬器 iframe，直接從公開 ragassets 端點載入同名 `.manifest.json`、`.gnd`、`.gat`、`.rsw` 與共享 PNG 材質，再以 Three.js 組出 GND 地表；點擊地面會使用既有 GAT A* 通行格尋路。地圖 ID 可輸入，例如 `prontera` 或 `tra_fild`。這只是開發驗證工具，公開素材服務屬 best-effort，無 SLA；端點停用、跨來源政策或素材缺檔時，請切回公開模擬器或使用本機 GLB/GAT。
 
 新增的 `tools/ro_map_assets.mjs` 負責：
-- 驗證 GND 1.7／1.8／1.9 標頭、尺寸、40-byte surface 與 cube 索引；不符合精確檔案長度就拒絕。地表網格也會參照鄰接方格的頂點色，並在貼圖載入後做半像素 UV 內縮，減少接縫。
+- 驗證 GND 1.7／1.8／1.9 標頭、尺寸、40-byte surface 與 cube 索引；不符合精確檔案長度就拒絕。地表網格會參照鄰接方格的頂點色，並在貼圖載入後做半像素 UV 內縮，減少接縫。
+- 解析 RSW 1.3–2.7 的環境光／漫射光、太陽方向、模型擺放位置、點光源、音效和效果清單；探索頁已套用 RSW 光色和方向，並顯示模型位置數量。
 - 依 GND 的 UV、四角高度、地表／牆面 surface，組出可供 Three.js 使用的頂點、UV、色彩及索引資料。
 - 僅接受符合 ragassets 約定的共享材質 blob 路徑，拒絕外部網域與路徑跳脫；資源請求仍由瀏覽器直接發出。
 
-目前仍未解析 RSW 裡的模型實例並載入 RSM 物件，GND lightmap／動態水面也尚未合成，角色仍是開發用標記，並非正式 RO 角色動畫。原生模式依賴公開第三方素材服務與固定版本 Three.js CDN；正式遊戲不得將該示範服務當作永久必要依賴。另已在探索頁補回 import map，否則本機 GLB/GAT 模式的 bare module imports 無法解析。
+目前雖已解析 RSW 的模型擺放資料，但尚未將對應 RSM/RSM2 模型幾何實例化；GND lightmap／動態水面也尚未合成，角色仍是開發用標記，並非正式 RO 角色動畫。原生模式依賴公開第三方素材服務與固定版本 Three.js CDN；正式遊戲不得將該示範服務當作永久必要依賴。另已在探索頁補回 import map，否則本機 GLB/GAT 模式的 bare module imports 無法解析。
 
 ## 尚未完成的下一階段
 
-1. 用真實公開地圖核對地表高度、材質 UV、GAT 格線與點擊射線，並測試 GitHub Pages／手機瀏覽器的跨來源載入狀況。
-2. 解析 RSW/RSM 模型擺放、地圖燈光與水面，建立完整原生地圖場景。
-3. 將原生場景與正式角色、RO 動畫、即時戰鬥和本機存檔串接；再驗證手機／桌面及 GitHub Pages 載入。
+1. 載入 manifest 的 RSM/RSM2 模型，依 RSW 位置、旋轉、縮放實例化，再核對物件與地表的對齊。
+2. 合成 GND lightmap、實作水面，並測試 GitHub Pages／手機瀏覽器中的貼圖、效能及跨來源載入狀況。
+3. 將原生場景與正式角色、RO 動畫、即時戰鬥和本機存檔串接。
