@@ -16,7 +16,19 @@ function readString(view, offset, length) {
   const bytes = new Uint8Array(view.buffer, view.byteOffset + offset, length);
   const end = bytes.indexOf(0);
   const slice = end >= 0 ? bytes.subarray(0, end) : bytes;
-  return new TextDecoder('latin1').decode(slice).trim().replace(/\\/g, '/');
+  let decoded = new TextDecoder('latin1').decode(slice);
+
+  // Classic client texture paths often use CP949/EUC-KR; manifest keys preserve
+  // those names as Unicode. Prefer a valid Hangul decode, otherwise keep the
+  // Windows-1252-compatible fallback for ASCII/Western client paths.
+  try {
+    const korean = new TextDecoder('euc-kr', { fatal: true }).decode(slice);
+    if (/[\\uac00-\\ud7af]/u.test(korean)) decoded = korean;
+  } catch (error) {
+    // A non-Korean path may not be a valid EUC-KR byte sequence.
+  }
+
+  return decoded.trim().replace(/\\/g, '/');
 }
 
 function normalizeTextureName(name) {
