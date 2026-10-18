@@ -33,6 +33,7 @@ jobs:
           node --check tools/convert_gat.js
           node --check tools/test_map_pathfinding.js
           node --check tools/map_preview.mjs
+          node --check tools/ro_explorer.mjs
       - name: Test GAT conversion and pathfinding
         run: node tools/test_map_pathfinding.js
       - name: Run complete regression suite
