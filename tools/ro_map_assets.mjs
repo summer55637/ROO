@@ -209,6 +209,222 @@ export function parseGndBuffer(input) {
   };
 }
 
+function compareVersion(major, minor, targetMajor, targetMinor) {
+  return major > targetMajor || (major === targetMajor && minor >= targetMinor);
+}
+
+export function parseRswBuffer(input) {
+  const view = asView(input);
+  let offset = 0;
+
+  function requireBytes(size, label) {
+    if (!Number.isSafeInteger(size) || size < 0 || offset + size > view.byteLength) {
+      throw new Error('RSW ' + label + ' 超出檔案長度。');
+    }
+  }
+  function readU8(label) {
+    requireBytes(1, label);
+    const value = view.getUint8(offset);
+    offset += 1;
+    return value;
+  }
+  function readI32(label) {
+    requireBytes(4, label);
+    const value = view.getInt32(offset, true);
+    offset += 4;
+    return value;
+  }
+  function readU32(label) {
+    requireBytes(4, label);
+    const value = view.getUint32(offset, true);
+    offset += 4;
+    return value;
+  }
+  function readF32(label) {
+    requireBytes(4, label);
+    const value = view.getFloat32(offset, true);
+    offset += 4;
+    if (!Number.isFinite(value)) throw new Error('RSW ' + label + ' 含無效數值。');
+    return value;
+  }
+  function readVec3(label) {
+    return [readF32(label), readF32(label), readF32(label)];
+  }
+  function readVec4(label) {
+    return [readF32(label), readF32(label), readF32(label), readF32(label)];
+  }
+  function readFixedString(size, label) {
+    requireBytes(size, label);
+    const value = readString(view, offset, size);
+    offset += size;
+    return value;
+  }
+  function skip(size, label) {
+    requireBytes(size, label);
+    offset += size;
+  }
+
+  requireBytes(6, 'header');
+  if (String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3)) !== 'GRSW') {
+    throw new Error('不是有效的 RSW 檔：找不到 GRSW 標頭。');
+  }
+  offset = 4;
+  const major = readU8('version');
+  const minor = readU8('version');
+  if (![1, 2].includes(major) || (major === 1 && minor < 3) || (major === 2 && minor > 7)) {
+    throw new Error('目前只支援 RSW 1.3–2.7；收到 ' + major + '.' + minor + '。');
+  }
+  const isV22 = compareVersion(major, minor, 2, 2);
+  const isV25 = compareVersion(major, minor, 2, 5);
+  const isV26 = compareVersion(major, minor, 2, 6);
+  const isV27 = compareVersion(major, minor, 2, 7);
+  let buildNumber = 0;
+  if (compareVersion(major, minor, 2, 2) && !isV25) {
+    buildNumber = readU8('build number');
+  } else if (isV25) {
+    buildNumber = readU32('build number');
+    readU8('render flag');
+  }
+
+  const iniFile = readFixedString(40, 'ini filename');
+  const gndFile = readFixedString(40, 'GND filename');
+  const gatFile = readFixedString(40, 'GAT filename');
+  const sourceFile = compareVersion(major, minor, 1, 4)
+    ? readFixedString(40, 'source filename') : '';
+
+  let water = null;
+  if (!isV26) {
+    water = {
+      level: compareVersion(major, minor, 1, 3) ? readF32('water level') : 0,
+      type: 0,
+      waveHeight: 0,
+      waveSpeed: 0,
+      wavePitch: 0,
+      textureCyclingInterval: 3,
+    };
+    if (compareVersion(major, minor, 1, 8)) {
+      water.type = readI32('water type');
+      water.waveHeight = readF32('water wave height');
+      water.waveSpeed = readF32('water wave speed');
+      water.wavePitch = readF32('water wave pitch');
+    }
+    if (compareVersion(major, minor, 1, 9)) {
+      water.textureCyclingInterval = readI32('water texture interval');
+    }
+  }
+
+  const light = {
+    longitude: 45,
+    latitude: 45,
+    diffuse: [1, 1, 1],
+    ambient: [0.3, 0.3, 0.3],
+    shadowMapAlpha: 1,
+  };
+  if (compareVersion(major, minor, 1, 5)) {
+    light.longitude = readI32('sun longitude');
+    light.latitude = readI32('sun latitude');
+    light.diffuse = readVec3('diffuse light');
+    light.ambient = readVec3('ambient light');
+  }
+  if (compareVersion(major, minor, 1, 7)) {
+    light.shadowMapAlpha = readF32('shadow map alpha');
+  }
+
+  let bounds = [0, 0, 0, 0];
+  if (compareVersion(major, minor, 1, 6)) {
+    bounds = [readI32('top bound'), readI32('bottom bound'), readI32('left bound'), readI32('right bound')];
+  }
+  if (isV27) {
+    const unknownCount = readI32('v2.7 auxiliary count');
+    if (unknownCount < 0 || unknownCount > 100000) throw new Error('RSW v2.7 auxiliary count 無效。');
+    skip(unknownCount * 4, 'v2.7 auxiliary table');
+  }
+
+  const models = [];
+  const lights = [];
+  const sounds = [];
+  const effects = [];
+  const objectCount = readI32('object count');
+  if (objectCount < 0 || objectCount > 100000) throw new Error('RSW 場景物件數量無效。');
+  const propMysteryByte = isV26 && buildNumber > 161;
+  for (let i = 0; i < objectCount; i++) {
+    const objectType = readI32('object ' + i + ' type');
+    if (objectType === 1) {
+      const name = compareVersion(major, minor, 1, 3) ? readFixedString(40, 'model name') : '';
+      const animationType = compareVersion(major, minor, 1, 3) ? readI32('model animation type') : 0;
+      const animationSpeed = compareVersion(major, minor, 1, 3) ? readF32('model animation speed') : 1;
+      const blockType = compareVersion(major, minor, 1, 3) ? readI32('model block type') : 0;
+      if (propMysteryByte) readU8('model compatibility byte');
+      if (isV27) readI32('model compatibility integer');
+      models.push({
+        name,
+        animationType,
+        animationSpeed,
+        blockType,
+        modelName: readFixedString(80, 'model resource'),
+        nodeName: readFixedString(80, 'model node'),
+        position: readVec3('model position'),
+        rotation: readVec3('model rotation'),
+        scale: readVec3('model scale'),
+      });
+    } else if (objectType === 2) {
+      lights.push({
+        name: readFixedString(80, 'point light name'),
+        position: readVec3('point light position'),
+        color: readVec3('point light color'),
+        range: readF32('point light range'),
+      });
+    } else if (objectType === 3) {
+      const sound = {
+        name: readFixedString(80, 'sound name'),
+        soundFile: readFixedString(80, 'sound file'),
+        position: readVec3('sound position'),
+        volume: readF32('sound volume'),
+        width: readI32('sound width'),
+        height: readI32('sound height'),
+        range: readF32('sound range'),
+        cycle: compareVersion(major, minor, 2, 0) ? readF32('sound cycle') : 4,
+      };
+      sounds.push(sound);
+    } else if (objectType === 4) {
+      effects.push({
+        name: readFixedString(80, 'effect name'),
+        position: readVec3('effect position'),
+        type: readI32('effect type'),
+        emitSpeed: readF32('effect speed'),
+        params: readVec4('effect parameters'),
+      });
+    } else {
+      throw new Error('RSW 場景物件類型 ' + objectType + ' 無效（項目 ' + i + '）。');
+    }
+  }
+
+  if (compareVersion(major, minor, 2, 1)) {
+    skip(1365 * 48, 'quadtree');
+  }
+  if (offset !== view.byteLength) {
+    throw new Error('RSW v' + major + '.' + minor + ' build ' + buildNumber
+      + ' 尚有 ' + (view.byteLength - offset) + ' bytes 未解析。');
+  }
+
+  return {
+    format: 'roo-rsw-v1',
+    version: major + '.' + minor,
+    buildNumber,
+    iniFile,
+    gndFile,
+    gatFile,
+    sourceFile,
+    water,
+    light,
+    bounds,
+    models,
+    lights,
+    sounds,
+    effects,
+  };
+}
+
 export function buildGndMeshData(gnd, worldScale = 0.2) {
   if (!gnd || !Array.isArray(gnd.cubes) || !Array.isArray(gnd.surfaces)) {
     throw new TypeError('必須提供已解析的 GND 地圖。');
