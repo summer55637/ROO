@@ -57,17 +57,23 @@ js/map_pathfinding.js 提供解碼器、格子判定、A* 八方向尋路、最�
 
 ## 真實地圖探索原型（2026-10-18）
 
-`tools/ro_explorer.html` 與 `tools/ro_explorer.mjs` 提供可操作的 3D 探索原型：選取同名 GLB／GAT 後，以 Three.js 顯示地圖，點地面轉成 GAT 格，交給現有 A* 尋路，角色沿可走格移動並避開障礙。角色位置以 map ID 分開保存在瀏覽器 LocalStorage；原遊戲存檔不受影響。遊戲的地圖分頁提供入口。
+`tools/ro_explorer.html` 現在預設提供「公開地圖（免下載）」模式，內嵌公開的 [latamvisuais 地圖模擬器](https://github.com/adsonpleal/latamvisuais)，因此不用玩家先準備 GLB／GAT。進入公開預覽後，按模擬器內的地圖探索按鈕（葡萄牙文含「Caminhe com seu personagem…」）載入預設訓練場 `tra_fild`。若嵌入被瀏覽器或來源網站政策阻擋，可按「另開公開地圖來源」在新分頁操作。
 
-使用方式：
-1. 由作者已獲授權的 RO 客戶端匯出單張地圖，例如 `ragx maps prontera --client \"C:/Gravity/Ragnarok\" --format glb --world-scale 0.2 --out ./tmp/roo-map`。
-2. 在遊戲地圖分頁按「開啟 3D 地圖探索」，選取 `tmp/roo-map/maps/prontera.glb` 與同名 `prontera.gat`。世界比例必須與 GLB 匯出比例一致。
-3. 點擊地面下達目的地；阻擋格不會被路徑穿越。勾選「顯示通行格」可檢視可走／阻擋／懸崖／水域。
+資料與素材線索：
+- [ragassets](https://github.com/adsonpleal/ragassets) 的公開資源主機提供地圖目錄、每張地圖的 manifest、原始 `.gat/.gnd/.rsw`、引用的模型和紋理。其 README 記錄目前資料集約 922 張地圖、跨地圖共用資源去重後約 5.8 GB。
+- [latamvisuais](https://github.com/adsonpleal/latamvisuais) 已示範在瀏覽器以 Three.js 渲染 RO 地圖及角色；但它的 GAT/GND/RSW/RSM 解析器有部分註明源自 roBrowser／roBrowserLegacy。ROO 未直接複製這些解析器，以避免把 GPL 程式碼混入本專案。
+- [ragx](https://github.com/joaopedrosgs/ragx) 是 MIT 授權的本機 GRF→GLB／glTF 轉換工具，並不附遊戲素材；仍保留在「本機 GLB/GAT」模式供後續自有素材整合。
+- 公開預覽依賴第三方網站與其資源主機，可能變更或離線；ROO 未將第三方遊戲素材二進位檔提交進倉庫。
 
-這是已能操作的獨立原型，仍不是正式戰鬥場景的替換：角色動畫、怪物與技能、遊戲內存檔共用、不同地圖切換及完整的 RO 地形渲染接線還需後續整合。素材從玩家的本機檔案讀取、不上傳，也沒有把 RO 二進位資產提交到倉庫。
+本機模式：
+1. 若已有素材，使用 `ragx maps prontera --client \"C:/Gravity/Ragnarok\" --format glb --world-scale 0.2 --out ./tmp/roo-map` 匯出。
+2. 切換「本機 GLB/GAT」，選取 `tmp/roo-map/maps/prontera.glb` 與同名 `prontera.gat`。
+3. 點擊地面由 A* 尋路、沿可走格移動；位置存在獨立的 LocalStorage key，不覆寫 ROO 正式角色存檔。
+
+目前公開模式是外部地圖檢視／探索入口，尚未跟 ROO 的角色屬性、戰鬥、技能或正式存檔共用；本機模式的地表高度、GAT 格線和點擊射線仍須用真實地圖驗證。下一個主要目標是做出相容授權的原生渲染與素材載入，不讓外部示範站成為正式遊戲的永久必要依賴。
 
 ## 尚未完成的下一階段
 
-1. 用一張真實地圖實際驗證相機、地表高度、GAT 格線和點擊射線的對齊。
-2. 把此探索原型的渲染／移動接進遊戲主要場景，沿用角色工作、地圖資料和 LocalStorage 存檔。
-3. 再把真正的 RO 角色動畫、怪物、主動技能與戰鬥判定接到可行走地圖上。
+1. 驗證公開來源在 ROO 頁面中的嵌入，並保留外部開啟的備援連結。
+2. 實測一張真實地圖的地表高度、GAT 格線和點擊射線；以 MIT 工具和公開格式文件實作相容渲染，避免混入 GPL 解析器。
+3. 將原生地圖渲染與尋路接入主要遊戲場景，再加入 RO 角色動畫、怪物、技能與戰鬥判定。
