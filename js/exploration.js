@@ -40,17 +40,19 @@ function normalizeRoExplorationPosition(x, y) {
   };
 }
 
-function moveRoExplorationPosition(x, y, dx, dy, distance) {
-  let vx = Math.max(-1, Math.min(1, Number(dx) || 0));
-  let vy = Math.max(-1, Math.min(1, Number(dy) || 0));
+function moveRoExplorationPosition(x, y, dx, dy, distance, aspectRatio) {
+  const vx = Number(dx) || 0;
+  const vy = Number(dy) || 0;
   const magnitude = Math.hypot(vx, vy);
-  if (magnitude > 1) {
-    vx /= magnitude;
-    vy /= magnitude;
-  }
   const step = Math.max(0, Number(distance) || 0);
+  const ratioValue = Number(aspectRatio);
+  const ratio = Number.isFinite(ratioValue) && ratioValue > 0 ? ratioValue : 1;
   const from = normalizeRoExplorationPosition(x, y);
-  return normalizeRoExplorationPosition(from.x + vx * step, from.y + vy * step);
+  if (!magnitude || !step) return from;
+  return normalizeRoExplorationPosition(
+    from.x + (vx / magnitude) * step,
+    from.y + (vy / magnitude) * step * ratio
+  );
 }
 
 function roExplorationDirectionForKey(key) {
@@ -61,6 +63,26 @@ function roExplorationGameIsActive() {
   if (typeof state === 'undefined' || !state) return false;
   const screen = document.getElementById('screen-game');
   return !!(screen && screen.classList.contains('active'));
+}
+
+function roExplorationAspectRatio() {
+  const scene = document.getElementById('battle-scene');
+  if (!scene || typeof scene.getBoundingClientRect !== 'function') return 1;
+  const rect = scene.getBoundingClientRect();
+  if (!rect.width || !rect.height) return 1;
+  const ratio = rect.width / rect.height;
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+}
+
+function setRoExplorationMoving(moving) {
+  const scene = document.getElementById('battle-scene');
+  if (scene) scene.classList.toggle('ro-exploration-moving', !!moving);
+}
+
+function updateRoExplorationFacing(dx) {
+  if (!dx) return;
+  const playerArea = document.getElementById('player-area');
+  if (playerArea) playerArea.dataset.facing = dx < 0 ? 'left' : 'right';
 }
 
 function roExplorationEditableTarget(target) {
@@ -113,7 +135,8 @@ function stepRoCharacter(direction) {
   const vector = RO_EXPLORATION_VECTORS[direction];
   if (!vector) return false;
   const pos = moveRoExplorationPosition(
-    state.explorationX, state.explorationY, vector[0], vector[1], 4
+    state.explorationX, state.explorationY, vector[0], vector[1], 4,
+    roExplorationAspectRatio()
   );
   setRoExplorationPosition(pos.x, pos.y);
   return true;
@@ -122,12 +145,14 @@ function stepRoCharacter(direction) {
 function roExplorationTick(timestamp) {
   roExplorationFrameId = null;
   if (!roExplorationGameIsActive()) {
+    setRoExplorationMoving(false);
     roExplorationLastFrame = 0;
     return;
   }
 
   const hasKeys = roExplorationHeldKeys.size > 0;
   if (!hasKeys && !roExplorationTarget) {
+    setRoExplorationMoving(false);
     roExplorationLastFrame = 0;
     return;
   }
@@ -138,6 +163,7 @@ function roExplorationTick(timestamp) {
     : 16;
   roExplorationLastFrame = now;
 
+  const aspectRatio = roExplorationAspectRatio();
   let dx = 0;
   let dy = 0;
   if (hasKeys) {
@@ -152,31 +178,34 @@ function roExplorationTick(timestamp) {
     });
   } else if (roExplorationTarget) {
     dx = roExplorationTarget.x - state.explorationX;
-    dy = roExplorationTarget.y - state.explorationY;
-    const magnitude = Math.hypot(dx, dy);
-    if (magnitude > 0) {
-      dx /= magnitude;
-      dy /= magnitude;
-    }
+    dy = (roExplorationTarget.y - state.explorationY) / aspectRatio;
   }
 
   const distance = elapsed * 0.022;
   const remaining = roExplorationTarget && !hasKeys
-    ? Math.hypot(roExplorationTarget.x - state.explorationX, roExplorationTarget.y - state.explorationY)
+    ? Math.hypot(
+      roExplorationTarget.x - state.explorationX,
+      (roExplorationTarget.y - state.explorationY) / aspectRatio
+    )
     : Math.hypot(dx, dy);
+
   if (!hasKeys && roExplorationTarget && remaining <= distance) {
     setRoExplorationPosition(roExplorationTarget.x, roExplorationTarget.y, false);
     roExplorationTarget = null;
     clearRoExplorationTargetMarker();
+    setRoExplorationMoving(false);
     scheduleRoExplorationSave();
     roExplorationLastFrame = 0;
     return;
   }
 
   const pos = moveRoExplorationPosition(
-    state.explorationX, state.explorationY, dx, dy, distance
+    state.explorationX, state.explorationY, dx, dy, distance, aspectRatio
   );
-  if (pos.x !== state.explorationX || pos.y !== state.explorationY) {
+  const changed = pos.x !== state.explorationX || pos.y !== state.explorationY;
+  setRoExplorationMoving(changed);
+  if (changed) {
+    updateRoExplorationFacing(dx);
     setRoExplorationPosition(pos.x, pos.y, false);
     scheduleRoExplorationSave();
   }
@@ -295,6 +324,7 @@ function stopRoExplorationMovement() {
   if (roExplorationFrameId !== null) cancelAnimationFrame(roExplorationFrameId);
   roExplorationFrameId = null;
   roExplorationLastFrame = 0;
+  setRoExplorationMoving(false);
   flushRoExplorationSave();
 }
 

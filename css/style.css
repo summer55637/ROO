@@ -2043,6 +2043,17 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg-deep); co
 .battle-scene.ro-exploration-active .player-area .ally-sprite {
   pointer-events: auto;
 }
+.battle-scene.ro-exploration-active .player-area[data-facing="left"] #player-img {
+  transform: scaleX(-1);
+  transform-origin: center bottom;
+}
+.battle-scene.ro-exploration-moving #player-img {
+  animation: roExplorationWalkBob 140ms ease-in-out infinite alternate;
+}
+@keyframes roExplorationWalkBob {
+  from { translate: 0 0; }
+  to { translate: 0 -3px; }
+}
 .exploration-hint {
   position: absolute;
   left: 12px;
@@ -2122,4 +2133,5 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg-deep); co
 }
 @media (prefers-reduced-motion: reduce) {
   .battle-scene.ro-exploration-active .player-area { transition: none; }
+  .battle-scene.ro-exploration-moving #player-img { animation: none; }
 }

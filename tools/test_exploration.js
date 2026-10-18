@@ -18,6 +18,14 @@ t.eq('水平移動不改變 Y', right.y, 50);
 const diagonal = g.moveRoExplorationPosition(18, 50, 1, -1, Math.sqrt(2));
 t.ok('斜向移動不會超出指定距離', Math.abs(Math.hypot(diagonal.x - 18, diagonal.y - 50) - Math.sqrt(2)) < 1e-9);
 
+const aimed = g.moveRoExplorationPosition(18, 50, 22, 20, 5);
+t.ok('大座標向量不會被截斷成錯誤方向', Math.abs((aimed.y - 50) / (aimed.x - 18) - 20 / 22) < 1e-9);
+const wideVertical = g.moveRoExplorationPosition(18, 50, 0, 1, 1, 2);
+t.eq('寬畫面垂直移動按比例補償座標', wideVertical.y, 52);
+const wideHorizontal = g.moveRoExplorationPosition(18, 50, 1, 0, 1, 2);
+t.eq('寬畫面水平移動不受座標校正影響', wideHorizontal.x, 19);
+const wideTarget = g.moveRoExplorationPosition(18, 50, 22, 20 / 2, 5, 2);
+t.ok('寬畫面點擊移動維持目的地方向', Math.abs((wideTarget.y - 50) / (wideTarget.x - 18) - 20 / 22) < 1e-9);
 
 const towards = g.moveRoExplorationPosition(18, 50, 40 - 18, 70 - 50, 5);
 t.ok('點地面目的地會按固定距離前進', Math.abs(Math.hypot(towards.x - 18, towards.y - 50) - 5) < 1e-9);
