@@ -348,12 +348,20 @@ export function parseGndBuffer(input) {
  * vertex offset -> scale -> rotation -> transformation matrix -> node position.
  * Returned 4x4 matrix values are row-major for THREE.Matrix4.set().
  */
+/**
+ * Prepare an RSM 1.x node's own TRS and its vertex-local transform.
+ * RSM1 applies T(translation1) * offsetMatrix to vertices, while the
+ * node hierarchy applies T(translation2) * rotation * scale.
+ */
 export function buildRsmNodeTransformData(node, worldScale = 0.2) {
   if (!node || !Array.isArray(node.offsetMatrix) || node.offsetMatrix.length !== 9) {
     throw new TypeError('必須提供含 3×3 offsetMatrix 的 RSM 節點。');
   }
   if (!Number.isFinite(worldScale) || worldScale <= 0 || worldScale > 10) {
     throw new Error('RSM 世界比例必須大於 0，且不可大於 10。');
+  }
+  if (!node.offsetMatrix.every(Number.isFinite)) {
+    throw new TypeError('RSM offsetMatrix 含無效數值。');
   }
 
   function vec3(value, label, fallback = null) {
@@ -365,38 +373,11 @@ export function buildRsmNodeTransformData(node, worldScale = 0.2) {
     return candidate;
   }
 
-  const matrix = node.offsetMatrix;
-  if (!matrix.every(Number.isFinite)) {
-    throw new TypeError('RSM offsetMatrix 含無效數值。');
-  }
   const positionSource = vec3(node.translation2, 'position');
-  const offsetSource = vec3(node.translation1, 'mesh offset', [0, 0, 0]);
   const scale = vec3(node.scale, 'scale', [1, 1, 1]);
-  function worldCoordinate(value, sign = 1) {
-    const coordinate = value * worldScale * sign;
-    return coordinate === 0 ? 0 : coordinate;
-  }
-  const position = [
-    worldCoordinate(positionSource[0]),
-    worldCoordinate(positionSource[1], -1),
-    worldCoordinate(positionSource[2], -1),
-  ];
-  const meshOffset = [
-    worldCoordinate(offsetSource[0]),
-    worldCoordinate(offsetSource[1], -1),
-    worldCoordinate(offsetSource[2], -1),
-  ];
-
-  // Convert the column-major source 3×3 to the mirrored Three.js axes.
-  const transformMatrix = [
-    matrix[0], -matrix[3], -matrix[6],
-    -matrix[1], matrix[4], matrix[7],
-    -matrix[2], matrix[5], matrix[8],
-  ];
-
-  let rotation = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   const hasRotationAnimation = Array.isArray(node.rotationKeyframes)
     && node.rotationKeyframes.length > 0;
+  let rotation = [0, 0, 0, 1];
   if (!hasRotationAnimation && node.rotationAngle !== null && node.rotationAngle !== undefined) {
     if (!Number.isFinite(node.rotationAngle)) {
       throw new TypeError('RSM rotationAngle 必須是有限數值。');
@@ -404,48 +385,64 @@ export function buildRsmNodeTransformData(node, worldScale = 0.2) {
     const axis = vec3(node.rotationAxis, 'rotationAxis');
     const axisLength = Math.hypot(axis[0], axis[1], axis[2]);
     if (axisLength > 1e-8) {
-      const [x, y, z] = [axis[0] / axisLength, -axis[1] / axisLength, -axis[2] / axisLength];
-      const cosine = Math.cos(node.rotationAngle);
-      const sine = Math.sin(node.rotationAngle);
-      const t = 1 - cosine;
+      const halfAngle = node.rotationAngle * 0.5;
+      const sine = Math.sin(halfAngle) / axisLength;
+      // RSM1's Y-down coordinates are reflected into the renderer axes.
       rotation = [
-        cosine + x * x * t, x * y * t - z * sine, x * z * t + y * sine,
-        y * x * t + z * sine, cosine + y * y * t, y * z * t - x * sine,
-        z * x * t - y * sine, z * y * t + x * sine, cosine + z * z * t,
+        axis[0] * sine,
+        -axis[1] * sine,
+        -axis[2] * sine,
+        Math.cos(halfAngle),
       ];
+      const length = Math.hypot(...rotation);
+      rotation = rotation.map(value => {
+        const normalized = value / length;
+        return normalized === 0 ? 0 : normalized;
+      });
     }
   }
 
-  const scaleMatrix = [
-    scale[0], 0, 0,
-    0, scale[1], 0,
-    0, 0, scale[2],
-  ];
-  function multiply3(left, right) {
-    const result = new Array(9).fill(0);
-    for (let row = 0; row < 3; row++) {
-      for (let column = 0; column < 3; column++) {
-        for (let index = 0; index < 3; index++) {
-          result[row * 3 + column] += left[row * 3 + index] * right[index * 3 + column];
-        }
-      }
-    }
-    return result;
+  function worldCoordinate(value, sign = 1) {
+    const coordinate = value * worldScale * sign;
+    return coordinate === 0 ? 0 : coordinate;
   }
-
-  // Column-vector order: M * R * S. The vertex offset is on the mesh group
-  // so it is transformed by M/R/S but does not move child-node origins.
-  const local = multiply3(transformMatrix, multiply3(rotation, scaleMatrix));
   return {
-    position,
-    meshOffset,
-    matrix: [
-      local[0], local[1], local[2], 0,
-      local[3], local[4], local[5], 0,
-      local[6], local[7], local[8], 0,
-      0, 0, 0, 1,
+    position: [
+      worldCoordinate(positionSource[0]),
+      worldCoordinate(positionSource[1], -1),
+      worldCoordinate(positionSource[2], -1),
     ],
+    rotation,
+    scale: [...scale],
   };
+}
+
+/** Apply the RSM1 vertex offset and stored column-major 3×3 matrix. */
+export function transformRsmVertex(node, vertex, worldScale = 0.2) {
+  if (!node || !Array.isArray(node.offsetMatrix) || node.offsetMatrix.length !== 9
+    || !node.offsetMatrix.every(Number.isFinite)) {
+    throw new TypeError('必須提供有效的 RSM offsetMatrix。');
+  }
+  if (!Array.isArray(vertex) || vertex.length !== 3 || !vertex.every(Number.isFinite)) {
+    throw new TypeError('RSM 頂點必須是三個有限數值。');
+  }
+  if (!Number.isFinite(worldScale) || worldScale <= 0 || worldScale > 10) {
+    throw new Error('RSM 世界比例必須大於 0，且不可大於 10。');
+  }
+  const offset = node.translation1 === null || node.translation1 === undefined
+    ? [0, 0, 0] : node.translation1;
+  if (!Array.isArray(offset) || offset.length !== 3 || !offset.every(Number.isFinite)) {
+    throw new TypeError('RSM translation1 必須是三個有限數值。');
+  }
+  const matrix = node.offsetMatrix;
+  const x = matrix[0] * vertex[0] + matrix[3] * vertex[1] + matrix[6] * vertex[2] + offset[0];
+  const y = matrix[1] * vertex[0] + matrix[4] * vertex[1] + matrix[7] * vertex[2] + offset[1];
+  const z = matrix[2] * vertex[0] + matrix[5] * vertex[1] + matrix[8] * vertex[2] + offset[2];
+  return [
+    x * worldScale,
+    y === 0 ? 0 : -y * worldScale,
+    z === 0 ? 0 : -z * worldScale,
+  ];
 }
 
 export function parseRsmBuffer(input) {

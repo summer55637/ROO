@@ -132,6 +132,7 @@ js/map_pathfinding.js 提供解碼器、格子判定、A* 八方向尋路、最�
 
 ## RSM 1.x 節點轉換校正（2026-10-18）
 
-- 原生 renderer 將節點轉換拆成位置、`offsetMatrix × rotation × scale`，並把 translation/offset 只套在該節點網格；子節點繼承父節點的矩陣，但不會被父網格的 offset 額外平移。
-- 加入純函式 `buildRsmNodeTransformData()`，集中處理 RO／Three.js 座標軸轉換，並以合成矩陣測試驗證旋轉、縮放、offsetMatrix 乘法順序及無效數值防護。
+- 參照 [ragx 的 RSM1 轉換說明與實作](https://github.com/joaopedrosgs/ragx/blob/main/ragx/model_builder.py) 及 [RSM 格式研究](https://github.com/rdw-archive/RagnarokFileFormats/blob/master/RSM.MD)：網格頂點先套用 `T(translation1) × offsetMatrix`；節點層級再套用 `T(translation2) × rotation × scale)。矩陣資料按 RSM 的 column-major 順序解讀。
+- 原生 renderer 將頂點區域轉換與節點層級 TRS 分開處理；子節點繼承父節點 TRS，不再把父網格的 translation1 當子節點位移。
+- 單元測試使用非對稱 offsetMatrix 與非零 translation1，檢查頂點轉換、座標軸鏡射、旋轉與縮放，避免 identity matrix 測試掩蓋轉置錯誤。
 - 此階段仍不播放 RSM 旋轉／縮放／平移動畫，RSM2 幾何也不會實例化；渲染正確性仍須用真實瀏覽器畫面逐圖驗收。
