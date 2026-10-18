@@ -90,8 +90,11 @@ function findRoPath(map, start, target) {
   const targetId = target.y * map.width + target.x;
   if (startId === targetId) return [{ x: start.x, y: start.y }];
 
-  const scores = new Array(total).fill(Infinity);
-  const parents = new Array(total).fill(-1);
+  // 16,000,000 格上限下，最長路徑成本遠低於 Uint32 上限。
+  const scores = new Uint32Array(total);
+  scores.fill(0xffffffff);
+  const parents = new Int32Array(total);
+  parents.fill(-1);
   const closed = new Uint8Array(total);
   const heap = [];
   const heuristic = (x, y) => {
