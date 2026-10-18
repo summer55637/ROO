@@ -215,6 +215,260 @@ export function parseGndBuffer(input) {
   };
 }
 
+export function parseRsmBuffer(input) {
+  const view = asView(input);
+  let offset = 0;
+  function requireBytes(size, label) {
+    if (!Number.isSafeInteger(size) || size < 0 || offset + size > view.byteLength) {
+      throw new Error('RSM ' + label + ' 超出檔案長度。');
+    }
+  }
+  function u8(label) {
+    requireBytes(1, label);
+    return view.getUint8(offset++);
+  }
+  function u16(label) {
+    requireBytes(2, label);
+    const value = view.getUint16(offset, true);
+    offset += 2;
+    return value;
+  }
+  function i32(label) {
+    requireBytes(4, label);
+    const value = view.getInt32(offset, true);
+    offset += 4;
+    return value;
+  }
+  function u32(label) {
+    requireBytes(4, label);
+    const value = view.getUint32(offset, true);
+    offset += 4;
+    return value;
+  }
+  function f32(label) {
+    requireBytes(4, label);
+    const value = view.getFloat32(offset, true);
+    offset += 4;
+    if (!Number.isFinite(value)) throw new Error('RSM ' + label + ' 含無效數值。');
+    return value;
+  }
+  function vec2(label) {
+    return [f32(label), f32(label)];
+  }
+  function vec3(label) {
+    return [f32(label), f32(label), f32(label)];
+  }
+  function vec4(label) {
+    return [f32(label), f32(label), f32(label), f32(label)];
+  }
+  function skip(size, label) {
+    requireBytes(size, label);
+    offset += size;
+  }
+  function modelString(label, fixedLength = 40) {
+    let size = fixedLength;
+    if (isV22) {
+      size = u32(label + ' length');
+      if (size > 4096) throw new Error('RSM ' + label + ' 字串長度無效。');
+    }
+    requireBytes(size, label);
+    const value = readString(view, offset, size);
+    offset += size;
+    return value;
+  }
+  function readCount(label, max = 1000000) {
+    const count = u32(label + ' count');
+    if (count > max) throw new Error('RSM ' + label + ' 數量超過安全上限。');
+    return count;
+  }
+
+  requireBytes(6, 'header');
+  if (String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3)) !== 'GRSM') {
+    throw new Error('不是有效的 RSM 檔：找不到 GRSM 標頭。');
+  }
+  offset = 4;
+  const major = u8('version');
+  const minor = u8('version');
+  if (!(major === 1 && minor >= 4 && minor <= 9)
+    && !(major === 2 && (minor === 2 || minor === 3))) {
+    throw new Error('目前支援 RSM 1.4–1.9 與 RSM2 2.2–2.3；收到 ' + major + '.' + minor + '。');
+  }
+  const isV22 = compareVersion(major, minor, 2, 2);
+  const isV23 = compareVersion(major, minor, 2, 3);
+  const animationLength = readCount('animation length', 10000000);
+  const shadeType = u32('shade type');
+  const alpha = compareVersion(major, minor, 1, 4) ? u8('alpha') : 255;
+  const framesPerSecond = isV22 ? f32('frames per second') : 60;
+  if (!isV22) skip(16, 'reserved header');
+
+  const textures = [];
+  if (!isV23) {
+    const count = readCount('textures', 4096);
+    for (let i = 0; i < count; i++) textures.push(modelString('texture name'));
+  }
+
+  const rootNodeNames = [];
+  if (!isV22) {
+    rootNodeNames.push(modelString('root node'));
+  } else {
+    const count = readCount('root nodes', 10000);
+    for (let i = 0; i < count; i++) rootNodeNames.push(modelString('root node'));
+  }
+
+  const nodeCount = readCount('nodes', 20000);
+  const nodes = [];
+  let totalVertices = 0;
+  let totalFaces = 0;
+  for (let nodeIndex = 0; nodeIndex < nodeCount; nodeIndex++) {
+    const name = modelString('node ' + nodeIndex + ' name');
+    const parentName = modelString('node ' + nodeIndex + ' parent');
+    const textureIndices = [];
+    const textureNames = [];
+    if (!isV23) {
+      const count = readCount('node textures', 4096);
+      for (let i = 0; i < count; i++) textureIndices.push(u32('node texture index'));
+    } else {
+      const count = readCount('node texture names', 4096);
+      for (let i = 0; i < count; i++) textureNames.push(modelString('node texture name'));
+    }
+
+    const offsetMatrix = [];
+    for (let i = 0; i < 9; i++) offsetMatrix.push(f32('node offset matrix'));
+    let translation1 = null;
+    let rotationAngle = null;
+    let rotationAxis = null;
+    let scale = null;
+    if (!isV22) translation1 = vec3('node translation 1');
+    const translation2 = vec3('node translation 2');
+    if (!isV22) {
+      rotationAngle = f32('node rotation angle');
+      rotationAxis = vec3('node rotation axis');
+      scale = vec3('node scale');
+    }
+
+    const vertexCount = readCount('vertices');
+    totalVertices += vertexCount;
+    if (totalVertices > 2000000) throw new Error('RSM 頂點總數超過安全上限。');
+    const vertices = [];
+    for (let i = 0; i < vertexCount; i++) vertices.push(vec3('vertex'));
+
+    const uvCount = readCount('UVs');
+    const uvs = [];
+    const uvColors = [];
+    for (let i = 0; i < uvCount; i++) {
+      uvColors.push(compareVersion(major, minor, 1, 2) ? u32('UV color') : 0xffffffff);
+      uvs.push(vec2('UV'));
+    }
+
+    const faceCount = readCount('faces');
+    totalFaces += faceCount;
+    if (totalFaces > 2000000) throw new Error('RSM 面總數超過安全上限。');
+    const faces = [];
+    for (let i = 0; i < faceCount; i++) {
+      const faceLength = isV22 ? u32('face record length') : 24;
+      if (faceLength < 24 || (faceLength - 24) % 4 !== 0) {
+        throw new Error('RSM face 記錄長度無效。');
+      }
+      requireBytes(faceLength, 'face');
+      const vertexIndices = [u16('face vertex'), u16('face vertex'), u16('face vertex')];
+      const uvIndices = [u16('face UV'), u16('face UV'), u16('face UV')];
+      const textureIndex = u16('face texture');
+      u16('face padding');
+      const twoSided = i32('face two-sided flag');
+      const smoothGroup = [i32('face smoothing group')];
+      for (let extra = 24; extra < faceLength; extra += 4) smoothGroup.push(i32('face extra smoothing group'));
+      if (vertexIndices.some(index => index >= vertexCount)
+        || uvIndices.some(index => index >= uvCount)) {
+        throw new Error('RSM face 索引超出頂點／UV 範圍。');
+      }
+      faces.push({ vertexIndices, uvIndices, textureIndex, twoSided, smoothGroup });
+    }
+
+    const scaleKeyframes = [];
+    if (compareVersion(major, minor, 1, 6)) {
+      const count = readCount('scale keyframes');
+      for (let i = 0; i < count; i++) {
+        const frame = i32('scale keyframe');
+        const value = vec3('scale keyframe value');
+        f32('scale keyframe reserved');
+        scaleKeyframes.push({ frame, value });
+      }
+    }
+    const rotationKeyframes = [];
+    const rotationCount = readCount('rotation keyframes');
+    for (let i = 0; i < rotationCount; i++) {
+      rotationKeyframes.push({ frame: i32('rotation keyframe'), value: vec4('rotation keyframe value') });
+    }
+    const translationKeyframes = [];
+    if (isV22) {
+      const count = readCount('translation keyframes');
+      for (let i = 0; i < count; i++) {
+        const frame = i32('translation keyframe');
+        const value = vec3('translation keyframe value');
+        f32('translation keyframe reserved');
+        translationKeyframes.push({ frame, value });
+      }
+    }
+    const textureAnimations = [];
+    if (isV23) {
+      const count = readCount('texture animations', 4096);
+      for (let i = 0; i < count; i++) {
+        const textureIndex = u32('texture animation index');
+        const channelCount = readCount('texture animation channels', 64);
+        const channels = [];
+        for (let channel = 0; channel < channelCount; channel++) {
+          const operation = u32('texture animation operation');
+          const frameCount = readCount('texture animation frames', 100000);
+          const frames = [];
+          for (let frame = 0; frame < frameCount; frame++) {
+            frames.push({ frame: i32('texture animation frame'), value: f32('texture animation value') });
+          }
+          channels.push({ operation, frames });
+        }
+        textureAnimations.push({ textureIndex, channels });
+      }
+    }
+
+    nodes.push({
+      name,
+      parentName,
+      textureIndices,
+      textureNames,
+      offsetMatrix,
+      translation1,
+      translation2,
+      rotationAngle,
+      rotationAxis,
+      scale,
+      vertices,
+      uvs,
+      uvColors,
+      faces,
+      scaleKeyframes,
+      rotationKeyframes,
+      translationKeyframes,
+      textureAnimations,
+    });
+  }
+
+  const nodeNames = new Set(nodes.map(node => node.name));
+  const validRoots = rootNodeNames.filter(name => nodeNames.has(name));
+  if (!validRoots.length && nodes.length) validRoots.push(nodes[0].name);
+  return {
+    format: 'roo-rsm-v1',
+    version: major + '.' + minor,
+    major,
+    minor,
+    animationLength,
+    shadeType,
+    alpha,
+    framesPerSecond,
+    textures,
+    rootNodeNames: validRoots,
+    nodes,
+  };
+}
+
 function compareVersion(major, minor, targetMajor, targetMinor) {
   return major > targetMajor || (major === targetMajor && minor >= targetMinor);
 }
