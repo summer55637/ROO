@@ -789,6 +789,81 @@ export function sampleRsmAnimationPose(track, time, major, worldScale = 0.2) {
   return pose;
 }
 
+function sampleRsmTextureChannelValue(frames, frame, durationTicks) {
+  const keys = (Array.isArray(frames) ? frames : [])
+    .filter(key => key && Number.isFinite(key.frame) && Number.isFinite(key.value))
+    .map(key => ({ frame: key.frame, value: key.value }))
+    .sort((a, b) => a.frame - b.frame);
+  if (!keys.length) return 0;
+
+  let fromFrame = 0;
+  let fromValue = 0;
+  let toFrame = durationTicks;
+  let toValue = keys[keys.length - 1].value;
+  for (const key of keys) {
+    if (key.frame <= frame) {
+      fromFrame = key.frame;
+      fromValue = key.value;
+    } else {
+      toFrame = key.frame;
+      toValue = key.value;
+      break;
+    }
+  }
+
+  if (frame < keys[0].frame) {
+    fromFrame = 0;
+    fromValue = 0;
+    toFrame = keys[0].frame;
+    toValue = keys[0].value;
+  } else if (frame >= keys[keys.length - 1].frame) {
+    fromFrame = keys[keys.length - 1].frame;
+    fromValue = keys[keys.length - 1].value;
+    toFrame = durationTicks;
+    toValue = fromValue;
+  }
+
+  if (toFrame <= fromFrame) return fromValue;
+  const alpha = Math.max(0, Math.min(1, (frame - fromFrame) / (toFrame - fromFrame)));
+  return fromValue + (toValue - fromValue) * alpha;
+}
+
+export function sampleRsmTextureAnimation(channels, time, durationTicks) {
+  if (!Number.isFinite(time)) throw new Error('RSM 貼圖動畫時間必須是有限數值。');
+  if (!Number.isFinite(durationTicks) || durationTicks <= 0) {
+    throw new Error('RSM 貼圖動畫長度必須大於 0。');
+  }
+  const frame = ((time % durationTicks) + durationTicks) % durationTicks;
+  const transform = { offset: [0, 0], scale: [1, 1], rotation: 0 };
+  if (!Array.isArray(channels)) return transform;
+
+  for (const channel of channels) {
+    if (!channel || !Number.isInteger(channel.operation)
+      || channel.operation < 0 || channel.operation > 4) continue;
+    const value = sampleRsmTextureChannelValue(channel.frames, frame, durationTicks);
+    switch (channel.operation) {
+      case 0:
+        transform.offset[0] = value;
+        break;
+      case 1:
+        transform.offset[1] = value;
+        break;
+      case 2:
+        transform.scale[0] = value;
+        break;
+      case 3:
+        transform.scale[1] = value;
+        break;
+      case 4:
+        transform.rotation = value;
+        break;
+      default:
+        break;
+    }
+  }
+  return transform;
+}
+
 export function parseRsmBuffer(input) {
   const view = asView(input);
   let offset = 0;
