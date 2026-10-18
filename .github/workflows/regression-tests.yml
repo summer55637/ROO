@@ -1,0 +1,34 @@
+name: Regression tests
+
+on:
+  push:
+    branches:
+      - main
+      - feature/exploration-movement-controls
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check changed JavaScript syntax
+        run: |
+          node --check js/map_pathfinding.js
+          node --check tools/convert_gat.js
+          node --check tools/test_map_pathfinding.js
+      - name: Test GAT conversion and pathfinding
+        run: node tools/test_map_pathfinding.js
+      - name: Run complete regression suite
+        run: node tools/test.js
