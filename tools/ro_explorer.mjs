@@ -783,8 +783,13 @@ async function loadRagassetsMap(mapName) {
       });
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = 'terrain-texture-' + bucket.textureIndex;
+      mesh.userData.rooTerrainSurface = true;
       nextRoot.add(mesh);
     }
+
+    setStatus('地表已建立，正在載入 RSW 模型資源…');
+    modelTextureCache.clear();
+    const nextRenderStats = await loadAndPlaceRswModels(parsedRsw, urls, nextRoot, worldScale);
 
     const bounds = new THREE.Box3().setFromObject(nextRoot);
     if (bounds.isEmpty()) throw new Error('GND 沒有可顯示的地表；無法建立原生地圖。');
@@ -799,15 +804,18 @@ async function loadRagassetsMap(mapName) {
     mapInfo = {
       name: mapId + '（公開 GND/RSW）',
       mapId,
+      native: true,
       size: mapBounds.getSize(new THREE.Vector3()),
     };
     gatInfo = parsedGat;
     rswInfo = parsedRsw;
+    nativeRenderStats = nextRenderStats;
     applyRswLighting(parsedRsw, mapInfo.size);
     fitCamera();
     finishOrRefreshScene();
-    setStatus('原生 GND/GAT/RSW 已載入：已套用場景燈光並讀取 ' + parsedRsw.models.length
-      + ' 個模型位置。RSM 模型、lightmap 合成與水面仍待實作。');
+    setStatus('原生地圖已載入：地表＋RSM 模型 ' + nextRenderStats.renderedPlacements
+      + ' 個／' + parsedRsw.models.length + ' 個擺放位置；解析模型資源 '
+      + nextRenderStats.loadedAssets + ' 個。動畫、lightmap 與水面仍待實作。');
     updateStats();
   } catch (error) {
     setStatus('公開原生地圖載入失敗：' + error.message
@@ -832,8 +840,9 @@ async function loadMapFile(file) {
     if (mapBounds.isEmpty()) throw new Error('GLB 沒有可顯示的模型。');
 
     const size = mapBounds.getSize(new THREE.Vector3());
-    mapInfo = { name: file.name, mapId: mapIdFromName(file.name), size };
+    mapInfo = { name: file.name, mapId: mapIdFromName(file.name), size, native: false };
     rswInfo = null;
+    nativeRenderStats = null;
     resetRswLighting();
     fitCamera();
     finishOrRefreshScene();
@@ -878,6 +887,7 @@ function groundHitFromEvent(event) {
   raycaster.setFromCamera(pointer, camera);
   const hits = raycaster.intersectObject(mapRoot, true);
   for (const hit of hits) {
+    if (mapInfo.native && !hit.object.userData.rooTerrainSurface) continue;
     if (!hit.face) continue;
     normalMatrix.getNormalMatrix(hit.object.matrixWorld);
     const normal = hit.face.normal.clone().applyMatrix3(normalMatrix).normalize();
