@@ -100,32 +100,141 @@ export function parseGndBuffer(input) {
     offset += textureNameLength;
   }
 
-  const lightmapCount = view.getInt32(offset, true); offset += 4;
-  const lightmapWidth = view.getInt32(offset, true); offset += 4;
-  const lightmapHeight = view.getInt32(offset, true); offset += 4;
-  const cellsPerGrid = view.getInt32(offset, true); offset += 4;
-  if (lightmapCount < 0 || lightmapCount > 1000000
-    || lightmapWidth < 0 || lightmapHeight < 0
-    || lightmapWidth > 128 || lightmapHeight > 128 || cellsPerGrid < 0) {
-    throw new Error('GND lightmap 區段標頭無效。');
-  }
-  const lightmapBytes = lightmapCount * lightmapWidth * lightmapHeight * 4;
-  if (!Number.isSafeInteger(lightmapBytes) || offset + lightmapBytes + 4 > length) {
-    throw new Error('GND lightmap 區段超出檔案長度。');
-  }
-  offset += lightmapBytes;
+  const lightmapHeaderOffset = offset;
+  let lightmapCount;
+  let lightmapWidth;
+  let lightmapHeight;
+  let cellsPerGrid;
+  let lightmapSlices = [];
+  let lightmapLayout;
+  let legacyLightmapPixels = null;
+  let surfaceCount;
+  let surfaceStride;
+  let surfaceLayout;
+  let surfaceStart;
+  let cubeOffset;
+  let tailOffset;
 
-  const surfaceCount = view.getInt32(offset, true);
-  offset += 4;
-  if (surfaceCount < 0 || surfaceCount > 1000000) {
-    throw new Error('GND surface 數量無效。');
+  function candidateFits(surfaceAt, stride) {
+    if (surfaceAt + 4 > length) return null;
+    const count = view.getInt32(surfaceAt, true);
+    if (count < 0 || count > 1000000) return null;
+    const start = surfaceAt + 4;
+    const cubesAt = start + count * stride;
+    const tailAt = cubesAt + cubeCount * 28;
+    if (!Number.isSafeInteger(cubesAt) || tailAt > length
+      || !validWaterTail(view, tailAt, [major, minor])) return null;
+    return { count, start, cubesAt, tailAt };
   }
 
-  const surfaceStride = 40;
-  const cubeOffset = offset + surfaceCount * surfaceStride;
-  const tailOffset = cubeOffset + cubeCount * 28;
-  if (tailOffset > length || !validWaterTail(view, tailOffset, [major, minor])) {
-    throw new Error('GND surface／cube 區段長度不符；預期 40-byte surface 記錄。');
+  // Standard GND 1.7+ stores independent 8x8 AO/RGB slices and 56-byte surfaces.
+  let standardCandidate = null;
+  const standardCount = view.getInt32(lightmapHeaderOffset, true);
+  if (standardCount >= 0 && standardCount <= 16384) {
+    const standardSlicesStart = lightmapHeaderOffset + 4;
+    const standardSurfaceCountAt = standardSlicesStart + standardCount * 268;
+    if (standardSurfaceCountAt + 4 <= length) {
+      const candidate = candidateFits(standardSurfaceCountAt, 56);
+      let validSlices = !!candidate;
+      for (let i = 0; validSlices && i < standardCount; i++) {
+        const at = standardSlicesStart + i * 268;
+        validSlices = view.getInt32(at, true) === 1
+          && view.getInt32(at + 4, true) === 8
+          && view.getInt32(at + 8, true) === 8;
+      }
+      if (validSlices) {
+        standardCandidate = {
+          lightmapCount: standardCount,
+          sliceStart: standardSlicesStart,
+          surfaceCountAt: standardSurfaceCountAt,
+          ...candidate,
+        };
+      }
+    }
+  }
+
+  // Keep support for the global-dimension/40-byte surface variant already used
+  // by the public test corpus; only select it when its complete file layout fits.
+  let legacyCandidate = null;
+  if (lightmapHeaderOffset + 16 <= length) {
+    const count = view.getInt32(lightmapHeaderOffset, true);
+    const lmWidth = view.getInt32(lightmapHeaderOffset + 4, true);
+    const lmHeight = view.getInt32(lightmapHeaderOffset + 8, true);
+    const cells = view.getInt32(lightmapHeaderOffset + 12, true);
+    const bytes = count * lmWidth * lmHeight * 4;
+    const surfaceCountAt = lightmapHeaderOffset + 16 + bytes;
+    if (count >= 0 && count <= 16384 && lmWidth >= 0 && lmHeight >= 0
+      && lmWidth <= 128 && lmHeight <= 128 && cells >= 0
+      && Number.isSafeInteger(bytes) && surfaceCountAt + 4 <= length) {
+      const candidate = candidateFits(surfaceCountAt, 40);
+      if (candidate) {
+        legacyCandidate = {
+          lightmapCount: count,
+          lightmapWidth: lmWidth,
+          lightmapHeight: lmHeight,
+          cellsPerGrid: cells,
+          bytes,
+          surfaceCountAt,
+          sliceStart: lightmapHeaderOffset + 16,
+          ...candidate,
+        };
+      }
+    }
+  }
+
+  if (standardCandidate) {
+    lightmapCount = standardCandidate.lightmapCount;
+    lightmapWidth = 8;
+    lightmapHeight = 8;
+    cellsPerGrid = 0;
+    lightmapLayout = 'standard-split';
+    surfaceCount = standardCandidate.count;
+    surfaceStride = 56;
+    surfaceLayout = 'standard';
+    surfaceStart = standardCandidate.start;
+    cubeOffset = standardCandidate.cubesAt;
+    tailOffset = standardCandidate.tailAt;
+    offset = surfaceStart;
+    for (let i = 0; i < lightmapCount; i++) {
+      const at = standardCandidate.sliceStart + i * 268;
+      lightmapSlices.push({
+        width: 8,
+        height: 8,
+        shadowPixels: new Uint8Array(view.buffer, view.byteOffset + at + 12, 64).slice(),
+        colorPixels: new Uint8Array(view.buffer, view.byteOffset + at + 76, 192).slice(),
+        channels: 3,
+      });
+    }
+  } else if (legacyCandidate) {
+    lightmapCount = legacyCandidate.lightmapCount;
+    lightmapWidth = legacyCandidate.lightmapWidth;
+    lightmapHeight = legacyCandidate.lightmapHeight;
+    cellsPerGrid = legacyCandidate.cellsPerGrid;
+    lightmapLayout = 'legacy-rgba';
+    surfaceCount = legacyCandidate.count;
+    surfaceStride = 40;
+    surfaceLayout = 'legacy';
+    surfaceStart = legacyCandidate.start;
+    cubeOffset = legacyCandidate.cubesAt;
+    tailOffset = legacyCandidate.tailAt;
+    offset = surfaceStart;
+    legacyLightmapPixels = new Uint8Array(
+      view.buffer,
+      view.byteOffset + legacyCandidate.sliceStart,
+      legacyCandidate.bytes
+    ).slice();
+    const pixelsPerSlice = lightmapWidth * lightmapHeight * 4;
+    for (let i = 0; i < lightmapCount; i++) {
+      lightmapSlices.push({
+        width: lightmapWidth,
+        height: lightmapHeight,
+        colorPixels: legacyLightmapPixels.slice(i * pixelsPerSlice, (i + 1) * pixelsPerSlice),
+        shadowPixels: null,
+        channels: 4,
+      });
+    }
+  } else {
+    throw new Error('GND lightmap／surface 版面無法驗證（標準 56-byte 或舊式 40-byte）。');
   }
 
   const cubes = [];
@@ -157,15 +266,30 @@ export function parseGndBuffer(input) {
     const uv = [];
     for (let j = 0; j < 4; j++) uv.push(view.getFloat32(at + j * 4, true));
     for (let j = 0; j < 4; j++) uv.push(view.getFloat32(at + 16 + j * 4, true));
-    const textureIndex = view.getInt16(at + 32, true);
-    const lightmapIndex = view.getInt16(at + 34, true);
-    const c = at + 36;
-    const color = [
-      view.getUint8(c + 2) / 255,
-      view.getUint8(c + 1) / 255,
-      view.getUint8(c) / 255,
-      view.getUint8(c + 3) / 255,
-    ];
+    const textureIndex = surfaceLayout === 'standard'
+      ? view.getInt32(at + 32, true) : view.getInt16(at + 32, true);
+    const lightmapIndex = surfaceLayout === 'standard'
+      ? view.getInt32(at + 36, true) : view.getInt16(at + 34, true);
+    const colors = [];
+    if (surfaceLayout === 'standard') {
+      for (let corner = 0; corner < 4; corner++) {
+        const c = at + 40 + corner * 4;
+        colors.push([
+          view.getUint8(c + 2) / 255,
+          view.getUint8(c + 1) / 255,
+          view.getUint8(c) / 255,
+          view.getUint8(c + 3) / 255,
+        ]);
+      }
+    } else {
+      const c = at + 36;
+      colors.push([
+        view.getUint8(c + 2) / 255,
+        view.getUint8(c + 1) / 255,
+        view.getUint8(c) / 255,
+        view.getUint8(c + 3) / 255,
+      ]);
+    }
     if (!uv.every(Number.isFinite)
       || textureIndex < -1 || textureIndex >= textureCount
       || lightmapIndex < -1 || lightmapIndex >= lightmapCount && lightmapCount > 0) {
@@ -178,7 +302,8 @@ export function parseGndBuffer(input) {
       ],
       textureIndex,
       lightmapIndex,
-      color,
+      color: colors[0],
+      colors: surfaceLayout === 'standard' ? colors : null,
     });
   }
 
@@ -208,6 +333,9 @@ export function parseGndBuffer(input) {
     lightmapWidth,
     lightmapHeight,
     cellsPerGrid,
+    lightmapLayout,
+    lightmapSlices,
+    lightmapPixels: legacyLightmapPixels,
     surfaceRecordBytes: surfaceStride,
     surfaces,
     cubes,
