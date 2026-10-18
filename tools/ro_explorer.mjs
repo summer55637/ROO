@@ -765,8 +765,9 @@ requestAnimationFrame(animate);
 const params = new URLSearchParams(window.location.search);
 const requestedMap = params.get('map');
 if (requestedMap) {
-  const optionExists = Array.from(nativeMapInput.options).some(option => option.value === requestedMap);
-  if (optionExists) nativeMapInput.value = requestedMap;
+  if (/^[a-z0-9_@-]{1,64}$/i.test(requestedMap)) {
+    nativeMapInput.value = requestedMap.toLowerCase();
+  }
   setStatus('目標地圖：' + requestedMap + '。可選「原生地圖」直接載入公開 GND/GAT，或使用本機 GLB/GAT。');
 }
 loadNativeMapButton.addEventListener('click', () => loadRagassetsMap(nativeMapInput.value));
