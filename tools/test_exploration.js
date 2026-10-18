@@ -8,8 +8,8 @@ t.eq('新角色從預設位置開始', g.state.exploreOffset.x, 0);
 t.eq('新角色預設垂直偏移為零', g.state.exploreOffset.y, 0);
 
 g.state.exploreOffset = g.normalizeExploreOffset({ x: 9, y: -9 });
-t.eq('水平偏移限制在場景內', g.state.exploreOffset.x, g.EXPLORE_OFFSET_LIMITS.maxX);
-t.eq('垂直偏移限制在場景內', g.state.exploreOffset.y, g.EXPLORE_OFFSET_LIMITS.minY);
+t.eq('水平偏移限制在場景內', g.state.exploreOffset.x, 0.48);
+t.eq('垂直偏移限制在場景內', g.state.exploreOffset.y, -0.25);
 
 const field = g.MAPS.find(m => m.monsters && m.monsters.length > 0);
 t.ok('有可測試的戰鬥地圖', !!field);
