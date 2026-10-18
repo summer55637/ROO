@@ -16,6 +16,7 @@
     label { display: flex; align-items: center; gap: 7px; font-size: 12px; }
     input[type="file"] { width: 170px; max-width: 32vw; font-size: 12px; }
     input[type="number"] { width: 72px; }
+    input[type="text"], select { min-width: 130px; max-width: 42vw; padding: 6px; background: #0b1421; color: #e4edf8; border: 1px solid #405773; border-radius: 6px; }
     input[type="range"] { width: 90px; }
     input[type="checkbox"] { accent-color: #48d597; }
     button, .link-button { display: inline-block; border: 1px solid #526985; border-radius: 7px; padding: 7px 10px; background: #1a2a3e; color: #e4edf8; cursor: pointer; font: inherit; font-size: 12px; text-decoration: none; }
@@ -27,7 +28,8 @@
     #public-info { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 10px 16px; background: #101927; border-bottom: 1px solid #273549; }
     #public-info p { margin: 0; flex: 1; min-width: 240px; color: #b9c8da; font-size: 12px; line-height: 1.5; }
     #public-map { width: 100%; height: calc(100vh - 180px); min-height: 460px; border: 0; background: #090f18; }
-    #local-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 16px; background: #101927; border-bottom: 1px solid #273549; }
+    #local-toolbar, #native-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 16px; background: #101927; border-bottom: 1px solid #273549; }
+    #native-toolbar[hidden], #local-toolbar[hidden] { display: none; }
     #stage { height: calc(100vh - 180px); min-height: 420px; position: relative; overflow: hidden; touch-action: pan-y; }
     #stage canvas { display: block; width: 100%; height: 100%; }
     #status { position: absolute; top: 12px; left: 12px; z-index: 2; max-width: min(660px, calc(100% - 24px)); padding: 10px 12px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .9); color: #d9e7f8; font-size: 12px; line-height: 1.5; white-space: pre-line; pointer-events: none; }
@@ -43,6 +45,14 @@
       #stage { height: 68vh; min-height: 360px; }
     }
   </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+      }
+    }
+  </script>
 </head>
 <body>
   <header>
@@ -51,7 +61,8 @@
       <span>優先使用公開地圖來源；不需要你先準備地圖檔</span>
     </div>
     <div class="mode-buttons">
-      <button id="show-public" type="button" aria-pressed="true">公開地圖（免下載）</button>
+      <button id="show-public" type="button" aria-pressed="true">公開地圖預覽</button>
+      <button id="show-native" type="button" aria-pressed="false">原生地圖（測試）</button>
       <button id="show-local" type="button" aria-pressed="false">本機 GLB/GAT</button>
     </div>
   </header>
@@ -70,6 +81,11 @@
   </main>
 
   <main id="local-mode" hidden>
+    <div id="native-toolbar" hidden>
+      <label>地圖 ID <input id="native-map" type="text" value="prontera" maxlength="64" autocapitalize="none" spellcheck="false"></label>
+      <button id="load-native-map" type="button">載入原生地圖</button>
+      <span class="hint">直接載入公開 GND 地表、材質與 GAT 通行格；目前不含 RSW 物件、動畫水與正式戰鬥。</span>
+    </div>
     <div id="local-toolbar">
       <label>地圖 GLB <input id="model-file" type="file" accept=".glb,model/gltf-binary"></label>
       <label>地圖 GAT <input id="gat-file" type="file" accept=".gat"></label>
@@ -98,29 +114,41 @@ ragx maps prontera --client "C:/Gravity/Ragnarok" --format glb --world-scale 0.2
     const publicMode = document.getElementById('public-mode');
     const localMode = document.getElementById('local-mode');
     const publicButton = document.getElementById('show-public');
+    const nativeButton = document.getElementById('show-native');
     const localButton = document.getElementById('show-local');
+    const nativeToolbar = document.getElementById('native-toolbar');
+    const localToolbar = document.getElementById('local-toolbar');
     let localModuleLoaded = false;
 
     function setMode(mode) {
       const isPublic = mode === 'public';
+      const isNative = mode === 'native';
       publicMode.hidden = !isPublic;
       localMode.hidden = isPublic;
+      nativeToolbar.hidden = !isNative;
+      localToolbar.hidden = isNative;
       publicButton.setAttribute('aria-pressed', String(isPublic));
-      localButton.setAttribute('aria-pressed', String(!isPublic));
+      nativeButton.setAttribute('aria-pressed', String(isNative));
+      localButton.setAttribute('aria-pressed', String(!isPublic && !isNative));
       if (!isPublic && !localModuleLoaded) {
         localModuleLoaded = true;
         const module = document.createElement('script');
         module.type = 'module';
         module.src = './ro_explorer.mjs';
+        module.onload = () => window.dispatchEvent(new CustomEvent('roo-explorer-mode', { detail: mode }));
         module.onerror = () => {
-          document.getElementById('status').textContent = '本機探索模組載入失敗；請切回公開地圖或重新整理。';
+          localModuleLoaded = false;
+          document.getElementById('status').textContent = '地圖探索模組載入失敗；請確認網路連線或切回公開地圖預覽。';
           document.getElementById('status').classList.add('error');
         };
         document.body.appendChild(module);
+      } else if (!isPublic) {
+        window.dispatchEvent(new CustomEvent('roo-explorer-mode', { detail: mode }));
       }
     }
 
     publicButton.addEventListener('click', () => setMode('public'));
+    nativeButton.addEventListener('click', () => setMode('native'));
     localButton.addEventListener('click', () => setMode('local'));
   </script>
 </body>
