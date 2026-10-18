@@ -23,7 +23,7 @@ function readString(view, offset, length) {
   // Windows-1252-compatible fallback for ASCII/Western client paths.
   try {
     const korean = new TextDecoder('euc-kr', { fatal: true }).decode(slice);
-    if (/[\\uac00-\\ud7af]/u.test(korean)) decoded = korean;
+    if (/[가-힣]/u.test(korean)) decoded = korean;
   } catch (error) {
     // A non-Korean path may not be a valid EUC-KR byte sequence.
   }
