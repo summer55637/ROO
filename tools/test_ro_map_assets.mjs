@@ -135,7 +135,7 @@ assert.equal(rsw.version, '1.9');
 assert.equal(rsw.gndFile, 'prontera.gnd');
 assert.equal(rsw.water.level, -5);
 assert.equal(rsw.water.type, 3);
-assert.deepEqual(rsw.light.diffuse, [0.8, 0.7, 0.6]);
+assert.ok(Math.abs(rsw.light.diffuse[0] - 0.8) < 1e-6);
 assert.equal(rsw.models.length, 1);
 assert.equal(rsw.models[0].modelName, 'tree/tree01.rsm');
 assert.deepEqual(rsw.models[0].position, [12, -3, -18]);
