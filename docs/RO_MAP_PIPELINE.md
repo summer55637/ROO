@@ -145,3 +145,12 @@ js/map_pathfinding.js 提供解碼器、格子判定、A* 八方向尋路、最�
 - 原生 renderer 直接送入計算好的 normal attribute，避免對所有模型一律呼叫 `computeVertexNormals()` 導致平面過度平滑或材質邊界產生縫。
 - 單元測試覆蓋 unlit、flat、smooth、不同 smoothing group 與無效面索引；公開素材 smoke test 另外抽樣建立真實 RSM1 mesh buffers 並檢查法線及索引有限／有效。
 - RSM 動畫、RSM2 幾何與瀏覽器目視驗收仍未完成。
+
+
+## RSM2 2.2／2.3 靜態網格第一階段（2026-10-19）
+
+- 公開模型素材白名單同時接受 `.rsm` 與 `.rsm2` 的固定 hash 路徑，仍限制同源 `/_m/` 位置，不接受任意外部 URL。
+- RSM2 節點以絕對 transformation matrix／position 換算父節點區域 TRS；頂點保留原始 mesh 空間並做座標軸鏡射，依節點階層掛入場景。
+- 2.2 使用模型層級材質索引；2.3 使用節點自己的 texture name。著色沿用 ShadeType 與平滑群組法線流程。
+- 新增 RSM2 2.2／2.3 二進位 fixture、父子節點旋轉／位移檢查、網格索引與 `.rsm2` manifest URL 白名單測試；公開素材 smoke test 擴大採樣並驗證 RSM2 節點資料（若樣本含 RSM2）。
+- 本階段只渲染靜態姿勢；不播放旋轉／縮放／平移或 UV 動畫。真實瀏覽器目視比對、手機／桌面及 GitHub Pages 驗收仍待完成。

@@ -7,7 +7,9 @@ import {
   buildGndMeshData,
   analyzeRswPlacementBounds,
   buildRsmNodeTransformData,
+  buildRsm2NodeTransformData,
   buildRsmNodeMeshData,
+  buildRsm2NodeMeshData,
   transformRsmVertex,
   buildGndWaterMeshData,
   compareGndGatHeights,
@@ -402,7 +404,7 @@ function updateStats() {
   if (nativeRenderStats) {
     rows.push('原生模型：' + nativeRenderStats.renderedPlacements + ' 個／上限 '
       + MAX_NATIVE_MODEL_PLACEMENTS + '；載入資源 ' + nativeRenderStats.loadedAssets
-      + ' 個，跳過 RSM2／失敗 ' + nativeRenderStats.unsupportedOrFailed);
+      + ' 個，未支援／失敗 ' + nativeRenderStats.unsupportedOrFailed);
     rows.push('水域：' + (nativeRenderStats.waterTileCount || 0) + ' 格；動畫影格 '
       + (nativeRenderStats.waterFrameCount || 0));
     rows.push('GND lightmap：' + (nativeRenderStats.lightmapSlices || 0) + ' slices；'
@@ -516,11 +518,27 @@ function rsmTextureNames(rsm, node) {
 }
 
 function buildRsmTemplate(rsm, urls, scale) {
-  if (rsm.major !== 1) return null;
+  if (rsm.major !== 1 && rsm.major !== 2) return null;
 
   const modelRoot = new THREE.Group();
-  const nodeGroups = rsm.nodes.map(node => {
-    const transform = buildRsmNodeTransformData(node, scale);
+  const nodesByName = new Map();
+  for (let index = 0; index < rsm.nodes.length; index++) {
+    const node = rsm.nodes[index];
+    if (!nodesByName.has(node.name)) nodesByName.set(node.name, []);
+    nodesByName.get(node.name).push(index);
+  }
+
+  const nodeGroups = rsm.nodes.map((node, index) => {
+    let transform;
+    if (rsm.major === 2) {
+      const parents = nodesByName.get(node.parentName) || [];
+      const parentIndex = parents.find(candidate => candidate !== index);
+      const parentNode = parentIndex === undefined ? null : rsm.nodes[parentIndex];
+      transform = buildRsm2NodeTransformData(node, parentNode, scale);
+    } else {
+      transform = buildRsmNodeTransformData(node, scale);
+    }
+
     const group = new THREE.Group();
     group.name = node.name || 'rsm-node';
     group.position.set(...transform.position);
@@ -528,7 +546,9 @@ function buildRsmTemplate(rsm, urls, scale) {
     group.scale.set(...transform.scale);
 
     const textureNames = rsmTextureNames(rsm, node);
-    const meshData = buildRsmNodeMeshData(node, rsm.shadeType, scale);
+    const meshData = rsm.major === 2
+      ? buildRsm2NodeMeshData(node, rsm.shadeType, scale)
+      : buildRsmNodeMeshData(node, rsm.shadeType, scale);
     for (const data of meshData.buckets) {
       if (!data.indices.length) continue;
       const textureName = textureNames[data.textureIndex] || '';
@@ -559,17 +579,11 @@ function buildRsmTemplate(rsm, urls, scale) {
     return group;
   });
 
-  const nodesByName = new Map();
-  for (let index = 0; index < rsm.nodes.length; index++) {
-    const node = rsm.nodes[index];
-    if (!nodesByName.has(node.name)) nodesByName.set(node.name, []);
-    nodesByName.get(node.name).push(index);
-  }
   const parented = new Set();
   for (let index = 0; index < rsm.nodes.length; index++) {
     const node = rsm.nodes[index];
     const parents = nodesByName.get(node.parentName) || [];
-    const parentIndex = parents.find(childIndex => childIndex !== index);
+    const parentIndex = parents.find(candidate => candidate !== index);
     if (node.parentName && parentIndex !== undefined) {
       nodeGroups[parentIndex].add(nodeGroups[index]);
       parented.add(index);
@@ -586,6 +600,7 @@ function buildRsmTemplate(rsm, urls, scale) {
     if (!parented.has(index)) nodeGroups[index].position.add(rootShift);
   }
   modelRoot.userData.rooModelVersion = rsm.version;
+  modelRoot.userData.rooModelIsRsm2 = rsm.major === 2;
   return modelRoot;
 }
 function makeRswInstanceTransform(instance, scale) {

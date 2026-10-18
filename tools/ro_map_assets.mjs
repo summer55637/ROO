@@ -1,6 +1,6 @@
 const MAP_ID_PATTERN = /^[a-z0-9_@-]{1,64}$/;
 const TEXTURE_BLOB_PATTERN = /^\.\.\/_t\/[a-f0-9]{16}\.png$/i;
-const MODEL_BLOB_PATTERN = /^\.\.\/_m\/[a-f0-9]{16}\.rsm$/i;
+const MODEL_BLOB_PATTERN = /^\.\.\/_m\/[a-f0-9]{16}\.rsm2?$/i;
 
 export const RAGASSETS_BASE_URL = 'https://assets.latam-tools.com.br';
 
@@ -449,7 +449,7 @@ export function transformRsmVertex(node, vertex, worldScale = 0.2) {
  * Build RSM1 mesh buffers with RO shading semantics before splitting by texture.
  * Type 0 is unlit, type 1 uses per-triangle normals, type 2 uses smoothing groups.
  */
-export function buildRsmNodeMeshData(node, shadeType, worldScale = 0.2) {
+function buildRsmNodeMeshDataInternal(node, shadeType, worldScale, transformVertex) {
   if (!node || !Array.isArray(node.vertices) || !Array.isArray(node.faces)) {
     throw new TypeError('必須提供含頂點與面的 RSM 節點。');
   }
@@ -460,7 +460,7 @@ export function buildRsmNodeMeshData(node, shadeType, worldScale = 0.2) {
     throw new Error('RSM 世界比例必須大於 0，且不可大於 10。');
   }
 
-  const vertices = node.vertices.map(vertex => transformRsmVertex(node, vertex, worldScale));
+  const vertices = node.vertices.map(vertex => transformVertex(node, vertex, worldScale));
   const positionKey = point => point.map(value => Math.round(value * 1e6)).join(',');
   const normalize = vector => {
     const length = Math.hypot(vector[0], vector[1], vector[2]);
@@ -571,6 +571,129 @@ export function buildRsmNodeMeshData(node, shadeType, worldScale = 0.2) {
       indices: bucket.indices,
     })),
   };
+}
+
+
+/** RSM2 keeps raw mesh vertices; node transforms are applied as hierarchy TRS. */
+export function transformRsm2Vertex(node, vertex, worldScale = 0.2) {
+  if (!node || !Array.isArray(node.offsetMatrix) || node.offsetMatrix.length !== 9
+    || !node.offsetMatrix.every(Number.isFinite)) {
+    throw new TypeError('必須提供有效的 RSM2 transformation matrix。');
+  }
+  if (!Array.isArray(vertex) || vertex.length !== 3 || !vertex.every(Number.isFinite)) {
+    throw new TypeError('RSM2 頂點必須是三個有限數值。');
+  }
+  if (!Number.isFinite(worldScale) || worldScale <= 0 || worldScale > 10) {
+    throw new Error('RSM 世界比例必須大於 0，且不可大於 10。');
+  }
+  const x = vertex[0] * worldScale;
+  const y = vertex[1] * worldScale;
+  const z = vertex[2] * worldScale;
+  return [x === 0 ? 0 : x, y === 0 ? 0 : -y, z === 0 ? 0 : -z];
+}
+
+export function buildRsmNodeMeshData(node, shadeType, worldScale = 0.2) {
+  return buildRsmNodeMeshDataInternal(node, shadeType, worldScale, transformRsmVertex);
+}
+
+export function buildRsm2NodeMeshData(node, shadeType, worldScale = 0.2) {
+  return buildRsmNodeMeshDataInternal(node, shadeType, worldScale, transformRsm2Vertex);
+}
+
+/**
+ * Convert an RSM2 absolute node matrix/position into a local transform.
+ * Matrix values are column-major; the parent matrix is treated as a rotation.
+ */
+export function buildRsm2NodeTransformData(node, parentNode = null, worldScale = 0.2) {
+  if (!Number.isFinite(worldScale) || worldScale <= 0 || worldScale > 10) {
+    throw new Error('RSM 世界比例必須大於 0，且不可大於 10。');
+  }
+  function sourceMatrix(candidate, label) {
+    if (!candidate || !Array.isArray(candidate.offsetMatrix) || candidate.offsetMatrix.length !== 9
+      || !candidate.offsetMatrix.every(Number.isFinite)) {
+      throw new TypeError('RSM2 ' + label + ' 缺少有效的 3×3 transformation matrix。');
+    }
+    const value = candidate.offsetMatrix;
+    return [
+      [value[0], value[3], value[6]],
+      [value[1], value[4], value[7]],
+      [value[2], value[5], value[8]],
+    ];
+  }
+  function sourcePosition(candidate, label) {
+    if (!candidate) return [0, 0, 0];
+    if (!Array.isArray(candidate.translation2) || candidate.translation2.length !== 3
+      || !candidate.translation2.every(Number.isFinite)) {
+      throw new TypeError('RSM2 ' + label + ' translation2 必須是三個有限數值。');
+    }
+    return candidate.translation2;
+  }
+  const parentMatrix = parentNode
+    ? sourceMatrix(parentNode, 'parent')
+    : [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  const nodeMatrix = sourceMatrix(node, 'node');
+  const parentPosition = sourcePosition(parentNode, 'parent');
+  const nodePosition = sourcePosition(node, 'node');
+  const delta = nodePosition.map((value, axis) => value - parentPosition[axis]);
+
+  // Absolute node matrices are converted to parent-local TRS.
+  const localMatrix = Array.from({ length: 3 }, (_, row) =>
+    Array.from({ length: 3 }, (_, column) =>
+      parentMatrix[0][row] * nodeMatrix[0][column]
+      + parentMatrix[1][row] * nodeMatrix[1][column]
+      + parentMatrix[2][row] * nodeMatrix[2][column]
+    )
+  );
+  const localTranslation = [0, 1, 2].map(row =>
+    parentMatrix[0][row] * delta[0]
+    + parentMatrix[1][row] * delta[1]
+    + parentMatrix[2][row] * delta[2]
+  );
+
+  // Current RO scene coordinates reflect both Y and Z.
+  const signs = [1, -1, -1];
+  const matrix = localMatrix.map((row, r) => row.map((value, c) => value * signs[r] * signs[c]));
+  let x, y, z, w;
+  const trace = matrix[0][0] + matrix[1][1] + matrix[2][2];
+  if (trace > 0) {
+    const s = Math.sqrt(trace + 1) * 2;
+    w = 0.25 * s;
+    x = (matrix[2][1] - matrix[1][2]) / s;
+    y = (matrix[0][2] - matrix[2][0]) / s;
+    z = (matrix[1][0] - matrix[0][1]) / s;
+  } else if (matrix[0][0] > matrix[1][1] && matrix[0][0] > matrix[2][2]) {
+    const s = Math.sqrt(1 + matrix[0][0] - matrix[1][1] - matrix[2][2]) * 2;
+    w = (matrix[2][1] - matrix[1][2]) / s;
+    x = 0.25 * s;
+    y = (matrix[0][1] + matrix[1][0]) / s;
+    z = (matrix[0][2] + matrix[2][0]) / s;
+  } else if (matrix[1][1] > matrix[2][2]) {
+    const s = Math.sqrt(1 + matrix[1][1] - matrix[0][0] - matrix[2][2]) * 2;
+    w = (matrix[0][2] - matrix[2][0]) / s;
+    x = (matrix[0][1] + matrix[1][0]) / s;
+    y = 0.25 * s;
+    z = (matrix[1][2] + matrix[2][1]) / s;
+  } else {
+    const s = Math.sqrt(1 + matrix[2][2] - matrix[0][0] - matrix[1][1]) * 2;
+    w = (matrix[1][0] - matrix[0][1]) / s;
+    x = (matrix[0][2] + matrix[2][0]) / s;
+    y = (matrix[1][2] + matrix[2][1]) / s;
+    z = 0.25 * s;
+  }
+  const length = Math.hypot(x, y, z, w);
+  if (!Number.isFinite(length) || length < 1e-8) {
+    throw new Error('RSM2 transformation matrix 無法轉成有效旋轉。');
+  }
+  const rotation = [x, y, z, w].map(value => {
+    const normalized = value / length;
+    return Math.abs(normalized) < 1e-12 ? 0 : normalized;
+  });
+  const position = [
+    localTranslation[0] * worldScale,
+    -localTranslation[1] * worldScale,
+    -localTranslation[2] * worldScale,
+  ].map(value => value === 0 ? 0 : value);
+  return { position, rotation, scale: [1, 1, 1] };
 }
 
 export function parseRsmBuffer(input) {
@@ -1472,7 +1595,7 @@ export function resolveRagassetsMapUrls(mapId, manifest, baseUrl = RAGASSETS_BAS
   for (const [name, reference] of Object.entries(models)) {
     if (typeof reference !== 'string' || !MODEL_BLOB_PATTERN.test(reference)) continue;
     const url = new URL(reference, manifestUrl);
-    if (url.origin !== manifestUrl.origin || !/^\/maps\/_m\/[a-f0-9]{16}\.rsm$/i.test(url.pathname)) continue;
+    if (url.origin !== manifestUrl.origin || !/^\/maps\/_m\/[a-f0-9]{16}\.rsm2?$/i.test(url.pathname)) continue;
     urls.models[normalizeModelName(name)] = url.href;
   }
   const water = manifest.water && typeof manifest.water === 'object' ? manifest.water : {};

@@ -3,8 +3,11 @@ import {
   RAGASSETS_BASE_URL,
   buildGndLightmapAtlasData,
   buildRsmNodeTransformData,
+  buildRsm2NodeTransformData,
   buildRsmNodeMeshData,
+  buildRsm2NodeMeshData,
   transformRsmVertex,
+  transformRsm2Vertex,
   buildGndMeshData,
   analyzeRswPlacementBounds,
   buildGndWaterMeshData,
@@ -198,6 +201,45 @@ assert.equal(rsw.models[0].modelName, 'tree/tree01.rsm');
 assert.deepEqual(rsw.models[0].position, [12, -3, -18]);
 assert.deepEqual(rsw.models[0].scale, [1, 1, 1]);
 
+
+function makeRsm2(minor = 2) {
+  const chunks = [];
+  function bytes(length) { const result = Buffer.alloc(length); chunks.push(result); return result; }
+  function u8(value) { const result = bytes(1); result.writeUInt8(value); }
+  function u16(value) { const result = bytes(2); result.writeUInt16LE(value); }
+  function u32(value) { const result = bytes(4); result.writeUInt32LE(value); }
+  function i32(value) { const result = bytes(4); result.writeInt32LE(value); }
+  function f32(value) { const result = bytes(4); result.writeFloatLE(value); }
+  function string(value) {
+    const result = Buffer.from(value, 'ascii');
+    u32(result.length);
+    chunks.push(result);
+  }
+  function vec(values) { values.forEach(f32); }
+
+  chunks.push(Buffer.from('GRSM', 'ascii'));
+  u8(2); u8(minor);
+  u32(1000); u32(2); u8(255); f32(30);
+  if (minor < 3) { u32(1); string('grass.bmp'); }
+  u32(1); string('root');
+  u32(1); string('root'); string('');
+  if (minor < 3) { u32(1); u32(0); }
+  else { u32(1); string('grass.bmp'); }
+  vec([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+  vec([5, 10, 15]);
+  u32(3); vec([0, 0, 0]); vec([1, 0, 0]); vec([0, 0, 1]);
+  u32(3);
+  u32(0xffffffff); vec([0, 0]);
+  u32(0xffffffff); vec([1, 0]);
+  u32(0xffffffff); vec([0, 1]);
+  u32(1); u32(24);
+  [0, 1, 2, 0, 1, 2, 0, 0].forEach(u16);
+  i32(1); i32(0);
+  u32(0); u32(0); u32(0);
+  if (minor >= 3) u32(0);
+  return Buffer.concat(chunks);
+}
+
 function makeRsm14() {
   const chunks = [];
   function bytes(length) { const result = Buffer.alloc(length); chunks.push(result); return result; }
@@ -248,6 +290,36 @@ assert.equal(rsm.nodes[0].vertices.length, 3);
 assert.deepEqual(rsm.nodes[0].faces[0].vertexIndices, [0, 1, 2]);
 assert.deepEqual(rsm.nodes[0].faces[0].uvIndices, [0, 1, 2]);
 assert.equal(rsm.nodes[0].faces[0].textureIndex, 0);
+
+
+const rsm2 = parseRsmBuffer(makeRsm2(2));
+assert.equal(rsm2.version, '2.2');
+assert.equal(rsm2.nodes[0].translation1, null);
+assert.deepEqual(rsm2.textures, ['grass.bmp']);
+assert.deepEqual(buildRsm2NodeTransformData(rsm2.nodes[0], null, 0.2).position, [1, -2, -3]);
+assert.deepEqual(transformRsm2Vertex(rsm2.nodes[0], [1, 2, 3], 0.2), [0.2, -0.4, -0.6]);
+const rsm2Mesh = buildRsm2NodeMeshData(rsm2.nodes[0], rsm2.shadeType, 0.2);
+assert.equal(rsm2Mesh.triangleCount, 1);
+assert.equal(rsm2Mesh.buckets.length, 1);
+assert.equal(rsm2Mesh.buckets[0].positions.length, rsm2Mesh.buckets[0].normals.length);
+assert.ok(rsm2Mesh.buckets[0].normals.every(Number.isFinite));
+assert.ok(rsm2Mesh.buckets[0].indices.every(index => index >= 0 && index < rsm2Mesh.buckets[0].positions.length / 3));
+
+const rsm2Child = { offsetMatrix: [0, 0, -1, 0, 1, 0, 1, 0, 0], translation2: [2, 2, 3] };
+const rsm2Parent = { offsetMatrix: [0, 0, -1, 0, 1, 0, 1, 0, 0], translation2: [1, 2, 3] };
+const childLocal = buildRsm2NodeTransformData(rsm2Child, rsm2Parent, 0.2);
+assert.deepEqual(childLocal.position, [0, 0, -0.2]);
+assert.ok(Math.abs(childLocal.rotation[0]) < 1e-6);
+assert.ok(Math.abs(childLocal.rotation[1]) < 1e-6);
+assert.ok(Math.abs(childLocal.rotation[2]) < 1e-6);
+assert.ok(Math.abs(childLocal.rotation[3] - 1) < 1e-6);
+
+const rsm23 = parseRsmBuffer(makeRsm2(3));
+assert.equal(rsm23.version, '2.3');
+assert.deepEqual(rsm23.nodes[0].textureNames, ['grass.bmp']);
+assert.equal(buildRsm2NodeMeshData(rsm23.nodes[0], rsm23.shadeType, 0.2).triangleCount, 1);
+
+
 
 const shadingFixture = {
   offsetMatrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
@@ -531,6 +603,7 @@ const manifest = {
   },
   models: {
     'tree/tree01.rsm': '../_m/abcdef0123456789.rsm',
+    'tree/tree02.rsm2': '../_m/0123456789abcdef.rsm2',
     'bad.rsm': 'https://example.invalid/model.rsm',
     'escape.rsm': '../../secrets.rsm',
   },
@@ -545,7 +618,8 @@ assert.equal(urls.gat, RAGASSETS_BASE_URL + '/maps/prontera/prontera.gat');
 assert.equal(urls.textures['필드바닥/prt_초원01.bmp'], RAGASSETS_BASE_URL + '/maps/_t/0123456789abcdef.png');
 assert.equal(Object.keys(urls.textures).length, 1);
 assert.equal(urls.models['tree/tree01.rsm'], RAGASSETS_BASE_URL + '/maps/_m/abcdef0123456789.rsm');
-assert.equal(Object.keys(urls.models).length, 1);
+assert.equal(urls.models['tree/tree02.rsm2'], RAGASSETS_BASE_URL + '/maps/_m/0123456789abcdef.rsm2');
+assert.equal(Object.keys(urls.models).length, 2);
 assert.deepEqual(urls.waterFrames, [RAGASSETS_BASE_URL + '/maps/_w/0123456789abcdef.jpg']);
 
 assert.throws(() => resolveRagassetsMapUrls('../prontera', manifest), /地圖 ID/);

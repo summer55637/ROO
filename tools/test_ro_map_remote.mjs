@@ -4,13 +4,16 @@ import {
   analyzeRswPlacementBounds,
   buildGndLightmapAtlasData,
   buildRsmNodeTransformData,
+  buildRsm2NodeTransformData,
   buildRsmNodeMeshData,
+  buildRsm2NodeMeshData,
   compareGndGatHeights,
   normalizeModelName,
   normalizeTextureName,
   parseGndBuffer,
   parseRsmBuffer,
   transformRsmVertex,
+  transformRsm2Vertex,
   parseRswBuffer,
   resolveRagassetsMapUrls,
 } from './ro_map_assets.mjs';
@@ -50,9 +53,11 @@ async function validateMap(mapId) {
   assert.ok(rsw.light.ambient.every(Number.isFinite), mapId + ' RSW ambient light is finite');
   assert.ok(rsw.light.diffuse.every(Number.isFinite), mapId + ' RSW diffuse light is finite');
 
-  const sampleModels = [...new Set(rsw.models
+  const candidates = [...new Set(rsw.models
     .map(model => normalizeModelName(model.modelName))
-    .filter(name => urls.models[name]))].slice(0, 8);
+    .filter(name => urls.models[name]))];
+  const stride = Math.max(1, Math.floor(candidates.length / 12));
+  const sampleModels = candidates.filter((name, index) => index % stride === 0).slice(0, 12);
   assert.ok(sampleModels.length > 0, mapId + ' RSW model paths resolve to manifest assets');
   const parsedModels = await Promise.all(sampleModels.map(async name => {
     const response = await fetchResponse(urls.models[name], mapId + ' model ' + name);
@@ -66,15 +71,26 @@ async function validateMap(mapId) {
     let transformedVertices = 0;
     let transformedMeshBuckets = 0;
     let transformedMeshVertices = 0;
-    if (model.major === 1) {
+    if (model.major === 1 || model.major === 2) {
+      const nodesByName = new Map();
       for (const node of model.nodes) {
-        const transform = buildRsmNodeTransformData(node, 0.2);
+        if (!nodesByName.has(node.name)) nodesByName.set(node.name, []);
+        nodesByName.get(node.name).push(node);
+      }
+      for (const node of model.nodes) {
+        const parentCandidates = nodesByName.get(node.parentName) || [];
+        const parentNode = parentCandidates.find(candidate => candidate !== node) || null;
+        const transform = model.major === 2
+          ? buildRsm2NodeTransformData(node, parentNode, 0.2)
+          : buildRsmNodeTransformData(node, 0.2);
         assert.ok(
           [...transform.position, ...transform.rotation, ...transform.scale].every(Number.isFinite),
           mapId + ' model ' + name + ' node ' + node.name + ' has finite transforms'
         );
         transformedNodes++;
-        const meshData = buildRsmNodeMeshData(node, model.shadeType, 0.2);
+        const meshData = model.major === 2
+          ? buildRsm2NodeMeshData(node, model.shadeType, 0.2)
+          : buildRsmNodeMeshData(node, model.shadeType, 0.2);
         for (const bucket of meshData.buckets) {
           assert.equal(bucket.positions.length, bucket.normals.length,
             mapId + ' model ' + name + ' node ' + node.name + ' position/normal lengths');
@@ -86,7 +102,9 @@ async function validateMap(mapId) {
           transformedMeshVertices += bucket.positions.length / 3;
         }
         for (const vertex of node.vertices) {
-          const point = transformRsmVertex(node, vertex, 0.2);
+          const point = model.major === 2
+            ? transformRsm2Vertex(node, vertex, 0.2)
+            : transformRsmVertex(node, vertex, 0.2);
           assert.ok(
             point.every(Number.isFinite),
             mapId + ' model ' + name + ' node ' + node.name + ' has finite transformed vertices'
