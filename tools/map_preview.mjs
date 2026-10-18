@@ -163,7 +163,11 @@ function rebuildGrid() {
 
   const showWalkable = walkableInput.checked;
   const showBlocked = blockedInput.checked;
-  const visibleCells = gatInfo.cells.filter(cell => cell.walkable ? showWalkable : showBlocked);
+  const visibleCells = [];
+  for (let index = 0; index < gatInfo.cells.length; index++) {
+    const cell = gatInfo.cells[index];
+    if (cell.walkable ? showWalkable : showBlocked) visibleCells.push({ cell, index });
+  }
   if (!visibleCells.length) {
     updateStats();
     return;
@@ -187,8 +191,7 @@ function rebuildGrid() {
   const transform = new THREE.Object3D();
   const color = new THREE.Color();
   for (let i = 0; i < visibleCells.length; i++) {
-    const cell = visibleCells[i];
-    const index = gatInfo.cells.indexOf(cell);
+    const { cell, index } = visibleCells[i];
     const x = index % gatInfo.width;
     const y = Math.floor(index / gatInfo.width);
     // ragx --world-scale 0.2 makes one GAT tile equal one world unit.
