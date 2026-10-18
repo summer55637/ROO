@@ -89,25 +89,100 @@ function getArg(name) {
   return index >= 0 ? process.argv[index + 1] : null;
 }
 
-function main() {
-  const input = getArg('--input');
-  const output = getArg('--out');
-  if (process.argv.includes('--help') || !input || !output) {
-    console.log('用法：node tools/convert_gat.js --input <map.gat> --out <map.walk.json> [--map <mapId>]');
-    process.exitCode = input && output ? 0 : 2;
-    return;
+function mapIdFromGatPath(filePath) {
+  const mapId = path.basename(filePath, path.extname(filePath)).toLowerCase();
+  if (!/^[a-z0-9_@-]{1,64}$/.test(mapId)) {
+    throw new Error('地圖檔名不是有效的地圖 ID：' + path.basename(filePath));
   }
-  const resolvedInput = path.resolve(input);
-  const resolvedOutput = path.resolve(output);
-  const mapId = getArg('--map') || path.basename(resolvedInput, path.extname(resolvedInput));
-  if (!/^[a-z0-9_@-]{1,64}$/i.test(mapId)) throw new Error('地圖 ID 格式無效。');
+  return mapId;
+}
 
+function writeWalkMap(inputPath, outputPath, mapId) {
+  if (!/^[a-z0-9_@-]{1,64}$/i.test(mapId)) throw new Error('地圖 ID 格式無效。');
+  const resolvedInput = path.resolve(inputPath);
+  const resolvedOutput = path.resolve(outputPath);
   const result = parseGatBuffer(fs.readFileSync(resolvedInput), mapId, path.basename(resolvedInput));
   fs.mkdirSync(path.dirname(resolvedOutput), { recursive: true });
   fs.writeFileSync(resolvedOutput, JSON.stringify(result, null, 2) + '\n', 'utf8');
-  console.log('已轉換 ' + result.mapId + '：' + result.width + '×' + result.height
+  return { result, outputPath: resolvedOutput };
+}
+
+function logConverted(mapId, result, outputPath) {
+  console.log('已轉換 ' + mapId + '：' + result.width + '×' + result.height
     + ' 格，可走 ' + result.walkableCount + '、阻擋 ' + result.blockedCount + '。');
-  console.log('輸出：' + resolvedOutput);
+  console.log('輸出：' + outputPath);
+}
+
+function printUsage() {
+  console.log('單張：node tools/convert_gat.js --input <map.gat> --out <map.walk.json> [--map <mapId>]');
+  console.log('批次：node tools/convert_gat.js --input-dir <GAT資料夾> --out-dir <輸出資料夾>');
+}
+
+function main() {
+  const input = getArg('--input');
+  const output = getArg('--out');
+  const inputDir = getArg('--input-dir');
+  const outputDir = getArg('--out-dir');
+
+  if (process.argv.includes('--help')) {
+    printUsage();
+    return;
+  }
+
+  const singleMode = !!input && !!output && !inputDir && !outputDir;
+  const batchMode = !!inputDir && !!outputDir && !input && !output;
+  if (!singleMode && !batchMode) {
+    printUsage();
+    process.exitCode = 2;
+    return;
+  }
+
+  if (singleMode) {
+    const resolvedInput = path.resolve(input);
+    const mapId = getArg('--map') || path.basename(resolvedInput, path.extname(resolvedInput));
+    const written = writeWalkMap(resolvedInput, output, mapId.toLowerCase());
+    logConverted(written.result.mapId, written.result, written.outputPath);
+    return;
+  }
+
+  if (getArg('--map')) {
+    throw new Error('批次模式會使用每個 .gat 檔名作為地圖 ID，不能指定 --map。');
+  }
+
+  const resolvedInputDir = path.resolve(inputDir);
+  const resolvedOutputDir = path.resolve(outputDir);
+  if (!fs.statSync(resolvedInputDir).isDirectory()) {
+    throw new Error('輸入路徑不是資料夾：' + resolvedInputDir);
+  }
+
+  const entries = fs.readdirSync(resolvedInputDir, { withFileTypes: true })
+    .filter(entry => entry.isFile() && /\.gat$/i.test(entry.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (!entries.length) throw new Error('輸入資料夾找不到 .gat 檔：' + resolvedInputDir);
+
+  fs.mkdirSync(resolvedOutputDir, { recursive: true });
+  const seen = new Set();
+  const failures = [];
+  let converted = 0;
+
+  for (const entry of entries) {
+    const inputPath = path.join(resolvedInputDir, entry.name);
+    try {
+      const mapId = mapIdFromGatPath(inputPath);
+      if (seen.has(mapId)) throw new Error('重複的地圖 ID：' + mapId);
+      seen.add(mapId);
+      const written = writeWalkMap(inputPath, path.join(resolvedOutputDir, mapId + '.walk.json'), mapId);
+      logConverted(mapId, written.result, written.outputPath);
+      converted++;
+    } catch (error) {
+      failures.push(entry.name + '：' + error.message);
+    }
+  }
+
+  console.log('批次轉換完成：' + converted + ' 成功、' + failures.length + ' 失敗。');
+  if (failures.length) {
+    throw new Error('以下檔案轉換失敗：\n' + failures.join('\n'));
+  }
 }
 
 if (require.main === module) {
