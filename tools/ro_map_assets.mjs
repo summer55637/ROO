@@ -1,5 +1,6 @@
 const MAP_ID_PATTERN = /^[a-z0-9_@-]{1,64}$/;
 const TEXTURE_BLOB_PATTERN = /^\.\.\/_t\/[a-f0-9]{16}\.png$/i;
+const MODEL_BLOB_PATTERN = /^\.\.\/_m\/[a-f0-9]{16}\.rsm$/i;
 
 export const RAGASSETS_BASE_URL = 'https://assets.latam-tools.com.br';
 
@@ -29,6 +30,11 @@ function readString(view, offset, length) {
 function normalizeTextureName(name) {
   return String(name || '').replace(/\\/g, '/').trim().toLowerCase()
     .replace(/^data\/texture\//, '').replace(/^texture\//, '');
+}
+
+export function normalizeModelName(name) {
+  return String(name || '').replace(/\\/g, '/').trim().toLowerCase()
+    .replace(/^data\/model\//, '').replace(/^model\//, '');
 }
 
 function validWaterTail(view, offset, version) {
@@ -550,7 +556,7 @@ export function resolveRagassetsMapUrls(mapId, manifest, baseUrl = RAGASSETS_BAS
   const root = new URL('/maps/' + id + '/', baseUrl);
   const manifestUrl = new URL('manifest.json', root);
   const files = manifest.files && typeof manifest.files === 'object' ? manifest.files : {};
-  const urls = { manifest: manifestUrl.href, gat: null, gnd: null, rsw: null, textures: {} };
+  const urls = { manifest: manifestUrl.href, gat: null, gnd: null, rsw: null, textures: {}, models: {} };
   for (const ext of ['gat', 'gnd', 'rsw']) {
     const name = files[ext] || id + '.' + ext;
     if (name !== id + '.' + ext) throw new Error('manifest 的 ' + ext.toUpperCase() + ' 檔名不符合地圖 ID。');
@@ -564,6 +570,15 @@ export function resolveRagassetsMapUrls(mapId, manifest, baseUrl = RAGASSETS_BAS
     const url = new URL(reference, manifestUrl);
     if (url.origin !== manifestUrl.origin || !/^\/maps\/_t\/[a-f0-9]{16}\.png$/i.test(url.pathname)) continue;
     urls.textures[normalizeTextureName(name)] = url.href;
+  }
+
+  const models = manifest.models && typeof manifest.models === 'object'
+    ? manifest.models : {};
+  for (const [name, reference] of Object.entries(models)) {
+    if (typeof reference !== 'string' || !MODEL_BLOB_PATTERN.test(reference)) continue;
+    const url = new URL(reference, manifestUrl);
+    if (url.origin !== manifestUrl.origin || !/^\/maps\/_m\/[a-f0-9]{16}\.rsm$/i.test(url.pathname)) continue;
+    urls.models[normalizeModelName(name)] = url.href;
   }
   return urls;
 }
