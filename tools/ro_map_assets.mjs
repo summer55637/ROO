@@ -1535,7 +1535,8 @@ export function sampleRoWaterWaveOffset(waterConfig, gridX, gridZ, elapsedSecond
   const spatialPhase = (gridX + gridZ) * pitchDegrees * Math.PI / 360;
   const temporalPhase = elapsedSeconds * Math.PI * 2 / RO_WATER_WAVE_CYCLE_SECONDS;
   // Renderer Y is mirrored relative to the source file's vertical axis.
-  return -Math.sin(temporalPhase + phaseOffset + spatialPhase) * Math.abs(amplitude) * worldScale;
+  const offset = -Math.sin(temporalPhase + phaseOffset + spatialPhase) * Math.abs(amplitude) * worldScale;
+  return Math.abs(offset) < 1e-12 ? 0 : offset;
 }
 
 export function buildGndWaterMeshData(gat, waterLevel, worldScale = 0.2) {
