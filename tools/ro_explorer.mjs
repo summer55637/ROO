@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
   RAGASSETS_BASE_URL,
   buildGndMeshData,
+  buildGndWaterMeshData,
   insetGndTextureUvs,
   normalizeModelName,
   normalizeTextureName,
@@ -60,6 +61,7 @@ let mapBounds = null;
 let gatInfo = null;
 let rswInfo = null;
 let nativeRenderStats = null;
+let nativeWaterAnimation = null;
 let gridMesh = null;
 const modelTextureCache = new Map();
 const MAX_NATIVE_MODEL_ASSETS = 100;
@@ -388,6 +390,8 @@ function updateStats() {
     rows.push('原生模型：' + nativeRenderStats.renderedPlacements + ' 個／上限 '
       + MAX_NATIVE_MODEL_PLACEMENTS + '；載入資源 ' + nativeRenderStats.loadedAssets
       + ' 個，跳過 RSM2／失敗 ' + nativeRenderStats.unsupportedOrFailed);
+    rows.push('水域：' + (nativeRenderStats.waterTileCount || 0) + ' 格；動畫影格 '
+      + (nativeRenderStats.waterFrameCount || 0));
   }
   rows.push('世界比例：' + worldScale + '；GAT 格寬 ' + tileSize().toFixed(2));
   if (currentCell) rows.push('目前格：(' + currentCell.x + ', ' + currentCell.y + ')');
@@ -406,6 +410,31 @@ function fitCamera() {
   controls.minDistance = Math.max(maxDimension * 0.01, 0.1);
   axes.scale.setScalar(Math.max(maxDimension / 80, 0.1));
   controls.update();
+}
+
+function clearNativeWaterAnimation() {
+  if (!nativeWaterAnimation) return;
+  const activeTexture = nativeWaterAnimation.mesh && nativeWaterAnimation.mesh.material
+    ? nativeWaterAnimation.mesh.material.map : null;
+  for (const texture of nativeWaterAnimation.textures) {
+    if (texture && texture !== activeTexture) texture.dispose();
+  }
+  nativeWaterAnimation = null;
+}
+
+function advanceNativeWater(now) {
+  const animation = nativeWaterAnimation;
+  if (!animation || animation.textures.length < 2) return;
+  if (!animation.nextFrameAt) {
+    animation.nextFrameAt = now + animation.intervalMs;
+    return;
+  }
+  if (now < animation.nextFrameAt) return;
+  const steps = Math.floor((now - animation.nextFrameAt) / animation.intervalMs) + 1;
+  animation.frameIndex = (animation.frameIndex + steps) % animation.textures.length;
+  animation.mesh.material.map = animation.textures[animation.frameIndex];
+  animation.mesh.material.needsUpdate = true;
+  animation.nextFrameAt += steps * animation.intervalMs;
 }
 
 function disposeObject(object) {
@@ -700,6 +729,64 @@ function resetRswLighting() {
   fillLight.position.set(-300, 150, -250);
 }
 
+async function addNativeWater(root, gat, waterConfig, urls, scale) {
+  if (!waterConfig || !Number.isFinite(waterConfig.level)) {
+    return { animation: null, waterTileCount: 0, waterFrameCount: 0 };
+  }
+  const data = buildGndWaterMeshData(gat, waterConfig.level, scale);
+  if (!data.waterTileCount) {
+    return { animation: null, waterTileCount: 0, waterFrameCount: 0 };
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(data.positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(data.uvs, 2));
+  geometry.setIndex(data.indices);
+  geometry.computeVertexNormals();
+
+  const frameUrls = Array.isArray(urls.waterFrames) ? urls.waterFrames.slice(0, 32) : [];
+  const textures = await Promise.all(frameUrls.map(async url => {
+    try {
+      const texture = await textureLoader.loadAsync(url);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.needsUpdate = true;
+      return texture;
+    } catch (error) {
+      console.warn('ROO 水面影格載入失敗：' + url, error);
+      return null;
+    }
+  }));
+  const availableTextures = textures.filter(Boolean);
+  const material = new THREE.MeshBasicMaterial({
+    map: availableTextures[0] || null,
+    color: availableTextures.length ? 0xffffff : 0x63b5d8,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.68,
+    depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = 'roo-native-water';
+  mesh.renderOrder = 2;
+  mesh.userData.rooMapWater = true;
+  root.add(mesh);
+
+  const interval = Number(waterConfig.textureCyclingInterval);
+  return {
+    animation: availableTextures.length ? {
+      mesh,
+      textures: availableTextures,
+      frameIndex: 0,
+      nextFrameAt: 0,
+      intervalMs: Math.max(50, Math.min(4000, (Number.isFinite(interval) && interval > 0 ? interval : 3) * (1000 / 30))),
+    } : null,
+    waterTileCount: data.waterTileCount,
+    waterFrameCount: availableTextures.length,
+  };
+}
+
 async function loadRagassetsMap(mapName) {
   const mapId = String(mapName || '').trim().toLowerCase();
   if (!/^[a-z0-9_@-]{1,64}$/.test(mapId)) {
@@ -790,13 +877,18 @@ async function loadRagassetsMap(mapName) {
     setStatus('地表已建立，正在載入 RSW 模型資源…');
     modelTextureCache.clear();
     const nextRenderStats = await loadAndPlaceRswModels(parsedRsw, urls, nextRoot, worldScale);
+    const waterConfig = parsedGnd.water || parsedRsw.water;
+    setStatus('模型已載入，正在建立水域…');
+    const nextWaterStats = await addNativeWater(nextRoot, parsedGat, waterConfig, urls, worldScale);
 
     const bounds = new THREE.Box3().setFromObject(nextRoot);
     if (bounds.isEmpty()) throw new Error('GND 沒有可顯示的地表；無法建立原生地圖。');
+    clearNativeWaterAnimation();
     if (mapRoot) {
       scene.remove(mapRoot);
       disposeObject(mapRoot);
     }
+    nativeWaterAnimation = nextWaterStats.animation;
     mapRoot = nextRoot;
     scene.add(mapRoot);
     mapRoot.updateMatrixWorld(true);
@@ -809,13 +901,13 @@ async function loadRagassetsMap(mapName) {
     };
     gatInfo = parsedGat;
     rswInfo = parsedRsw;
-    nativeRenderStats = nextRenderStats;
+    nativeRenderStats = { ...nextRenderStats, waterTileCount: nextWaterStats.waterTileCount, waterFrameCount: nextWaterStats.waterFrameCount };
     applyRswLighting(parsedRsw, mapInfo.size);
     fitCamera();
     finishOrRefreshScene();
     setStatus('原生地圖已載入：地表＋RSM 模型 ' + nextRenderStats.renderedPlacements
-      + ' 個／' + parsedRsw.models.length + ' 個擺放位置；解析模型資源 '
-      + nextRenderStats.loadedAssets + ' 個。動畫、lightmap 與水面仍待實作。');
+      + ' 個／' + parsedRsw.models.length + ' 個擺放位置；水域 ' + nextWaterStats.waterTileCount
+      + ' 格、動畫影格 ' + nextWaterStats.waterFrameCount + ' 張。GND lightmap 仍待實作。');
     updateStats();
   } catch (error) {
     setStatus('公開原生地圖載入失敗：' + error.message
@@ -829,6 +921,7 @@ async function loadMapFile(file) {
   try {
     const buffer = await file.arrayBuffer();
     const gltf = await new Promise((resolve, reject) => loader.parse(buffer, '', resolve, reject));
+    clearNativeWaterAnimation();
     if (mapRoot) {
       scene.remove(mapRoot);
       disposeObject(mapRoot);
@@ -1077,6 +1170,7 @@ function animate(now) {
   const delta = lastFrame ? Math.min((now - lastFrame) / 1000, 0.05) : 0;
   lastFrame = now;
   advanceMovement(delta);
+  advanceNativeWater(now);
   controls.update();
   renderer.render(scene, camera);
 }
