@@ -195,6 +195,86 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg-deep); co
 }
 .map-bg-layer { position: absolute; inset: 0; z-index: 0; }
 .map-bg-layer img { width: 100%; height: 100%; object-fit: cover; opacity: 0.4; filter: saturate(0.8) brightness(0.75); }
+
+/* ---------------- RO 水面：港口／島嶼／水域場景 ----------------
+   水層只疊在地圖背景上、角色與怪物下方；一般地圖不會被染成水面。
+   使用多層流線與反光，不依賴外部函式庫或網路素材。 */
+.map-bg-layer .water-surface {
+  position: absolute;
+  z-index: 1;
+  left: -7%;
+  right: -7%;
+  bottom: -4%;
+  height: 52%;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.92;
+  clip-path: polygon(0 27%, 8% 22%, 17% 29%, 27% 13%, 36% 20%, 46% 8%, 56% 17%, 67% 10%, 78% 21%, 89% 14%, 100% 25%, 100% 100%, 0 100%);
+  background:
+    radial-gradient(ellipse at 19% 18%, rgba(177, 239, 250, 0.32), transparent 27%),
+    linear-gradient(180deg, rgba(73, 177, 207, 0.72) 0%, rgba(24, 119, 167, 0.9) 38%, rgba(7, 68, 117, 0.96) 100%);
+  box-shadow: 0 -8px 20px rgba(91, 201, 225, 0.2);
+  transform: translateZ(0);
+}
+.map-bg-layer .water-surface::before {
+  content: '';
+  position: absolute;
+  inset: -38% -30%;
+  background:
+    repeating-linear-gradient(166deg,
+      transparent 0 17px,
+      rgba(206, 246, 255, 0.05) 18px 20px,
+      rgba(165, 230, 246, 0.32) 21px 23px,
+      rgba(8, 91, 145, 0.12) 24px 28px,
+      transparent 29px 47px);
+  animation: roWaterFlow 11s linear infinite;
+  will-change: transform;
+}
+.map-bg-layer .water-surface::after {
+  content: '';
+  position: absolute;
+  top: 12%;
+  left: -35%;
+  width: 170%;
+  height: 17%;
+  border-radius: 50%;
+  border-top: 2px solid rgba(214, 249, 255, 0.58);
+  box-shadow: 0 -3px 11px rgba(143, 229, 245, 0.24);
+  transform: rotate(-3deg);
+  animation: roWaterGlint 6.5s ease-in-out infinite alternate;
+}
+.battle-panel.is-underwater .map-bg-layer .water-surface {
+  inset: 0;
+  width: auto;
+  height: auto;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  clip-path: none;
+  opacity: 0.56;
+  background:
+    radial-gradient(ellipse at 55% 35%, rgba(82, 197, 218, 0.24), transparent 55%),
+    linear-gradient(180deg, rgba(12, 93, 145, 0.24), rgba(2, 42, 82, 0.86));
+  box-shadow: inset 0 0 75px rgba(8, 36, 74, 0.42);
+}
+.battle-panel.is-underwater .map-bg-layer .water-surface::after {
+  top: 10%;
+  border-top-color: rgba(167, 234, 248, 0.2);
+}
+@keyframes roWaterFlow {
+  from { transform: translate3d(-5%, -2%, 0); }
+  to { transform: translate3d(5%, 4%, 0); }
+}
+@keyframes roWaterGlint {
+  from { transform: translate3d(-4%, 0, 0) rotate(-3deg); opacity: 0.42; }
+  to { transform: translate3d(13%, 4px, 0) rotate(-1deg); opacity: 0.9; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-bg-layer .water-surface::before,
+  .map-bg-layer .water-surface::after {
+    animation: none;
+  }
+}
 .battle-panel > .monster-area, .battle-panel > .combat-log { position: relative; z-index: 1; }
 .btn-mute {
   position: absolute; top: 10px; right: 12px; z-index: 2;

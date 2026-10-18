@@ -5234,6 +5234,35 @@ function confirmRebirth() {
 function renderMapBackground() {
   const img = document.getElementById('map-bg-img');
   if (!img) return;
+
+  const map = Array.isArray(MAPS) ? MAPS.find(m => m.id === state.mapId) : null;
+  const mapId = String((map && map.id) || state.mapId || '').toLowerCase();
+  const mapName = String((map && map.name) || '');
+  // 港口、島嶼、海洞與池塘使用動態水面；一般草原／沙漠不覆蓋水層。
+  const isUnderwater = /^(?:undersea|abyss_\d+|iz_dun)/.test(mapId)
+    || /海底|水洞|深淵湖水/.test(mapName);
+  const isWaterMap = isUnderwater
+    || /^(?:izlude|alberta|alb_ship|comodo|byalan_island|cmd_fild0[1-8]|malaya|malangdo|dewata|prt_chiyu|beach_dun\d*)/.test(mapId)
+    || /港口|海島|海洞|海邊|海岸|海灘|水池|海底|水洞|深淵湖水|貓咪島|蜜月島|克魔島|依斯魯德|艾爾貝塔|馬來港/.test(mapName);
+
+  const layer = img.closest('.map-bg-layer');
+  const panel = img.closest('.battle-panel');
+  if (panel) {
+    panel.classList.toggle('has-water-surface', isWaterMap);
+    panel.classList.toggle('is-underwater', isUnderwater);
+  }
+  if (layer) {
+    let surface = layer.querySelector('.water-surface');
+    if (isWaterMap && !surface) {
+      surface = document.createElement('div');
+      surface.className = 'water-surface';
+      surface.setAttribute('aria-hidden', 'true');
+      layer.appendChild(surface);
+    } else if (!isWaterMap && surface) {
+      surface.remove();
+    }
+  }
+
   img.src = mapImgSrc(state.mapId);
 }
 
