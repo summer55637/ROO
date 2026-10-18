@@ -797,6 +797,55 @@ export function insetGndTextureUvs(uvs, textureWidth, textureHeight) {
   return result;
 }
 
+export function buildGndWaterMeshData(gat, waterLevel, worldScale = 0.2) {
+  if (!gat || !Number.isInteger(gat.width) || !Number.isInteger(gat.height)
+    || gat.width < 1 || gat.height < 1 || !gat.terrainTypes || !gat.water) {
+    throw new TypeError('必須提供已解析的 GAT 水域資料。');
+  }
+  if (!Number.isFinite(waterLevel)) throw new Error('水面高度必須是有限數值。');
+  if (!Number.isFinite(worldScale) || worldScale <= 0 || worldScale > 10) {
+    throw new Error('世界比例必須大於 0，且不可大於 10。');
+  }
+  const total = gat.width * gat.height;
+  if (!Number.isSafeInteger(total) || total > 1000000
+    || gat.terrainTypes.length < total || gat.water.length < total) {
+    throw new Error('GAT 水域格線尺寸無效或超過安全上限。');
+  }
+
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+  const size = 5 * worldScale;
+  const y = -waterLevel * worldScale;
+  let waterTileCount = 0;
+
+  for (let i = 0; i < total; i++) {
+    // GAT 1.3 has an explicit water flag; legacy GAT 1.2 maps may label water as type 6.
+    const marked = gat.water[i] === 1
+      || (gat.version === '1.2' && gat.terrainTypes[i] === 6);
+    if (!marked) continue;
+
+    const x = i % gat.width;
+    const z = Math.floor(i / gat.width);
+    const x0 = (x - gat.width / 2) * size;
+    const x1 = x0 + size;
+    const z1 = (gat.height / 2 - z) * size;
+    const z0 = z1 - size;
+    const base = positions.length / 3;
+    positions.push(
+      x0, y, z0,
+      x1, y, z0,
+      x0, y, z1,
+      x1, y, z1
+    );
+    uvs.push(0, 0, 1, 0, 0, 1, 1, 1);
+    indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+    waterTileCount++;
+  }
+
+  return { positions, uvs, indices, waterTileCount, level: waterLevel };
+}
+
 export function resolveRagassetsMapUrls(mapId, manifest, baseUrl = RAGASSETS_BASE_URL) {
   const id = String(mapId || '').toLowerCase();
   if (!MAP_ID_PATTERN.test(id)) throw new Error('地圖 ID 格式無效。');
@@ -810,7 +859,7 @@ export function resolveRagassetsMapUrls(mapId, manifest, baseUrl = RAGASSETS_BAS
   const root = new URL('/maps/' + id + '/', baseUrl);
   const manifestUrl = new URL('manifest.json', root);
   const files = manifest.files && typeof manifest.files === 'object' ? manifest.files : {};
-  const urls = { manifest: manifestUrl.href, gat: null, gnd: null, rsw: null, textures: {}, models: {} };
+  const urls = { manifest: manifestUrl.href, gat: null, gnd: null, rsw: null, textures: {}, models: {}, waterFrames: [] };
   for (const ext of ['gat', 'gnd', 'rsw']) {
     const name = files[ext] || id + '.' + ext;
     if (name !== id + '.' + ext) throw new Error('manifest 的 ' + ext.toUpperCase() + ' 檔名不符合地圖 ID。');
@@ -833,6 +882,14 @@ export function resolveRagassetsMapUrls(mapId, manifest, baseUrl = RAGASSETS_BAS
     const url = new URL(reference, manifestUrl);
     if (url.origin !== manifestUrl.origin || !/^\/maps\/_m\/[a-f0-9]{16}\.rsm$/i.test(url.pathname)) continue;
     urls.models[normalizeModelName(name)] = url.href;
+  }
+  const water = manifest.water && typeof manifest.water === 'object' ? manifest.water : {};
+  const waterFrames = Array.isArray(water.frames) ? water.frames : [];
+  for (const reference of waterFrames) {
+    if (typeof reference !== 'string' || !/^\.\.\/_w\/[a-f0-9]{16}\.jpg$/i.test(reference)) continue;
+    const url = new URL(reference, manifestUrl);
+    if (url.origin !== manifestUrl.origin || !/^\/maps\/_w\/[a-f0-9]{16}\.jpg$/i.test(url.pathname)) continue;
+    urls.waterFrames.push(url.href);
   }
   return urls;
 }
