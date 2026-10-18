@@ -733,6 +733,30 @@ function resetRswLighting() {
   fillLight.position.set(-300, 150, -250);
 }
 
+function applyGndBakedLighting(material, lightMapTexture, aoTexture) {
+  material.onBeforeCompile = shader => {
+    shader.uniforms.rooGndLightMap = { value: lightMapTexture };
+    shader.uniforms.rooGndAoMap = { value: aoTexture };
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <common>',
+      '#include <common>\nattribute vec2 uv2;\nvarying vec2 vRooGndLightmapUv;'
+    ).replace(
+      '#include <begin_vertex>',
+      '#include <begin_vertex>\nvRooGndLightmapUv = uv2;'
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <common>',
+      '#include <common>\nuniform sampler2D rooGndLightMap;\nuniform sampler2D rooGndAoMap;\nvarying vec2 vRooGndLightmapUv;'
+    ).replace(
+      '#include <opaque_fragment>',
+      'diffuseColor.rgb *= texture2D(rooGndLightMap, vRooGndLightmapUv).rgb;\n'
+        + 'diffuseColor.rgb *= texture2D(rooGndAoMap, vRooGndLightmapUv).r;\n'
+        + '#include <opaque_fragment>'
+    );
+  };
+  material.customProgramCacheKey = () => 'roo-gnd-baked-lightmap-v1';
+}
+
 function createLightmapDataTexture(data, width, height) {
   const texture = new THREE.DataTexture(
     data,
@@ -891,18 +915,24 @@ async function loadRagassetsMap(mapName) {
           }
         });
       }
-      material = new THREE.MeshStandardMaterial({
-        map: texture,
-        lightMap: lightmapTexture,
-        aoMap: aoTexture,
-        lightMapIntensity: 1,
-        aoMapIntensity: 1,
-        color: texture ? 0xffffff : 0x9cb68c,
-        vertexColors: true,
-        side: THREE.DoubleSide,
-        roughness: 1,
-        metalness: 0,
-      });
+      if (lightmapAtlas) {
+        material = new THREE.MeshBasicMaterial({
+          map: texture,
+          color: texture ? 0xffffff : 0x9cb68c,
+          vertexColors: true,
+          side: THREE.DoubleSide,
+        });
+        applyGndBakedLighting(material, lightmapTexture, aoTexture);
+      } else {
+        material = new THREE.MeshStandardMaterial({
+          map: texture,
+          color: texture ? 0xffffff : 0x9cb68c,
+          vertexColors: true,
+          side: THREE.DoubleSide,
+          roughness: 1,
+          metalness: 0,
+        });
+      }
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = 'terrain-texture-' + bucket.textureIndex;
       mesh.userData.rooTerrainSurface = true;
