@@ -1944,3 +1944,81 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg-deep); co
 .codex-cats .btn-small { padding: 2px 8px; font-size: 11px; }
 .codex-cats .btn-small.empty { opacity: 0.45; }
 .codex-cat-n { font-size: 10px; opacity: 0.7; margin-left: 2px; font-variant-numeric: tabular-nums; }
+
+
+/* ---------------- 探索移動（第一階段）---------------- */
+.player-area {
+  transition: transform 120ms ease-out;
+  will-change: transform;
+}
+.explore-controls {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 9px 6px;
+  border: 1px solid rgba(212,175,55,0.65);
+  border-radius: 10px;
+  background: rgba(18,20,28,0.72);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.28);
+  backdrop-filter: blur(4px);
+  user-select: none;
+}
+.explore-controls-title {
+  color: var(--gold-soft);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+.explore-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 30px);
+  grid-template-rows: repeat(3, 28px);
+  gap: 2px;
+}
+.explore-pad button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid rgba(232,201,106,0.55);
+  border-radius: 6px;
+  background: rgba(42,47,78,0.92);
+  color: var(--gold-soft);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.explore-pad button:hover,
+.explore-pad button:focus-visible {
+  background: rgba(212,175,55,0.35);
+  outline: 1px solid var(--gold-soft);
+  outline-offset: 1px;
+}
+.explore-pad button:active { background: rgba(212,175,55,0.55); }
+.explore-pad .explore-pad-home {
+  color: var(--ink-dim);
+  font-size: 18px;
+}
+.explore-controls-hint {
+  color: var(--ink-dim);
+  font-size: 9px;
+  white-space: nowrap;
+}
+@media (max-width: 860px) {
+  .explore-controls {
+    right: 7px;
+    bottom: 7px;
+    transform: scale(.9);
+    transform-origin: bottom right;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .player-area { transition: none; }
+}
