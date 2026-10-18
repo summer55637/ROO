@@ -813,6 +813,53 @@ export function parseRswBuffer(input) {
   };
 }
 
+export function analyzeRswPlacementBounds(gnd, rsw, worldScale = 0.2) {
+  if (!gnd || !Number.isInteger(gnd.width) || !Number.isInteger(gnd.height)
+    || gnd.width < 1 || gnd.height < 1 || !rsw || !Array.isArray(rsw.models)) {
+    throw new TypeError('必須提供已解析的 GND 與 RSW 場景資料。');
+  }
+  if (!Number.isFinite(worldScale) || worldScale <= 0 || worldScale > 10) {
+    throw new Error('世界比例必須大於 0，且不可大於 10。');
+  }
+
+  // RSW positions are world coordinates; the renderer centers the map at the origin
+  // and flips world Z when translating file coordinates into Three.js coordinates.
+  const halfWidth = gnd.width * 5 * worldScale;
+  const halfDepth = gnd.height * 5 * worldScale;
+  const oneTile = 5 * worldScale;
+  let withinBounds = 0;
+  let withinOneTileMargin = 0;
+  let invalidPositions = 0;
+  let maximumOutsideDistance = 0;
+
+  for (const [index, model] of rsw.models.entries()) {
+    if (!model || !Array.isArray(model.position) || model.position.length < 3
+      || !model.position.every(Number.isFinite)) {
+      invalidPositions++;
+      continue;
+    }
+    const x = model.position[0] * worldScale;
+    const z = -model.position[2] * worldScale;
+    const outsideX = Math.max(0, Math.abs(x) - halfWidth);
+    const outsideZ = Math.max(0, Math.abs(z) - halfDepth);
+    const outside = Math.hypot(outsideX, outsideZ);
+    if (outside <= 1e-6) withinBounds++;
+    if (outside <= oneTile + 1e-6) withinOneTileMargin++;
+    maximumOutsideDistance = Math.max(maximumOutsideDistance, outside);
+  }
+
+  const total = rsw.models.length;
+  return {
+    total,
+    withinBounds,
+    withinOneTileMargin,
+    outsideBounds: Math.max(0, total - invalidPositions - withinBounds),
+    invalidPositions,
+    maximumOutsideDistance,
+    insidePercent: total ? withinBounds / total * 100 : null,
+  };
+}
+
 export function sampleGndHeightAtGatCell(gnd, cellX, cellY, worldScale = 0.2) {
   if (!gnd || !Number.isInteger(gnd.width) || !Number.isInteger(gnd.height)
     || gnd.width < 1 || gnd.height < 1 || !Array.isArray(gnd.cubes)) {
