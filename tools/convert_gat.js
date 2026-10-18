@@ -2,8 +2,8 @@
 'use strict';
 
 /* 將作者授權取得的 RO GAT 檔轉成適合 GitHub Pages 的通行格 JSON。
-   GAT 1.2/1.3：14-byte header；每格 20 bytes，最後 4 bytes 是 terrain type。
-   格子依 GAT 座標由西南角開始排列；地形 1（障礙）和 5（懸崖）不可走。
+   GAT 1.2/1.3：14-byte header；每格 20 bytes，地形與水域欄位各 2 bytes。
+   座標依 GAT 西南角原點排列；地形 1（障礙）和 5（懸崖）不可走。
 */
 const fs = require('fs');
 const path = require('path');
