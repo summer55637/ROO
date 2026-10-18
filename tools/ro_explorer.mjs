@@ -7,6 +7,7 @@ import {
   buildGndMeshData,
   analyzeRswPlacementBounds,
   buildRsmNodeTransformData,
+  buildRsmNodeMeshData,
   transformRsmVertex,
   buildGndWaterMeshData,
   compareGndGatHeights,
@@ -527,57 +528,32 @@ function buildRsmTemplate(rsm, urls, scale) {
     group.scale.set(...transform.scale);
 
     const textureNames = rsmTextureNames(rsm, node);
-    const buckets = new Map();
-    for (const face of node.faces) {
-      const textureIndex = face.textureIndex;
-      let bucket = buckets.get(textureIndex);
-      if (!bucket) {
-        const textureName = textureNames[textureIndex] || '';
-        const textureUrl = getModelTextureUrl(urls, textureName);
-        const texture = loadModelTexture(textureUrl);
-        const opacity = Math.max(0, Math.min(1, rsm.alpha / 255));
-        const materialOptions = {
-          map: texture,
-          color: texture ? 0xffffff : 0xb8b4a0,
-          side: THREE.DoubleSide,
-          transparent: opacity < 1,
-          opacity,
-          roughness: 1,
-          metalness: 0,
-        };
-        const material = rsm.shadeType === 0
-          ? new THREE.MeshBasicMaterial(materialOptions)
-          : new THREE.MeshStandardMaterial(materialOptions);
-        bucket = { positions: [], uvs: [], indices: [], lookup: new Map(), material };
-        buckets.set(textureIndex, bucket);
-      }
-
-      for (let corner = 0; corner < 3; corner++) {
-        const vertexIndex = face.vertexIndices[corner];
-        const uvIndex = face.uvIndices[corner];
-        const key = vertexIndex + ':' + uvIndex;
-        let destinationIndex = bucket.lookup.get(key);
-        if (destinationIndex === undefined) {
-          destinationIndex = bucket.positions.length / 3;
-          bucket.lookup.set(key, destinationIndex);
-          const vertex = node.vertices[vertexIndex];
-          bucket.positions.push(...transformRsmVertex(node, vertex, scale));
-          const uv = node.uvs[uvIndex] || [0, 0];
-          bucket.uvs.push(uv[0], uv[1]);
-        }
-        bucket.indices.push(destinationIndex);
-      }
-    }
-
-    for (const bucket of buckets.values()) {
-      if (!bucket.indices.length) continue;
+    const meshData = buildRsmNodeMeshData(node, rsm.shadeType, scale);
+    for (const data of meshData.buckets) {
+      if (!data.indices.length) continue;
+      const textureName = textureNames[data.textureIndex] || '';
+      const textureUrl = getModelTextureUrl(urls, textureName);
+      const texture = loadModelTexture(textureUrl);
+      const opacity = Math.max(0, Math.min(1, rsm.alpha / 255));
+      const materialOptions = {
+        map: texture,
+        color: texture ? 0xffffff : 0xb8b4a0,
+        side: THREE.DoubleSide,
+        transparent: opacity < 1,
+        opacity,
+        roughness: 1,
+        metalness: 0,
+      };
+      const material = rsm.shadeType === 0
+        ? new THREE.MeshBasicMaterial(materialOptions)
+        : new THREE.MeshStandardMaterial(materialOptions);
       const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(bucket.positions, 3));
-      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uvs, 2));
-      geometry.setIndex(bucket.indices);
-      geometry.computeVertexNormals();
-      const mesh = new THREE.Mesh(geometry, bucket.material);
-      mesh.name = 'rsm-mesh-' + bucket.material.name;
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(data.positions, 3));
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(data.uvs, 2));
+      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(data.normals, 3));
+      geometry.setIndex(data.indices);
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.name = 'rsm-mesh-' + textureName;
       group.add(mesh);
     }
     return group;

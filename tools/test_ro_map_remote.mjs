@@ -4,6 +4,7 @@ import {
   analyzeRswPlacementBounds,
   buildGndLightmapAtlasData,
   buildRsmNodeTransformData,
+  buildRsmNodeMeshData,
   compareGndGatHeights,
   normalizeModelName,
   normalizeTextureName,
@@ -63,6 +64,8 @@ async function validateMap(mapId) {
     assert.ok(model.nodes.length > 0, mapId + ' model ' + name + ' has nodes');
     let transformedNodes = 0;
     let transformedVertices = 0;
+    let transformedMeshBuckets = 0;
+    let transformedMeshVertices = 0;
     if (model.major === 1) {
       for (const node of model.nodes) {
         const transform = buildRsmNodeTransformData(node, 0.2);
@@ -71,6 +74,17 @@ async function validateMap(mapId) {
           mapId + ' model ' + name + ' node ' + node.name + ' has finite transforms'
         );
         transformedNodes++;
+        const meshData = buildRsmNodeMeshData(node, model.shadeType, 0.2);
+        for (const bucket of meshData.buckets) {
+          assert.equal(bucket.positions.length, bucket.normals.length,
+            mapId + ' model ' + name + ' node ' + node.name + ' position/normal lengths');
+          assert.ok(bucket.normals.every(Number.isFinite),
+            mapId + ' model ' + name + ' node ' + node.name + ' has finite normals');
+          assert.ok(bucket.indices.every(index => index >= 0 && index < bucket.positions.length / 3),
+            mapId + ' model ' + name + ' node ' + node.name + ' has valid mesh indices');
+          transformedMeshBuckets++;
+          transformedMeshVertices += bucket.positions.length / 3;
+        }
         for (const vertex of node.vertices) {
           const point = transformRsmVertex(node, vertex, 0.2);
           assert.ok(
@@ -87,13 +101,19 @@ async function validateMap(mapId) {
       faces: model.nodes.reduce((sum, node) => sum + node.faces.length, 0),
       transformedNodes,
       transformedVertices,
+      transformedMeshBuckets,
+      transformedMeshVertices,
     };
   }));
   const transformedNodeCount = parsedModels.reduce((sum, model) => sum + model.transformedNodes, 0);
   const transformedVertexCount = parsedModels.reduce((sum, model) => sum + model.transformedVertices, 0);
+  const transformedMeshBucketCount = parsedModels.reduce((sum, model) => sum + model.transformedMeshBuckets, 0);
+  const transformedMeshVertexCount = parsedModels.reduce((sum, model) => sum + model.transformedMeshVertices, 0);
   if (parsedModels.some(model => model.version.startsWith('1.'))) {
     assert.ok(transformedNodeCount > 0, mapId + ' real RSM1 nodes have transform checks');
     assert.ok(transformedVertexCount > 0, mapId + ' real RSM1 vertices have transform checks');
+    assert.ok(transformedMeshBucketCount > 0, mapId + ' real RSM1 mesh buffers are built');
+    assert.ok(transformedMeshVertexCount > 0, mapId + ' real RSM1 mesh vertices are built');
   }
   const versionCounts = {};
   for (const model of parsedModels) versionCounts[model.version] = (versionCounts[model.version] || 0) + 1;
@@ -157,6 +177,7 @@ async function validateMap(mapId) {
       + ', sample RSM versions ' + versionSummary
       + ', sample model faces ' + parsedModels.reduce((sum, model) => sum + model.faces, 0)
       + ', RSM1 transform checks ' + transformedNodeCount + ' nodes/' + transformedVertexCount + ' vertices'
+      + ', RSM1 mesh shading checks ' + transformedMeshBucketCount + ' buckets/' + transformedMeshVertexCount + ' vertices'
       + ', height Δ mean/P95/max ' + heightAlignment.meanAbsoluteError.toFixed(3) + '/'
       + heightAlignment.p95AbsoluteError.toFixed(3) + '/' + heightAlignment.maxAbsoluteError.toFixed(3)
       + ' world units (' + heightAlignment.samples + ' samples)'

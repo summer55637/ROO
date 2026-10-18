@@ -136,3 +136,12 @@ js/map_pathfinding.js 提供解碼器、格子判定、A* 八方向尋路、最�
 - 原生 renderer 將頂點區域轉換與節點層級 TRS 分開處理；子節點繼承父節點 TRS，不再把父網格的 translation1 當子節點位移。
 - 單元測試使用非對稱 offsetMatrix 與非零 translation1，檢查頂點轉換、座標軸鏡射、旋轉與縮放，避免 identity matrix 測試掩蓋轉置錯誤。
 - 此階段仍不播放 RSM 旋轉／縮放／平移動畫，RSM2 幾何也不會實例化；渲染正確性仍須用真實瀏覽器畫面逐圖驗收。
+
+
+## RSM 1.x 著色與平滑群組法線（2026-10-18）
+
+- 依 [RSM 格式研究](https://github.com/rdw-archive/RagnarokFileFormats/blob/master/RSM.MD) 與 [ragx 的模型轉換說明](https://github.com/joaopedrosgs/ragx/blob/main/ragx/model_builder.py) 區分 ShadeType：0 不受光、1 逐三角面法線、2 依 smoothing group 平滑。
+- 新增 `buildRsmNodeMeshData()`，在依材質拆分前先算每個節點的面法線與 smoothing-group 累加；同一位置的重複頂點可共用平滑法線，不同群組仍保留硬邊。
+- 原生 renderer 直接送入計算好的 normal attribute，避免對所有模型一律呼叫 `computeVertexNormals()` 導致平面過度平滑或材質邊界產生縫。
+- 單元測試覆蓋 unlit、flat、smooth、不同 smoothing group 與無效面索引；公開素材 smoke test 另外抽樣建立真實 RSM1 mesh buffers 並檢查法線及索引有限／有效。
+- RSM 動畫、RSM2 幾何與瀏覽器目視驗收仍未完成。

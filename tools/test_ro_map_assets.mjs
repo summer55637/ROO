@@ -3,6 +3,7 @@ import {
   RAGASSETS_BASE_URL,
   buildGndLightmapAtlasData,
   buildRsmNodeTransformData,
+  buildRsmNodeMeshData,
   transformRsmVertex,
   buildGndMeshData,
   analyzeRswPlacementBounds,
@@ -247,6 +248,44 @@ assert.equal(rsm.nodes[0].vertices.length, 3);
 assert.deepEqual(rsm.nodes[0].faces[0].vertexIndices, [0, 1, 2]);
 assert.deepEqual(rsm.nodes[0].faces[0].uvIndices, [0, 1, 2]);
 assert.equal(rsm.nodes[0].faces[0].textureIndex, 0);
+
+const shadingFixture = {
+  offsetMatrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+  translation1: [0, 0, 0],
+  vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
+  uvs: [[0, 0], [1, 0], [0, 1], [1, 1]],
+  faces: [
+    { vertexIndices: [0, 1, 2], uvIndices: [0, 1, 2], textureIndex: 0, smoothGroup: [1] },
+    { vertexIndices: [0, 3, 1], uvIndices: [0, 3, 1], textureIndex: 0, smoothGroup: [1] },
+  ],
+};
+const smoothMesh = buildRsmNodeMeshData(shadingFixture, 2, 1);
+assert.equal(smoothMesh.triangleCount, 2);
+assert.equal(smoothMesh.buckets[0].indices.length, 6);
+assert.equal(smoothMesh.buckets[0].positions.length / 3, 4);
+const sharedSmoothNormal = smoothMesh.buckets[0].normals.slice(0, 3);
+assert.ok(Math.abs(sharedSmoothNormal[0]) < 1e-6);
+assert.ok(Math.abs(sharedSmoothNormal[1] + Math.SQRT1_2) < 1e-6);
+assert.ok(Math.abs(sharedSmoothNormal[2] + Math.SQRT1_2) < 1e-6);
+const flatMesh = buildRsmNodeMeshData(shadingFixture, 1, 1);
+assert.equal(flatMesh.buckets[0].positions.length / 3, 6);
+assert.deepEqual(flatMesh.buckets[0].normals.slice(0, 3), [0, 0, -1]);
+assert.deepEqual(flatMesh.buckets[0].normals.slice(9, 12), [0, -1, 0]);
+const separatedGroups = {
+  ...shadingFixture,
+  faces: [
+    { ...shadingFixture.faces[0], smoothGroup: [1] },
+    { ...shadingFixture.faces[1], smoothGroup: [2] },
+  ],
+};
+assert.equal(buildRsmNodeMeshData(separatedGroups, 2, 1).buckets[0].positions.length / 3, 6);
+const unlitMesh = buildRsmNodeMeshData(shadingFixture, 0, 1);
+assert.ok(unlitMesh.buckets[0].normals.every(value => value === -1));
+assert.throws(() => buildRsmNodeMeshData(shadingFixture, 9), /ShadeType/);
+assert.throws(() => buildRsmNodeMeshData({
+  ...shadingFixture,
+  faces: [{ ...shadingFixture.faces[0], vertexIndices: [0, 99, 2] }],
+}, 2), /頂點索引/);
 
 const rsmNodeTransform = buildRsmNodeTransformData({
   offsetMatrix: [1, 0, 0, 2, 1, 0, 0, 0, 1],

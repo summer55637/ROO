@@ -445,6 +445,134 @@ export function transformRsmVertex(node, vertex, worldScale = 0.2) {
   ];
 }
 
+/**
+ * Build RSM1 mesh buffers with RO shading semantics before splitting by texture.
+ * Type 0 is unlit, type 1 uses per-triangle normals, type 2 uses smoothing groups.
+ */
+export function buildRsmNodeMeshData(node, shadeType, worldScale = 0.2) {
+  if (!node || !Array.isArray(node.vertices) || !Array.isArray(node.faces)) {
+    throw new TypeError('必須提供含頂點與面的 RSM 節點。');
+  }
+  if (![0, 1, 2].includes(shadeType)) {
+    throw new Error('RSM ShadeType 只支援 0、1、2。');
+  }
+  if (!Number.isFinite(worldScale) || worldScale <= 0 || worldScale > 10) {
+    throw new Error('RSM 世界比例必須大於 0，且不可大於 10。');
+  }
+
+  const vertices = node.vertices.map(vertex => transformRsmVertex(node, vertex, worldScale));
+  const positionKey = point => point.map(value => Math.round(value * 1e6)).join(',');
+  const normalize = vector => {
+    const length = Math.hypot(vector[0], vector[1], vector[2]);
+    return length > 1e-9 ? vector.map(value => value / length) : [0, 1, 0];
+  };
+  const faceNormals = [];
+  const faceGroups = [];
+
+  for (const face of node.faces) {
+    if (!Array.isArray(face.vertexIndices) || face.vertexIndices.length !== 3
+      || face.vertexIndices.some(index => !Number.isInteger(index) || index < 0 || index >= vertices.length)) {
+      throw new Error('RSM face 頂點索引無效。');
+    }
+    if (!Array.isArray(face.uvIndices) || face.uvIndices.length !== 3
+      || face.uvIndices.some(index => !Number.isInteger(index) || index < 0
+        || !Array.isArray(node.uvs) || index >= node.uvs.length)) {
+      throw new Error('RSM face UV 索引無效。');
+    }
+    const [a, b, c] = face.vertexIndices.map(index => vertices[index]);
+    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    faceNormals.push(normalize([
+      ab[1] * ac[2] - ab[2] * ac[1],
+      ab[2] * ac[0] - ab[0] * ac[2],
+      ab[0] * ac[1] - ab[1] * ac[0],
+    ]));
+
+    const groups = [];
+    for (const group of (Array.isArray(face.smoothGroup) ? face.smoothGroup : [])) {
+      if (!Number.isInteger(group) || group < 0) break;
+      const normalizedGroup = group % 128;
+      if (!groups.includes(normalizedGroup)) groups.push(normalizedGroup);
+    }
+    faceGroups.push(groups);
+  }
+
+  const groupNormals = new Map();
+  if (shadeType === 2) {
+    for (let faceIndex = 0; faceIndex < node.faces.length; faceIndex++) {
+      const face = node.faces[faceIndex];
+      for (const group of faceGroups[faceIndex]) {
+        for (const vertexIndex of face.vertexIndices) {
+          const key = group + ':' + positionKey(vertices[vertexIndex]);
+          let total = groupNormals.get(key);
+          if (!total) {
+            total = [0, 0, 0];
+            groupNormals.set(key, total);
+          }
+          for (let axis = 0; axis < 3; axis++) total[axis] += faceNormals[faceIndex][axis];
+        }
+      }
+    }
+  }
+
+  const buckets = new Map();
+  for (let faceIndex = 0; faceIndex < node.faces.length; faceIndex++) {
+    const face = node.faces[faceIndex];
+    const textureIndex = face.textureIndex;
+    let bucket = buckets.get(textureIndex);
+    if (!bucket) {
+      bucket = { textureIndex, positions: [], uvs: [], normals: [], indices: [], lookup: new Map() };
+      buckets.set(textureIndex, bucket);
+    }
+
+    for (let corner = 0; corner < 3; corner++) {
+      const vertexIndex = face.vertexIndices[corner];
+      const uvIndex = face.uvIndices[corner];
+      let normal = [-1, -1, -1];
+      if (shadeType === 1) {
+        normal = faceNormals[faceIndex];
+      } else if (shadeType === 2) {
+        const accum = [0, 0, 0];
+        const pointKey = positionKey(vertices[vertexIndex]);
+        for (const group of faceGroups[faceIndex]) {
+          const contribution = groupNormals.get(group + ':' + pointKey);
+          if (contribution) {
+            for (let axis = 0; axis < 3; axis++) accum[axis] += contribution[axis];
+          }
+        }
+        const length = Math.hypot(accum[0], accum[1], accum[2]);
+        normal = length > 1e-9 ? accum.map(value => value / length) : faceNormals[faceIndex];
+      }
+
+      const normalKey = normal.map(value => Math.round(value * 1e6)).join(',');
+      const key = shadeType === 1
+        ? faceIndex + ':' + corner
+        : positionKey(vertices[vertexIndex]) + ':' + uvIndex + ':' + normalKey;
+      let destinationIndex = bucket.lookup.get(key);
+      if (destinationIndex === undefined) {
+        destinationIndex = bucket.positions.length / 3;
+        bucket.lookup.set(key, destinationIndex);
+        bucket.positions.push(...vertices[vertexIndex]);
+        const uv = node.uvs[uvIndex] || [0, 0];
+        bucket.uvs.push(uv[0], uv[1]);
+        bucket.normals.push(...normal);
+      }
+      bucket.indices.push(destinationIndex);
+    }
+  }
+
+  return {
+    triangleCount: node.faces.length,
+    buckets: [...buckets.values()].map(bucket => ({
+      textureIndex: bucket.textureIndex,
+      positions: bucket.positions,
+      uvs: bucket.uvs,
+      normals: bucket.normals,
+      indices: bucket.indices,
+    })),
+  };
+}
+
 export function parseRsmBuffer(input) {
   const view = asView(input);
   let offset = 0;
