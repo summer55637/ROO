@@ -236,9 +236,10 @@ export function buildGndMeshData(gnd, worldScale = 0.2) {
     }
     const base = bucket.positions.length / 3;
     for (const corner of corners) {
+      const worldHeight = corner.h === 0 ? 0 : -corner.h * worldScale;
       bucket.positions.push(
         (corner.x * 10 - width * 5) * worldScale,
-        -corner.h * worldScale,
+        worldHeight,
         -(corner.z * 10 - height * 5) * worldScale
       );
       const uv = surface.uv[corner.uvIndex];
