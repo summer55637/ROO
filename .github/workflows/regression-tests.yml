@@ -29,6 +29,7 @@ jobs:
           node-version: 20
       - name: Check changed JavaScript syntax
         run: |
+          node --check js/data.js
           node --check js/map_pathfinding.js
           node --check tools/convert_gat.js
           node --check tools/test_map_pathfinding.js
@@ -43,3 +44,7 @@ jobs:
         run: node tools/test_ro_map_assets.mjs
       - name: Run complete regression suite
         run: node tools/test.js
+      - name: Run full-game smoke test
+        run: node tools/test_smoke.js
+      - name: Check primary data syntax
+        run: node tools/check_syntax.js
