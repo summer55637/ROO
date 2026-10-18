@@ -26,6 +26,19 @@ function offline(g, hours) {
   g.state.lastActiveAt = Date.now() - (hours || 1) * 3600 * 1000;
   return g.computeOfflineProgress(5000);
 }
+function withSeededRandom(seed, callback) {
+  const originalRandom = Math.random;
+  let state = seed >>> 0;
+  Math.random = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+  try {
+    return callback();
+  } finally {
+    Math.random = originalRandom;
+  }
+}
 const qtyOf = (r, id) => (r.itemsGained.find(i => i.item === id) || {}).qty || 0;
 // 戴一張卡：找一件穿得上、有孔的飾品插進去
 function wearCard(g, cardId) {
@@ -154,7 +167,9 @@ function thief() {
      這一段挑圖挑得很小心。一刀一隻的角色是**攻速**在決定擊殺數，
      血量乘幾倍都一樣；反過來打不太動的角色擊殺數趨近 0，
      整個結果被抽樣雜訊蓋過去（實測同一組設定跑出 1.05 倍與 32 倍都有）。
-     所以自動找一張「擊殺數落在穩定區間」的圖，而不是寫死一個地圖 id。 */
+     固定抽樣序列，避免 PR 的無關隨機波動讓相同程式有時過、有時失敗；
+     正式遊戲仍使用原生 Math.random。 */
+  withSeededRandom(0x14520261, () => {
   const g = hero({ stats: { str: 40, agi: 40, vit: 99, int: 1, dex: 70, luk: 1 } });
   const HOURS = 24;
   let picked = null, k0 = 0, e0 = 0;
@@ -173,7 +188,7 @@ function thief() {
   t.ok('淨經驗約 2 倍（不是 10 倍，代表血量倍率有生效）',
     r2.expGained / e0 > 1.4 && r2.expGained / e0 < 3,
     `${e0} → ${r2.expGained}（×${(r2.expGained / e0).toFixed(2)}）`);
-}
+  });
 
 /* ---------- 遺物只有打寶模式才掉 ---------- */
 {
