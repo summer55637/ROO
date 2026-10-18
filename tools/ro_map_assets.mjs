@@ -1512,6 +1512,32 @@ export function insetGndTextureUvs(uvs, textureWidth, textureHeight) {
   return result;
 }
 
+// RSW describes vertex-height waves separately from the cycling water textures.
+// This lightweight sine-wave approximation uses a stable 3.5 s cycle; it is not
+// claimed to be pixel-identical to the original client's proprietary animation.
+const RO_WATER_WAVE_CYCLE_SECONDS = 3.5;
+
+export function sampleRoWaterWaveOffset(waterConfig, gridX, gridZ, elapsedSeconds, worldScale = 0.2) {
+  if (!waterConfig || typeof waterConfig !== 'object') {
+    throw new TypeError('必須提供 RO 水面參數。');
+  }
+  if (![gridX, gridZ, elapsedSeconds].every(Number.isFinite)) {
+    throw new TypeError('水波座標與時間必須是有限數值。');
+  }
+  if (!Number.isFinite(worldScale) || worldScale <= 0 || worldScale > 10) {
+    throw new Error('水波世界比例必須大於 0，且不可大於 10。');
+  }
+  const amplitude = Number(waterConfig.waveHeight);
+  if (!Number.isFinite(amplitude) || Math.abs(amplitude) < 1e-8) return 0;
+  const phaseOffset = Number.isFinite(waterConfig.waveSpeed) ? waterConfig.waveSpeed : 0;
+  const pitchDegrees = Number.isFinite(waterConfig.wavePitch) ? waterConfig.wavePitch : 0;
+  // A GND surface spans 2×2 GAT cells, so one GAT-grid step adds half a pitch.
+  const spatialPhase = (gridX + gridZ) * pitchDegrees * Math.PI / 360;
+  const temporalPhase = elapsedSeconds * Math.PI * 2 / RO_WATER_WAVE_CYCLE_SECONDS;
+  // Renderer Y is mirrored relative to the source file's vertical axis.
+  return -Math.sin(temporalPhase + phaseOffset + spatialPhase) * Math.abs(amplitude) * worldScale;
+}
+
 export function buildGndWaterMeshData(gat, waterLevel, worldScale = 0.2) {
   if (!gat || !Number.isInteger(gat.width) || !Number.isInteger(gat.height)
     || gat.width < 1 || gat.height < 1 || !gat.terrainTypes || !gat.water) {
@@ -1530,6 +1556,7 @@ export function buildGndWaterMeshData(gat, waterLevel, worldScale = 0.2) {
   const positions = [];
   const uvs = [];
   const indices = [];
+  const tileCoordinates = [];
   const size = 5 * worldScale;
   const y = -waterLevel * worldScale;
   let waterTileCount = 0;
@@ -1542,6 +1569,7 @@ export function buildGndWaterMeshData(gat, waterLevel, worldScale = 0.2) {
 
     const x = i % gat.width;
     const z = Math.floor(i / gat.width);
+    tileCoordinates.push(x, z);
     const x0 = (x - gat.width / 2) * size;
     const x1 = x0 + size;
     const z1 = (gat.height / 2 - z) * size;
@@ -1558,7 +1586,7 @@ export function buildGndWaterMeshData(gat, waterLevel, worldScale = 0.2) {
     waterTileCount++;
   }
 
-  return { positions, uvs, indices, waterTileCount, level: waterLevel };
+  return { positions, uvs, indices, tileCoordinates, waterTileCount, level: waterLevel };
 }
 
 export function resolveRagassetsMapUrls(mapId, manifest, baseUrl = RAGASSETS_BASE_URL) {
