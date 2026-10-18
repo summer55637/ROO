@@ -813,6 +813,65 @@ export function parseRswBuffer(input) {
   };
 }
 
+export function sampleGndHeightAtGatCell(gnd, cellX, cellY, worldScale = 0.2) {
+  if (!gnd || !Number.isInteger(gnd.width) || !Number.isInteger(gnd.height)
+    || gnd.width < 1 || gnd.height < 1 || !Array.isArray(gnd.cubes)) {
+    throw new TypeError('必須提供已解析的 GND 高度資料。');
+  }
+  if (!Number.isInteger(cellX) || !Number.isInteger(cellY)
+    || cellX < 0 || cellY < 0 || cellX >= gnd.width * 2 || cellY >= gnd.height * 2) {
+    throw new RangeError('GAT 格座標超出 GND 地圖範圍。');
+  }
+  if (!Number.isFinite(worldScale) || worldScale <= 0 || worldScale > 10) {
+    throw new Error('世界比例必須大於 0，且不可大於 10。');
+  }
+
+  const cubeX = Math.floor(cellX / 2);
+  const cubeY = Math.floor(cellY / 2);
+  const cube = gnd.cubes[cubeY * gnd.width + cubeX];
+  if (!cube) throw new Error('GND 對應 cube 不存在。');
+
+  // GND cubes span 2×2 GAT cells; sample each GAT cell at its center.
+  const u = ((cellX % 2) + 0.5) / 2;
+  const v = ((cellY % 2) + 0.5) / 2;
+  const south = cube.hSW * (1 - u) + cube.hSE * u;
+  const north = cube.hNW * (1 - u) + cube.hNE * u;
+  const height = south * (1 - v) + north * v;
+  if (!Number.isFinite(height)) throw new Error('GND 插值高度不是有限數值。');
+  return -height * worldScale;
+}
+
+export function compareGndGatHeights(gnd, gat, worldScale = 0.2) {
+  if (!gat || !Number.isInteger(gat.width) || !Number.isInteger(gat.height)
+    || !gat.heights || gat.width !== gnd.width * 2 || gat.height !== gnd.height * 2
+    || gat.heights.length < gat.width * gat.height) {
+    throw new Error('GND/GAT 高度比對需要尺寸相符且含完整高度的兩張地圖。');
+  }
+  const differences = [];
+  const count = gat.width * gat.height;
+  for (let y = 0; y < gat.height; y++) {
+    for (let x = 0; x < gat.width; x++) {
+      const cube = gnd.cubes[Math.floor(y / 2) * gnd.width + Math.floor(x / 2)];
+      if (!cube || cube.topSurface < 0 || !Number.isFinite(gat.heights[y * gat.width + x])) continue;
+      const gndY = sampleGndHeightAtGatCell(gnd, x, y, worldScale);
+      const gatY = -gat.heights[y * gat.width + x] * worldScale;
+      differences.push(Math.abs(gndY - gatY));
+    }
+  }
+  if (!differences.length) {
+    return { samples: 0, meanAbsoluteError: null, p95AbsoluteError: null, maxAbsoluteError: null };
+  }
+  differences.sort((a, b) => a - b);
+  const sum = differences.reduce((acc, value) => acc + value, 0);
+  return {
+    samples: differences.length,
+    meanAbsoluteError: sum / differences.length,
+    p95AbsoluteError: differences[Math.min(differences.length - 1, Math.floor(differences.length * 0.95))],
+    maxAbsoluteError: differences[differences.length - 1],
+    comparedTiles: count,
+  };
+}
+
 export function buildGndLightmapAtlasData(gnd, posterizationLevel = 16) {
   if (!gnd || !Array.isArray(gnd.lightmapSlices)) {
     throw new TypeError('必須提供已解析的 GND lightmap slices。');
