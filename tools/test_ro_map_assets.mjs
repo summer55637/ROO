@@ -4,6 +4,7 @@ import {
   buildGndMeshData,
   insetGndTextureUvs,
   parseGndBuffer,
+  parseRswBuffer,
   resolveRagassetsMapUrls,
 } from './ro_map_assets.mjs';
 
@@ -74,6 +75,71 @@ function makeGnd(surfaceStride = 40, minor = 7) {
   }
   return buffer;
 }
+
+function makeRswV19() {
+  const fixed = (text, size) => {
+    const buffer = Buffer.alloc(size);
+    buffer.write(text, 0, 'latin1');
+    return buffer;
+  };
+  const chunks = [
+    Buffer.from('GRSW', 'ascii'),
+    Buffer.from([1, 9]),
+    fixed('prontera.ini', 40),
+    fixed('prontera.gnd', 40),
+    fixed('prontera.gat', 40),
+    fixed('source.rsw', 40),
+  ];
+  const waterAndLight = Buffer.alloc(24 + 32 + 4 + 16);
+  let at = 0;
+  waterAndLight.writeFloatLE(-5, at); at += 4;
+  waterAndLight.writeInt32LE(3, at); at += 4;
+  waterAndLight.writeFloatLE(0.5, at); at += 4;
+  waterAndLight.writeFloatLE(0.6, at); at += 4;
+  waterAndLight.writeFloatLE(0.7, at); at += 4;
+  waterAndLight.writeInt32LE(8, at); at += 4;
+  waterAndLight.writeInt32LE(135, at); at += 4;
+  waterAndLight.writeInt32LE(45, at); at += 4;
+  [0.8, 0.7, 0.6, 0.2, 0.3, 0.4].forEach(value => {
+    waterAndLight.writeFloatLE(value, at); at += 4;
+  });
+  waterAndLight.writeFloatLE(0.8, at); at += 4;
+  [100, -100, -100, 100].forEach(value => {
+    waterAndLight.writeInt32LE(value, at); at += 4;
+  });
+
+  const model = Buffer.alloc(4 + 40 + 4 + 4 + 4 + 80 + 80 + 36);
+  at = 0;
+  model.writeInt32LE(1, at); at += 4;
+  fixed('tree01', 40).copy(model, at); at += 40;
+  model.writeInt32LE(0, at); at += 4;
+  model.writeFloatLE(1, at); at += 4;
+  model.writeInt32LE(1, at); at += 4;
+  fixed('tree\\tree01.rsm', 80).copy(model, at); at += 80;
+  fixed('node01', 80).copy(model, at); at += 80;
+  [12, -3, -18, 0, 90, 0, 1, 1, 1].forEach(value => {
+    model.writeFloatLE(value, at); at += 4;
+  });
+
+  return Buffer.concat([
+    ...chunks,
+    waterAndLight,
+    Buffer.from([1, 0, 0, 0]), // object count
+    model,
+  ]);
+}
+
+const rsw = parseRswBuffer(makeRswV19());
+assert.equal(rsw.format, 'roo-rsw-v1');
+assert.equal(rsw.version, '1.9');
+assert.equal(rsw.gndFile, 'prontera.gnd');
+assert.equal(rsw.water.level, -5);
+assert.equal(rsw.water.type, 3);
+assert.deepEqual(rsw.light.diffuse, [0.8, 0.7, 0.6]);
+assert.equal(rsw.models.length, 1);
+assert.equal(rsw.models[0].modelName, 'tree/tree01.rsm');
+assert.deepEqual(rsw.models[0].position, [12, -3, -18]);
+assert.deepEqual(rsw.models[0].scale, [1, 1, 1]);
 
 const gnd = parseGndBuffer(makeGnd());
 assert.equal(gnd.format, 'roo-gnd-v1');
