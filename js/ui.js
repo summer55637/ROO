@@ -2147,9 +2147,9 @@ function renderMapTab() {
     </div>
     <div class="region-subtitle-detail">${region.subtitle}</div>
     <div class="map-preview-box">
-      <div class="map-preview-title">🧭 真實 RO 地圖探索（實驗原型）</div>
-      <div class="map-preview-body">使用授權客戶端轉出的同名 GLB + GAT，可查看 3D 地圖、點擊行走並依地形避障。素材只在本機載入。</div>
-      <button class="btn-small" onclick="openRoExplorer()">開啟 3D 地圖探索</button>
+      <div class="map-preview-title">🧭 真實 RO 地圖探索</div>
+      <div class="map-preview-body">先用公開的 RO 地圖模擬器查看真實 3D 地圖，不需要下載素材；也保留本機 GLB／GAT 尋路模式。</div>
+      <button class="btn-small" onclick="openRoExplorer()">開啟 3D 地圖探索（免下載）</button>
     </div>
     <div class="map-preview-box">
       <div class="map-preview-title">${isCity ? '🏠 安全區' : '⚔️ 遇怪列表'}</div>
