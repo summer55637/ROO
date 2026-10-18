@@ -13,10 +13,10 @@
 ## 格子規則
 
 - 格式版本：GAT 1.2／1.3；檔頭為 GRAT。
-- 檔頭 14 bytes；每格 20 bytes，地形欄位位於每格偏移 16。
+- 檔頭 14 bytes；每格 20 bytes，地形旗標是每格偏移 16 的 16-bit 值；更新版水域旗標是偏移 18 的 16-bit 值。
 - 座標原點是西南角；x 向東、y 向北，從 0 開始。
-- 地形類型 1（障礙）與 5（懸崖）不可走，其餘依 rAthena CELL_CHKPASS 規則視為可走。
-- GAT 水域旗標會保留統計資訊，但不把水旗標單獨當成障礙。
+- 地形類型 0、2、3、4、6 可走；1（障礙）與 5（懸崖）不可走。未知類型保守視為不可走，與 rAthena 的 map_gat2cell() 保持一致。
+- GAT 1.3 的獨立水域旗標會保留統計資訊，不把水旗標單獨當成障礙。
 
 參考：
 - [Ragnarok GAT 格式](https://github.com/rdw-archive/RagnarokFileFormats/blob/master/GAT.MD)
