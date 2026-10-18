@@ -5,6 +5,7 @@ import {
   RAGASSETS_BASE_URL,
   buildGndLightmapAtlasData,
   buildGndMeshData,
+  analyzeRswPlacementBounds,
   buildGndWaterMeshData,
   compareGndGatHeights,
   insetGndTextureUvs,
@@ -411,6 +412,12 @@ function updateStats() {
         + (alignment.p95AbsoluteError === null ? '—' : alignment.p95AbsoluteError.toFixed(3))
         + '、最大 ' + (alignment.maxAbsoluteError === null ? '—' : alignment.maxAbsoluteError.toFixed(3))
         + '（世界單位；樣本 ' + alignment.samples + '）');
+    }
+    if (nativeRenderStats.placementBounds) {
+      const placement = nativeRenderStats.placementBounds;
+      rows.push('RSW 模型位置：範圍內 ' + placement.withinBounds + '/' + placement.total
+        + '；含 1 格邊界 ' + placement.withinOneTileMargin
+        + '；越界最大距離 ' + placement.maximumOutsideDistance.toFixed(2));
     }
   }
   rows.push('世界比例：' + worldScale + '；GAT 格寬 ' + tileSize().toFixed(2));
@@ -991,6 +998,7 @@ async function loadRagassetsMap(mapName) {
       lightmapLayout: parsedGnd.lightmapLayout,
       lightmapAtlas: !!lightmapAtlas,
       heightAlignment: compareGndGatHeights(parsedGnd, parsedGat, worldScale),
+      placementBounds: analyzeRswPlacementBounds(parsedGnd, parsedRsw, worldScale),
     };
     applyRswLighting(parsedRsw, mapInfo.size);
     fitCamera();
