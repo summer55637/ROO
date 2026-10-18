@@ -96,8 +96,8 @@ about.js → hp_sp_tables.js → img_alias.js → aspd_data.js → skills.js
 
 ## 授權
 
-本作品採用 **[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-Hant)**
-（姓名標示－非商業性－相同方式分享）授權。條款全文見 [`LICENSE`](LICENSE)。
+本倉庫的**原創程式碼與原創文字**採用 **[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-Hant)**
+（姓名標示－非商業性－相同方式分享）授權。RO 相關素材依專案作者聲明之另行授權使用。條款全文見 [`LICENSE`](LICENSE)。
 
 你可以自由下載、遊玩、散布，也可以修改做出自己的版本。條件是：
 
