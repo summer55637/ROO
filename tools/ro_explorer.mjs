@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import {
+  RAGASSETS_BASE_URL,
+  buildGndMeshData,
+  normalizeTextureName,
+  parseGndBuffer,
+  resolveRagassetsMapUrls,
+} from './ro_map_assets.mjs';
 
 const stage = document.getElementById('stage');
 const status = document.getElementById('status');
@@ -11,6 +18,8 @@ const scaleInput = document.getElementById('world-scale');
 const speedInput = document.getElementById('move-speed');
 const speedValue = document.getElementById('speed-value');
 const showCellsInput = document.getElementById('show-cells');
+const nativeMapInput = document.getElementById('native-map');
+const loadNativeMapButton = document.getElementById('load-native-map');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#090f18');
@@ -329,7 +338,7 @@ function finishOrRefreshScene() {
     playerSprite.visible = false;
     fallbackPlayer.visible = false;
     updateStats();
-    setStatus('兩個檔案名稱不一致：GLB=' + mapInfo.mapId + '，GAT=' + gatInfo.mapId + '。請選同一張地圖。', true);
+    setStatus('兩個檔案名稱不一致：地圖=' + mapInfo.mapId + '，GAT=' + gatInfo.mapId + '。請選同一張地圖。', true);
     return;
   }
   makeGrid();
@@ -353,7 +362,7 @@ function finishOrRefreshScene() {
 function updateStats() {
   const rows = [];
   if (mapInfo) {
-    rows.push('GLB：' + mapInfo.name + '（' + mapInfo.mapId + '）');
+    rows.push('地圖：' + mapInfo.name + '（' + mapInfo.mapId + '）');
     rows.push('場景大小：約 ' + [mapInfo.size.x, mapInfo.size.y, mapInfo.size.z].map(v => v.toFixed(1)).join(' × '));
   }
   if (gatInfo) {
@@ -395,6 +404,110 @@ function disposeObject(object) {
   });
 }
 
+async function loadRagassetsMap(mapName) {
+  const mapId = String(mapName || '').trim().toLowerCase();
+  if (!/^[a-z0-9_@-]{1,64}$/.test(mapId)) {
+    setStatus('地圖 ID 格式無效。', true);
+    return;
+  }
+
+  setStatus('正在從公開素材來源載入 ' + mapId + ' 的 GND／GAT…');
+  try {
+    const manifestUrl = new URL('/maps/' + mapId + '/manifest.json', RAGASSETS_BASE_URL);
+    const manifestResponse = await fetch(manifestUrl.href, { mode: 'cors' });
+    if (!manifestResponse.ok) throw new Error('manifest HTTP ' + manifestResponse.status);
+    const manifest = await manifestResponse.json();
+    const urls = resolveRagassetsMapUrls(mapId, manifest);
+    const responses = await Promise.all([
+      fetch(urls.gnd, { mode: 'cors' }),
+      fetch(urls.gat, { mode: 'cors' }),
+    ]);
+    const labels = ['GND 地表', 'GAT 通行格'];
+    for (let i = 0; i < responses.length; i++) {
+      if (!responses[i].ok) throw new Error(labels[i] + ' HTTP ' + responses[i].status);
+    }
+    const buffers = await Promise.all(responses.map(response => response.arrayBuffer()));
+    const parsedGnd = parseGndBuffer(buffers[0]);
+    const parsedGat = parseGatBuffer(buffers[1], mapId + '.gat');
+    if (parsedGat.width !== parsedGnd.width * 2 || parsedGat.height !== parsedGnd.height * 2) {
+      throw new Error('GND／GAT 尺寸不相符：GND=' + parsedGnd.width + '×' + parsedGnd.height
+        + '，GAT=' + parsedGat.width + '×' + parsedGat.height + '。');
+    }
+
+    const nextScale = safeScale();
+    if (!nextScale) throw new Error('世界比例必須大於 0，且不可大於 10。');
+    worldScale = nextScale;
+    const meshData = buildGndMeshData(parsedGnd, worldScale);
+    const nextRoot = new THREE.Group();
+    nextRoot.name = 'roo-native-map-' + mapId;
+
+    for (const bucket of meshData.buckets) {
+      if (!bucket.indices.length) continue;
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(bucket.positions, 3));
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uvs, 2));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(bucket.colors, 3));
+      geometry.setIndex(bucket.indices);
+      geometry.computeVertexNormals();
+
+      let material;
+      let texture = null;
+      const textureName = bucket.textureIndex >= 0 ? parsedGnd.textures[bucket.textureIndex] : '';
+      const textureUrl = urls.textures[normalizeTextureName(textureName)];
+      if (textureUrl) {
+        texture = textureLoader.load(textureUrl, () => {
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.wrapS = THREE.RepeatWrapping;
+          texture.wrapT = THREE.RepeatWrapping;
+          texture.needsUpdate = true;
+        }, undefined, () => {
+          if (material) {
+            material.map = null;
+            material.color.set('#9cb68c');
+            material.needsUpdate = true;
+          }
+        });
+      }
+      material = new THREE.MeshStandardMaterial({
+        map: texture,
+        color: texture ? 0xffffff : 0x9cb68c,
+        vertexColors: true,
+        side: THREE.DoubleSide,
+        roughness: 1,
+        metalness: 0,
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.name = 'terrain-texture-' + bucket.textureIndex;
+      nextRoot.add(mesh);
+    }
+
+    const bounds = new THREE.Box3().setFromObject(nextRoot);
+    if (bounds.isEmpty()) throw new Error('GND 沒有可顯示的地表；無法建立原生地圖。');
+    if (mapRoot) {
+      scene.remove(mapRoot);
+      disposeObject(mapRoot);
+    }
+    mapRoot = nextRoot;
+    scene.add(mapRoot);
+    mapRoot.updateMatrixWorld(true);
+    mapBounds = new THREE.Box3().setFromObject(mapRoot);
+    mapInfo = {
+      name: mapId + '（公開 GND）',
+      mapId,
+      size: mapBounds.getSize(new THREE.Vector3()),
+    };
+    gatInfo = parsedGat;
+    fitCamera();
+    finishOrRefreshScene();
+    setStatus('原生 GND 地表已載入：可點地面依 GAT 通行格行走。此階段尚未載入 RSW 物件模型、角色動畫或水面。');
+    updateStats();
+  } catch (error) {
+    setStatus('公開原生地圖載入失敗：' + error.message
+      + '。公開素材服務可能暫時離線；可切回公開地圖預覽或改用本機 GLB/GAT。', true);
+    console.error(error);
+  }
+}
+
 async function loadMapFile(file) {
   setStatus('正在載入 ' + file.name + '…');
   try {
@@ -433,7 +546,7 @@ async function loadGatFile(file) {
       playerSprite.visible = false;
       fallbackPlayer.visible = false;
       updateStats();
-      setStatus('兩個檔案名稱不一致：GLB=' + mapInfo.mapId + '，GAT=' + gatInfo.mapId + '。請選同一張地圖。', true);
+      setStatus('兩個檔案名稱不一致：地圖=' + mapInfo.mapId + '，GAT=' + gatInfo.mapId + '。請選同一張地圖。', true);
       return;
     }
     finishOrRefreshScene();
@@ -465,7 +578,7 @@ function groundHitFromEvent(event) {
 
 function requestWalk(event) {
   if (!gatInfo || !mapRoot || !currentCell || mapInfo.mapId !== gatInfo.mapId) {
-    setStatus('請先載入同一張地圖的 GLB 與 GAT。', true);
+    setStatus('請先載入地圖與同名 GAT。', true);
     return;
   }
   const hit = groundHitFromEvent(event);
@@ -652,8 +765,14 @@ requestAnimationFrame(animate);
 const params = new URLSearchParams(window.location.search);
 const requestedMap = params.get('map');
 if (requestedMap) {
-  setStatus('目標地圖：' + requestedMap + '。請選取本機 ' + requestedMap + '.glb 與 ' + requestedMap + '.gat 檔。');
+  const optionExists = Array.from(nativeMapInput.options).some(option => option.value === requestedMap);
+  if (optionExists) nativeMapInput.value = requestedMap;
+  setStatus('目標地圖：' + requestedMap + '。可選「原生地圖」直接載入公開 GND/GAT，或使用本機 GLB/GAT。');
 }
+loadNativeMapButton.addEventListener('click', () => loadRagassetsMap(nativeMapInput.value));
+window.addEventListener('roo-explorer-mode', event => {
+  if (event.detail === 'native') loadRagassetsMap(nativeMapInput.value);
+});
 
 try {
   textureLoader.load('../images/player_swordsman.svg', texture => {
