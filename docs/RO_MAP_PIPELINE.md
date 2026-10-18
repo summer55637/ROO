@@ -20,13 +20,13 @@
 
 - 格式版本：GAT 1.2／1.3；檔頭為 GRAT。
 - 檔頭 14 bytes；每格 20 bytes，地形欄位從每格偏移 16 開始，原始欄位長 32-bit；地形類型讀取低 16-bit。
-- 座標原點是西南角；x 向東、y 向北，從 0 開始。
+- 座標原點是西南角；x 向東、y 向北，從 0 開始。GAT 單格為 5 個 RO 世界單位；GND 每個地面方格跨 2×2 個 GAT 格（10 個世界單位）。使用 ragx 的 `--world-scale 0.2` 時，每個 GAT 格在 GLB 中寬 1 單位。
 - 地形類型 0、2、3、4、6 可走；1（障礙）與 5（懸崖）不可走。未知類型保守視為不可走，與 rAthena 的 map_gat2cell() 保持一致。
 - GAT 1.3 以 32-bit 地形欄位的最高位標記水域（原始小端數值例如 `0x80000001`；讀取偏移 `+18` 的高字時旗標為 `0x8000`）。只在版本 1.3 解讀此旗標；版本 1.2 同位置可能是未定義資料，必須忽略。水域標記只供統計，不會覆寫地形通行判定。
 
 參考：
 - [Ragnarok GAT 格式](https://github.com/rdw-archive/RagnarokFileFormats/blob/master/GAT.MD)
-- [rAthena 地形通行判定](https://github.com/rathena/rathena/blob/master/src/map/map.hpp)
+- [rAthena map_gat2cell()](https://github.com/rathena/rathena/blob/master/src/map/map.cpp#L3279-L3298)：實際將 0、2、3、4、6 判定為可走，1、5 不可走；本專案通行格轉換沿用此判定。
 
 ## 尋路核心
 
