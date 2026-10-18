@@ -641,10 +641,14 @@ function buildRsmTemplate(rsm, urls, scale) {
 
   const bounds = new THREE.Box3().setFromObject(modelRoot);
   if (bounds.isEmpty()) return null;
-  const center = bounds.getCenter(new THREE.Vector3());
-  const rootShift = new THREE.Vector3(-center.x, -bounds.max.y, -center.z);
-  for (let index = 0; index < rsm.nodes.length; index++) {
-    if (!parented.has(index)) nodeGroups[index].position.add(rootShift);
+  // RSM1 stores Y-down meshes and needs the legacy ground-anchor shift.
+  // RSM2 transforms are already absolute and must remain aligned to RSW coordinates.
+  if (rsm.major === 1) {
+    const center = bounds.getCenter(new THREE.Vector3());
+    const rootShift = new THREE.Vector3(-center.x, -bounds.max.y, -center.z);
+    for (let index = 0; index < rsm.nodes.length; index++) {
+      if (!parented.has(index)) nodeGroups[index].position.add(rootShift);
+    }
   }
   modelRoot.userData.rooModelVersion = rsm.version;
   modelRoot.userData.rooModelIsRsm2 = rsm.major === 2;
