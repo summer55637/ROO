@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import {
   RAGASSETS_BASE_URL,
   buildGndMeshData,
+  insetGndTextureUvs,
   parseGndBuffer,
   resolveRagassetsMapUrls,
 } from './ro_map_assets.mjs';
 
-function makeGnd(surfaceStride = 56, minor = 7) {
+function makeGnd(surfaceStride = 40, minor = 7) {
   const width = 1;
   const height = 1;
   const texturePath = Buffer.alloc(80);
@@ -80,10 +81,10 @@ assert.equal(gnd.version, '1.7');
 assert.equal(gnd.width, 1);
 assert.equal(gnd.height, 1);
 assert.equal(gnd.textures[0], '필드바닥/prt_초원01.bmp');
-assert.equal(gnd.surfaceRecordBytes, 56);
+assert.equal(gnd.surfaceRecordBytes, 40);
 assert.equal(gnd.cubes[0].topSurface, 0);
 assert.deepEqual(gnd.surfaces[0].uv, [[0, 0], [1, 0], [0, 1], [1, 1]]);
-assert.deepEqual(gnd.surfaces[0].colors[0], [1, 1, 1, 1]);
+assert.deepEqual(gnd.surfaces[0].color, [1, 1, 1, 1]);
 
 const mesh = buildGndMeshData(gnd, 0.2);
 assert.equal(mesh.cubeCount, 1);
@@ -94,9 +95,29 @@ assert.deepEqual(mesh.buckets[0].indices, [0, 1, 2, 2, 1, 3]);
 assert.deepEqual(mesh.buckets[0].positions.slice(0, 3), [-1, 0, 1]);
 assert.deepEqual(mesh.buckets[0].uvs.slice(0, 2), [0, 0]);
 
-const compact = parseGndBuffer(makeGnd(40));
-assert.equal(compact.surfaceRecordBytes, 40);
-assert.equal(buildGndMeshData(compact).quadCount, 1);
+assert.throws(() => parseGndBuffer(makeGnd(56)), /40-byte surface/);
+
+const adjacentTint = buildGndMeshData({
+  width: 2,
+  height: 1,
+  textures: ['left.png', 'right.png'],
+  surfaces: [
+    { textureIndex: 0, uv: [[0, 0], [1, 0], [0, 1], [1, 1]], color: [1, 0, 0, 1] },
+    { textureIndex: 1, uv: [[0, 0], [1, 0], [0, 1], [1, 1]], color: [0, 1, 0, 1] },
+  ],
+  cubes: [
+    { hSW: 0, hSE: 0, hNW: 0, hNE: 0, topSurface: 0, northSurface: -1, eastSurface: -1 },
+    { hSW: 0, hSE: 0, hNW: 0, hNE: 0, topSurface: 1, northSurface: -1, eastSurface: -1 },
+  ],
+});
+const leftTile = adjacentTint.buckets.find(bucket => bucket.textureIndex === 0);
+assert.deepEqual(leftTile.colors.slice(0, 6), [1, 0, 0, 0, 1, 0]);
+
+assert.deepEqual(
+  Array.from(insetGndTextureUvs([0, 0, 1, 1], 100, 50)),
+  [0.004999999888241291, 0.009999999776482582, 0.9950000047683716, 0.9900000095367432]
+);
+assert.throws(() => insetGndTextureUvs([0, 0], 0, 32), /正整數/);
 
 const water18 = parseGndBuffer(makeGnd(56, 8));
 assert.equal(water18.version, '1.8');
