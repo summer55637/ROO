@@ -33,3 +33,22 @@
 js/map_pathfinding.js 提供解碼器、格子判定、A* 八方向尋路、最近可走格查找與畫面座標轉格工具。對角移動不能穿過兩個障礙格形成的牆角。
 
 目前倉庫尚未納入真正地圖的 .gat 通行資料，也尚未完成 .gnd 地圖渲染；因此這次先落實資料轉換與可測試的尋路核心，尚不把它冒充成已完成的 RO 地圖碰撞。實際遊戲接線需在地圖專屬圖面與轉換後通行格對齊後完成。
+
+
+## 渲染器與素材來源調查（2026-10-18）
+
+### 格式依據
+- [GAT 格式](https://github.com/rdw-archive/RagnarokFileFormats/blob/master/GAT.MD)：逐格高度與地形通行類型。
+- [GND 格式](https://github.com/rdw-archive/RagnarokFileFormats/blob/master/GND.MD)：地面網格、材質索引、UV、頂點色與光照貼圖。
+- [RSW 格式](https://github.com/rdw-archive/RagnarokFileFormats/blob/master/RSW.MD)：地圖場景設定、物件位置與關聯資源。
+- [rAthena 地形判定](https://github.com/rathena/rathena/blob/master/src/map/map.cpp)：核對 GAT 地形種類是否可走。
+
+### 可參考的實作
+- [roBrowser](https://github.com/vthibault/roBrowser)：JavaScript／WebGL 的 RO 瀏覽器端實作。可研究其 GND、GAT、RSW loader 與地圖 renderer；它是完整客戶端專案，不應直接把整個線上客戶端當成 ROO 的依賴。複製或移植程式碼前，必須先確認 GPL-3.0 與本倉庫授權條款的相容性。
+- [ragassets](https://github.com/adsonpleal/ragassets)：MIT 授權的素材解析／服務程式，文件列出 GAT、GND、RSW 與貼圖的資源組織方式；其程式倉庫不包含遊戲素材，公開示範服務也明確標示為 best-effort。適合當格式與抽取流程參考，不把外部示範服務當成遊戲執行時依賴。
+
+## 尚未完成的下一階段
+
+1. 從作者已獲授權的客戶端素材抽取實際地圖及其相依材質／模型，先選一張小範圍地圖驗證；不把外部服務作為正式素材來源。
+2. 在純前端實作或挑選授權相容的 GND 渲染層，對齊 GND 地面座標、畫面投影與 GAT 通行格座標。
+3. 把點擊目的地接上 GAT A* 路徑，逐格移動並保存位置；在地圖資產及畫面投影未接妥前，不宣稱已完成真正的 RO 地形碰撞。
