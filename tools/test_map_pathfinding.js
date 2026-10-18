@@ -146,4 +146,19 @@ if (largePath) {
     largePath[largePath.length - 1].x + ',' + largePath[largePath.length - 1].y, '511,511');
 }
 
+const southWestWorld = g.roMapWorldPointFromCell(walkMap, 0, 0, 0.2);
+t.eq('GLB 西南角格中心座標正確', southWestWorld.x + ',' + southWestWorld.z, '-2,2');
+const southWestCell = g.roMapCellFromWorldPoint(walkMap, southWestWorld.x, southWestWorld.z, 0.2);
+t.eq('GLB 西南角中心可還原 GAT 格', southWestCell.x + ',' + southWestCell.y, '0,0');
+const centerWorld = g.roMapWorldPointFromCell(walkMap, 2, 2, 0.2);
+t.eq('地圖中心格對應 GLB 原點', centerWorld.x + ',' + centerWorld.z, '0,0');
+const northEastCell = g.roMapCellFromWorldPoint(walkMap, 2, -2, 0.2);
+t.eq('GLB 北側座標方向正確', northEastCell.x + ',' + northEastCell.y, '4,4');
+t.eq('超出 GLB 地圖範圍回傳 null',
+  g.roMapCellFromWorldPoint(walkMap, 3, 0, 0.2), null);
+t.eq('無效 world-scale 不會產生錯誤座標',
+  g.roMapCellFromWorldPoint(walkMap, 0, 0, 0), null);
+t.eq('超出地圖的格子無法轉世界座標',
+  g.roMapWorldPointFromCell(walkMap, 5, 2, 0.2), null);
+
 process.exit(t.report('RO 地圖通行格與尋路'));
