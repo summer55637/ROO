@@ -54,7 +54,6 @@ let fallbackPlayer = null;
 let currentCell = null;
 let movementPath = null;
 let pathIndex = 1;
-let activeMapId = '';
 let lastFrame = 0;
 let worldScale = 0.2;
 
@@ -295,7 +294,6 @@ function startAtSavedOrCenter() {
   currentCell = { x: start.x, y: start.y };
   movementPath = null;
   pathIndex = 1;
-  activeMapId = gatInfo.mapId;
   removeRoute();
   updatePlayerPosition();
   playerSprite.visible = true;
@@ -474,6 +472,20 @@ function requestWalk(event) {
   if (!hit) {
     setStatus('沒有點到可辨識的地面；請點擊地圖地板，而不是天空或牆面。');
     return;
+  }
+
+  // 若途中改點，先把角色吸附到目前腳下的可走格，再重新尋路。
+  if (movementPath) {
+    const positionCell = roMapCellFromWorldPoint(
+      gatInfo, playerSprite.position.x, playerSprite.position.z, worldScale
+    );
+    if (positionCell && isRoMapCellWalkable(gatInfo, positionCell.x, positionCell.y)) {
+      currentCell = positionCell;
+      updatePlayerPosition();
+    }
+    movementPath = null;
+    pathIndex = 1;
+    removeRoute();
   }
 
   let target = roMapCellFromWorldPoint(gatInfo, hit.point.x, hit.point.z, worldScale);
