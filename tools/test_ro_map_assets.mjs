@@ -10,7 +10,7 @@ function makeGnd(surfaceStride = 56, minor = 7) {
   const width = 1;
   const height = 1;
   const texturePath = Buffer.alloc(80);
-  texturePath.write('texture\\ground\\prontera.bmp', 0, 'latin1');
+  Buffer.from('c7cab5e5b9d9b4da5c7072745fc3cabff830312e626d70', 'hex').copy(texturePath);
   const waterBytes = minor === 8 ? 36 : minor === 9 ? 56 : 0;
   const buffer = Buffer.alloc(26 + texturePath.length + 16 + 4 + surfaceStride + 28 + waterBytes);
   buffer.write('GRGN', 0, 'ascii');
@@ -79,7 +79,7 @@ assert.equal(gnd.format, 'roo-gnd-v1');
 assert.equal(gnd.version, '1.7');
 assert.equal(gnd.width, 1);
 assert.equal(gnd.height, 1);
-assert.equal(gnd.textures[0], 'texture/ground/prontera.bmp');
+assert.equal(gnd.textures[0], '필드바닥/prt_초원01.bmp');
 assert.equal(gnd.surfaceRecordBytes, 56);
 assert.equal(gnd.cubes[0].topSurface, 0);
 assert.deepEqual(gnd.surfaces[0].uv, [[0, 0], [1, 0], [0, 1], [1, 1]]);
@@ -135,7 +135,7 @@ const manifest = {
     rsw: 'prontera.rsw',
   },
   textures: {
-    'texture/ground/prontera.bmp': '../_t/0123456789abcdef.png',
+    '필드바닥/prt_초원01.bmp': '../_t/0123456789abcdef.png',
     'evil.bmp': 'https://example.invalid/evil.png',
     'traversal.bmp': '../../secrets.png',
   },
@@ -143,7 +143,7 @@ const manifest = {
 const urls = resolveRagassetsMapUrls('prontera', manifest);
 assert.equal(urls.manifest, RAGASSETS_BASE_URL + '/maps/prontera/manifest.json');
 assert.equal(urls.gat, RAGASSETS_BASE_URL + '/maps/prontera/prontera.gat');
-assert.equal(urls.textures['ground/prontera.bmp'], RAGASSETS_BASE_URL + '/maps/_t/0123456789abcdef.png');
+assert.equal(urls.textures['필드바닥/prt_초원01.bmp'], RAGASSETS_BASE_URL + '/maps/_t/0123456789abcdef.png');
 assert.equal(Object.keys(urls.textures).length, 1);
 
 assert.throws(() => resolveRagassetsMapUrls('../prontera', manifest), /地圖 ID/);
