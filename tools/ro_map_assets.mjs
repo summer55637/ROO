@@ -708,9 +708,13 @@ function sampleRsmKeyframeSegment(keyframes, time) {
     }
   }
 
-  const ordered = keyframes.length > 1
-    ? [...keyframes].sort((a, b) => a.frame - b.frame)
-    : keyframes;
+  let ordered = keyframes;
+  for (let i = 1; i < keyframes.length; i++) {
+    if (keyframes[i].frame < keyframes[i - 1].frame) {
+      ordered = [...keyframes].sort((a, b) => a.frame - b.frame);
+      break;
+    }
+  }
   if (time <= ordered[0].frame) return { from: ordered[0], to: ordered[0], alpha: 0 };
   for (let i = 1; i < ordered.length; i++) {
     const from = ordered[i - 1];
