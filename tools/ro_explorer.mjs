@@ -748,10 +748,10 @@ function applyGndBakedLighting(material, lightMapTexture, aoTexture) {
       '#include <common>',
       '#include <common>\nuniform sampler2D rooGndLightMap;\nuniform sampler2D rooGndAoMap;\nvarying vec2 vRooGndLightmapUv;'
     ).replace(
-      '#include <opaque_fragment>',
-      'diffuseColor.rgb *= texture2D(rooGndLightMap, vRooGndLightmapUv).rgb;\n'
-        + 'diffuseColor.rgb *= texture2D(rooGndAoMap, vRooGndLightmapUv).r;\n'
-        + '#include <opaque_fragment>'
+      '#include <map_fragment>',
+      '#include <map_fragment>\n'
+        + 'diffuseColor.rgb *= texture2D(rooGndLightMap, vRooGndLightmapUv).rgb;\n'
+        + 'diffuseColor.rgb *= texture2D(rooGndAoMap, vRooGndLightmapUv).r;'
     );
   };
   material.customProgramCacheKey = () => 'roo-gnd-baked-lightmap-v1';
