@@ -4,11 +4,13 @@ import {
   buildGndLightmapAtlasData,
   buildGndMeshData,
   buildGndWaterMeshData,
+  compareGndGatHeights,
   insetGndTextureUvs,
   parseGndBuffer,
   parseRsmBuffer,
   parseRswBuffer,
   resolveRagassetsMapUrls,
+  sampleGndHeightAtGatCell,
 } from './ro_map_assets.mjs';
 
 function makeGnd(surfaceStride = 40, minor = 7) {
@@ -276,6 +278,27 @@ assert.deepEqual(Array.from(legacyAtlas.aoMapPixels.slice(16, 20)), [90, 90, 90,
 assert.equal(buildGndLightmapAtlasData({ lightmapSlices: [] }), null);
 assert.throws(() => buildGndLightmapAtlasData(null), /lightmap slices/);
 assert.throws(() => buildGndLightmapAtlasData({ lightmapSlices: [] }, -1), /0–255/);
+
+const slopedGround = {
+  width: 1,
+  height: 1,
+  cubes: [{ hSW: 0, hSE: 10, hNW: 20, hNE: 30, topSurface: 0 }],
+};
+assert.ok(Math.abs(sampleGndHeightAtGatCell(slopedGround, 0, 0, 0.2) + 1.5) < 1e-6);
+assert.ok(Math.abs(sampleGndHeightAtGatCell(slopedGround, 1, 0, 0.2) + 2.5) < 1e-6);
+assert.ok(Math.abs(sampleGndHeightAtGatCell(slopedGround, 0, 1, 0.2) + 3.5) < 1e-6);
+assert.ok(Math.abs(sampleGndHeightAtGatCell(slopedGround, 1, 1, 0.2) + 4.5) < 1e-6);
+assert.throws(() => sampleGndHeightAtGatCell(slopedGround, 2, 0), /超出/);
+const matchingGatHeights = {
+  width: 2, height: 2,
+  heights: new Float32Array([7.5, 12.5, 17.5, 22.5]),
+};
+const heightAlignment = compareGndGatHeights(slopedGround, matchingGatHeights, 0.2);
+assert.equal(heightAlignment.samples, 4);
+assert.ok(heightAlignment.meanAbsoluteError < 1e-6);
+assert.ok(heightAlignment.p95AbsoluteError < 1e-6);
+assert.ok(heightAlignment.maxAbsoluteError < 1e-6);
+assert.throws(() => compareGndGatHeights(slopedGround, { width: 1, height: 1, heights: [0] }), /尺寸相符/);
 
 const gnd = parseGndBuffer(makeGnd());
 assert.equal(gnd.format, 'roo-gnd-v1');
