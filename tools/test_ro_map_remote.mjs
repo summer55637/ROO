@@ -4,6 +4,7 @@ import {
   normalizeModelName,
   normalizeTextureName,
   parseGndBuffer,
+  parseRsmBuffer,
   parseRswBuffer,
   resolveRagassetsMapUrls,
 } from './ro_map_assets.mjs';
@@ -41,15 +42,22 @@ async function validateMap(mapId) {
     .map(model => normalizeModelName(model.modelName))
     .filter(name => urls.models[name]))].slice(0, 8);
   assert.ok(sampleModels.length > 0, mapId + ' RSW model paths resolve to manifest assets');
-  const modelVersions = await Promise.all(sampleModels.map(async name => {
+  const parsedModels = await Promise.all(sampleModels.map(async name => {
     const response = await fetchResponse(urls.models[name], mapId + ' model ' + name);
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    const buffer = await response.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
     assert.ok(bytes.length >= 6, mapId + ' model ' + name + ' has a header');
     assert.deepEqual([...bytes.slice(0, 4)], [71, 82, 83, 77], mapId + ' model ' + name + ' GRSM signature');
-    return bytes[4] + '.' + bytes[5];
+    const model = parseRsmBuffer(buffer);
+    assert.ok(model.nodes.length > 0, mapId + ' model ' + name + ' has nodes');
+    return {
+      version: model.version,
+      nodes: model.nodes.length,
+      faces: model.nodes.reduce((sum, node) => sum + node.faces.length, 0),
+    };
   }));
   const versionCounts = {};
-  for (const version of modelVersions) versionCounts[version] = (versionCounts[version] || 0) + 1;
+  for (const model of parsedModels) versionCounts[model.version] = (versionCounts[model.version] || 0) + 1;
   const versionSummary = Object.entries(versionCounts).map(([version, count]) => version + '×' + count).join(', ');
   const gatView = new DataView(gatBytes);
   assert.equal(String.fromCharCode(
@@ -89,6 +97,7 @@ async function validateMap(mapId) {
       + ', surfaces ' + gnd.surfaces.length
       + ', RSW ' + rsw.version + ' with ' + rsw.models.length + ' model placements'
       + ', sample RSM versions ' + versionSummary
+      + ', sample model faces ' + parsedModels.reduce((sum, model) => sum + model.faces, 0)
       + ', mapped used ground textures ' + usedTextures.length
       + ', sample PNG OK'
   );
