@@ -53,6 +53,10 @@ function moveRoExplorationPosition(x, y, dx, dy, distance) {
   return normalizeRoExplorationPosition(from.x + vx * step, from.y + vy * step);
 }
 
+function roExplorationDirectionForKey(key) {
+  return RO_EXPLORATION_KEYS[String(key || '').toLowerCase()] || null;
+}
+
 function roExplorationGameIsActive() {
   if (typeof state === 'undefined' || !state) return false;
   const screen = document.getElementById('screen-game');
@@ -140,7 +144,7 @@ function roExplorationTick(timestamp) {
     roExplorationTarget = null;
     clearRoExplorationTargetMarker();
     roExplorationHeldKeys.forEach(key => {
-      const direction = RO_EXPLORATION_KEYS[key];
+      const direction = roExplorationDirectionForKey(key);
       const vector = RO_EXPLORATION_VECTORS[direction];
       if (!vector) return;
       dx += vector[0];
@@ -149,10 +153,17 @@ function roExplorationTick(timestamp) {
   } else if (roExplorationTarget) {
     dx = roExplorationTarget.x - state.explorationX;
     dy = roExplorationTarget.y - state.explorationY;
+    const magnitude = Math.hypot(dx, dy);
+    if (magnitude > 0) {
+      dx /= magnitude;
+      dy /= magnitude;
+    }
   }
 
   const distance = elapsed * 0.022;
-  const remaining = Math.hypot(dx, dy);
+  const remaining = roExplorationTarget && !hasKeys
+    ? Math.hypot(roExplorationTarget.x - state.explorationX, roExplorationTarget.y - state.explorationY)
+    : Math.hypot(dx, dy);
   if (!hasKeys && roExplorationTarget && remaining <= distance) {
     setRoExplorationPosition(roExplorationTarget.x, roExplorationTarget.y, false);
     roExplorationTarget = null;
@@ -180,7 +191,7 @@ function startRoExplorationFrame() {
 function onRoExplorationKeyDown(event) {
   if (!roExplorationGameIsActive() || roExplorationEditableTarget(event.target)) return;
   const key = String(event.key || '').toLowerCase();
-  if (!Object.prototype.hasOwnProperty.call(RO_EXPLORATION_KEYS, key)) return;
+  if (!roExplorationDirectionForKey(key)) return;
   if (event.preventDefault) event.preventDefault();
   roExplorationHeldKeys.add(key);
   roExplorationTarget = null;
@@ -262,7 +273,13 @@ function bindRoExplorationControls() {
 
   document.querySelectorAll('.exploration-controls button[data-direction]').forEach(button => {
     const direction = button.dataset.direction;
-    button.addEventListener('pointerdown', event => holdRoCharacterDirection(direction, event));
+    button.addEventListener('pointerdown', event => {
+      if (event.currentTarget && typeof event.currentTarget.setPointerCapture === 'function'
+        && event.pointerId != null) {
+        try { event.currentTarget.setPointerCapture(event.pointerId); } catch (e) { /* 不支援時仍可按住 */ }
+      }
+      holdRoCharacterDirection(direction, event);
+    });
     const release = () => releaseRoCharacterDirection(direction);
     button.addEventListener('pointerup', release);
     button.addEventListener('pointercancel', release);

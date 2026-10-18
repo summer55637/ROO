@@ -23,7 +23,8 @@ const towards = g.moveRoExplorationPosition(18, 50, 40 - 18, 70 - 50, 5);
 t.ok('點地面目的地會按固定距離前進', Math.abs(Math.hypot(towards.x - 18, towards.y - 50) - 5) < 1e-9);
 const destination = g.normalizeRoExplorationPosition(40, 70);
 t.eq('目的地限制在場景右界內', g.normalizeRoExplorationPosition(100, 70).x, 93);
-t.eq('方向鍵與觸控方向使用相同向量', g.RO_EXPLORATION_KEYS.__touch_left, g.RO_EXPLORATION_KEYS.arrowleft);
+t.eq('觸控左鍵與鍵盤左鍵共用方向', g.roExplorationDirectionForKey('__touch_left'), g.roExplorationDirectionForKey('ArrowLeft'));
+t.eq('WASD 與方向鍵共用向上方向', g.roExplorationDirectionForKey('w'), g.roExplorationDirectionForKey('ArrowUp'));
 
 const edge = g.moveRoExplorationPosition(92, 50, 1, 0, 8);
 t.eq('移動遇到右界會限制座標', edge.x, 93);
