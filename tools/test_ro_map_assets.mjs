@@ -3,6 +3,7 @@ import {
   RAGASSETS_BASE_URL,
   buildGndLightmapAtlasData,
   buildGndMeshData,
+  analyzeRswPlacementBounds,
   buildGndWaterMeshData,
   compareGndGatHeights,
   insetGndTextureUvs,
@@ -278,6 +279,24 @@ assert.deepEqual(Array.from(legacyAtlas.aoMapPixels.slice(16, 20)), [90, 90, 90,
 assert.equal(buildGndLightmapAtlasData({ lightmapSlices: [] }), null);
 assert.throws(() => buildGndLightmapAtlasData(null), /lightmap slices/);
 assert.throws(() => buildGndLightmapAtlasData({ lightmapSlices: [] }, -1), /0–255/);
+
+const boundsAudit = analyzeRswPlacementBounds(
+  { width: 10, height: 8 },
+  { models: [
+    { position: [0, 0, 0] },
+    { position: [49, 0, -39] },
+    { position: [60, 0, 0] },
+    { position: [NaN, 0, 0] },
+  ] },
+  0.2
+);
+assert.equal(boundsAudit.total, 4);
+assert.equal(boundsAudit.withinBounds, 2);
+assert.equal(boundsAudit.withinOneTileMargin, 2);
+assert.equal(boundsAudit.outsideBounds, 1);
+assert.equal(boundsAudit.invalidPositions, 1);
+assert.ok(Math.abs(boundsAudit.maximumOutsideDistance - 2) < 1e-6);
+assert.throws(() => analyzeRswPlacementBounds(null, { models: [] }), /GND 與 RSW/);
 
 const slopedGround = {
   width: 1,
