@@ -13,9 +13,7 @@ let creationAlloc = { str: 0, agi: 0, vit: 0, int: 0, dex: 0, luk: 0 };
 let creationBudget = 15;
 let selectedGender = 'male';
 let activeTab = 'map';
-const EXPLORE_MOVE_STEP_X = 0.03;
-const EXPLORE_MOVE_STEP_Y = 0.05;
-let explorationControlsBound = false;
+let sceneClickMovementBound = false;
 
 function explorationInputAllowed() {
   const screen = document.getElementById('screen-game');
@@ -34,51 +32,9 @@ function applyExploreMovement() {
   playerArea.style.transform = `translate3d(${x}px, ${y}px, 0)`;
 }
 
-function movePlayer(dx, dy) {
-  if (!explorationInputAllowed()) return;
-  const pos = normalizeExploreOffset(state.exploreOffset);
-  state.exploreOffset = normalizeExploreOffset({
-    x: pos.x + dx * EXPLORE_MOVE_STEP_X,
-    y: pos.y + dy * EXPLORE_MOVE_STEP_Y,
-  });
-  applyExploreMovement();
-  saveGameThrottled();
-}
-
-function resetExplorePosition() {
-  if (!explorationInputAllowed()) return;
-  state.exploreOffset = { x: 0, y: 0 };
-  applyExploreMovement();
-  saveGameThrottled();
-}
-
-function bindExplorationControls() {
-  if (explorationControlsBound) return;
-  explorationControlsBound = true;
-
-  document.addEventListener('keydown', ev => {
-    if (!explorationInputAllowed()) return;
-    const target = ev.target;
-    if (target && (target.isContentEditable
-      || /^(INPUT|SELECT|TEXTAREA)$/.test(target.tagName))) return;
-
-    const key = ev.key.toLowerCase();
-    const dirs = {
-      arrowup: [0, -1], w: [0, -1],
-      arrowdown: [0, 1], s: [0, 1],
-      arrowleft: [-1, 0], a: [-1, 0],
-      arrowright: [1, 0], d: [1, 0],
-    };
-    if (key === 'home') {
-      ev.preventDefault();
-      resetExplorePosition();
-      return;
-    }
-    const dir = dirs[key];
-    if (!dir) return;
-    ev.preventDefault();
-    movePlayer(dir[0], dir[1]);
-  });
+function bindSceneClickMovement() {
+  if (sceneClickMovementBound) return;
+  sceneClickMovementBound = true;
 
   window.addEventListener('resize', applyExploreMovement);
   const scene = document.getElementById('battle-scene');
@@ -87,10 +43,12 @@ function bindExplorationControls() {
     if (!explorationInputAllowed()) return;
     const target = ev.target;
     if (target && target.closest && target.closest(
-      '.explore-controls, .monster-slot, .damage-container, .btn-mute, .btn-ally, .gm-panel, .idle-report-panel, .ally-panel'
+      '.monster-slot, .damage-container, .btn-mute, .btn-ally, .gm-panel, .idle-report-panel, .ally-panel'
     )) return;
     const rect = scene.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
+
+    // PC 滑鼠點擊與手機手指點觸共用同一套目的地操作。
     state.exploreOffset = normalizeExploreOffset({
       x: (ev.clientX - rect.left) / rect.width - (1 / 6),
       y: (ev.clientY - rect.top) / rect.height - 0.5,
@@ -113,7 +71,7 @@ const SLOTS_PER_PAGE = 3;
 function initApp() {
   renderCreationStats();
   bindSearchComposition();
-  bindExplorationControls();
+  bindSceneClickMovement();
   renderDisclaimers();          // 免責聲明（#118）：四個位置一次填好
   showScreen('screen-title');
   maybeShowConsent();           // 首次開啟才出現的一次性確認（#121）
