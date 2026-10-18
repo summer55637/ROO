@@ -167,20 +167,19 @@ function thief() {
      這一段挑圖挑得很小心。一刀一隻的角色是**攻速**在決定擊殺數，
      血量乘幾倍都一樣；反過來打不太動的角色擊殺數趨近 0，
      整個結果被抽樣雜訊蓋過去（實測同一組設定跑出 1.05 倍與 32 倍都有）。
-     固定抽樣序列，避免 PR 的無關隨機波動讓相同程式有時過、有時失敗；
+     每次候選地圖的離線樣本都使用同一固定序列，避免抽樣波動；
      正式遊戲仍使用原生 Math.random。 */
-  withSeededRandom(0x14520261, () => {
   const g = hero({ stats: { str: 40, agi: 40, vit: 99, int: 1, dex: 70, luk: 1 } });
   const HOURS = 24;
   let picked = null, k0 = 0, e0 = 0;
   for (const mp of g.MAPS.filter(m => (m.monsters || []).length)) {
     g.state.mapId = mp.id; g.state.farmMode = 0;
-    const r = offline(g, HOURS);
+    const r = withSeededRandom(0x14520261, () => offline(g, HOURS));
     if (r.kills >= 1000 && r.kills <= 20000) { picked = mp.id; k0 = r.kills; e0 = r.expGained; break; }
   }
   t.ok('找得到血量會決定擊殺數的圖（後面的斷言才有意義）', !!picked, picked + ' 擊殺 ' + k0);
   g.state.mapId = picked; g.state.farmMode = 2;
-  const r2 = offline(g, HOURS);
+  const r2 = withSeededRandom(0x14520261, () => offline(g, HOURS));
   // 瘋狂：血量 ×5 → 擊殺數應該掉到約 1/5
   t.ok('瘋狂模式的擊殺數掉到約五分之一', k0 / r2.kills > 3.5 && k0 / r2.kills < 6.5,
     `${k0} → ${r2.kills}（÷${(k0 / r2.kills).toFixed(2)}）`);
