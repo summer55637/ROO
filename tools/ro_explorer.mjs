@@ -276,13 +276,11 @@ function savePosition() {
 
 function startAtSavedOrCenter() {
   let start = null;
-  if (activeMapId === gatInfo.mapId) {
-    try {
-      const saved = JSON.parse(localStorage.getItem('roo_explorer_position_' + gatInfo.mapId) || 'null');
-      if (saved && isRoMapCellWalkable(gatInfo, saved.x, saved.y)) start = saved;
-    } catch (error) {
-      start = null;
-    }
+  try {
+    const saved = JSON.parse(localStorage.getItem('roo_explorer_position_' + gatInfo.mapId) || 'null');
+    if (saved && isRoMapCellWalkable(gatInfo, saved.x, saved.y)) start = saved;
+  } catch (error) {
+    start = null;
   }
   if (!start) {
     start = findNearestRoWalkableCell(
@@ -327,8 +325,17 @@ function updateRouteLine() {
 }
 
 function finishOrRefreshScene() {
+  if (gatInfo && mapRoot && mapInfo.mapId !== gatInfo.mapId) {
+    removeGrid();
+    removeRoute();
+    playerSprite.visible = false;
+    fallbackPlayer.visible = false;
+    updateStats();
+    setStatus('兩個檔案名稱不一致：GLB=' + mapInfo.mapId + '，GAT=' + gatInfo.mapId + '。請選同一張地圖。', true);
+    return;
+  }
   makeGrid();
-  if (!gatInfo || !mapRoot || mapInfo.mapId !== gatInfo.mapId) {
+  if (!gatInfo || !mapRoot) {
     removeRoute();
     playerSprite.visible = false;
     fallbackPlayer.visible = false;
@@ -568,7 +575,19 @@ scaleInput.addEventListener('change', () => {
     setStatus('世界比例必須大於 0，且不可大於 10。', true);
     return;
   }
+  const ratio = nextScale / worldScale;
   worldScale = nextScale;
+  if (mapRoot && Number.isFinite(ratio) && ratio > 0) {
+    mapRoot.scale.multiplyScalar(ratio);
+    camera.position.multiplyScalar(ratio);
+    controls.target.multiplyScalar(ratio);
+    mapRoot.updateMatrixWorld(true);
+    mapBounds = new THREE.Box3().setFromObject(mapRoot);
+    const size = mapBounds.getSize(new THREE.Vector3());
+    if (mapInfo) mapInfo.size = size;
+    camera.updateProjectionMatrix();
+    controls.update();
+  }
   if (gatInfo && mapRoot && mapInfo && mapInfo.mapId === gatInfo.mapId) {
     if (currentCell) updatePlayerPosition();
     makeGrid();
