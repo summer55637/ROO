@@ -16,18 +16,13 @@ function readString(view, offset, length) {
   const bytes = new Uint8Array(view.buffer, view.byteOffset + offset, length);
   const end = bytes.indexOf(0);
   const slice = end >= 0 ? bytes.subarray(0, end) : bytes;
-  let decoded = new TextDecoder('latin1').decode(slice);
-
-  // Classic client texture paths often use CP949/EUC-KR; manifest keys preserve
-  // those names as Unicode. Prefer a valid Hangul decode, otherwise keep the
-  // Windows-1252-compatible fallback for ASCII/Western client paths.
+  let decoded;
   try {
-    const korean = new TextDecoder('euc-kr', { fatal: true }).decode(slice);
-    if (/[가-힣]/u.test(korean)) decoded = korean;
+    // Matches the public asset pipeline's GRF filename decoder.
+    decoded = new TextDecoder('euc-kr', { fatal: true }).decode(slice);
   } catch (error) {
-    // A non-Korean path may not be a valid EUC-KR byte sequence.
+    decoded = new TextDecoder('windows-1252').decode(slice);
   }
-
   return decoded.trim().replace(/\\/g, '/');
 }
 
