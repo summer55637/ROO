@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
   RAGASSETS_BASE_URL,
   buildGndMeshData,
+  insetGndTextureUvs,
   normalizeTextureName,
   parseGndBuffer,
   resolveRagassetsMapUrls,
@@ -455,11 +456,18 @@ async function loadRagassetsMap(mapName) {
       const textureName = bucket.textureIndex >= 0 ? parsedGnd.textures[bucket.textureIndex] : '';
       const textureUrl = urls.textures[normalizeTextureName(textureName)];
       if (textureUrl) {
-        texture = textureLoader.load(textureUrl, () => {
-          texture.colorSpace = THREE.SRGBColorSpace;
-          texture.wrapS = THREE.RepeatWrapping;
-          texture.wrapT = THREE.RepeatWrapping;
-          texture.needsUpdate = true;
+        texture = textureLoader.load(textureUrl, loadedTexture => {
+          loadedTexture.colorSpace = THREE.SRGBColorSpace;
+          loadedTexture.wrapS = THREE.RepeatWrapping;
+          loadedTexture.wrapT = THREE.RepeatWrapping;
+          const textureWidth = loadedTexture.image && (loadedTexture.image.naturalWidth || loadedTexture.image.width);
+          const textureHeight = loadedTexture.image && (loadedTexture.image.naturalHeight || loadedTexture.image.height);
+          if (textureWidth > 0 && textureHeight > 0) {
+            const uvAttribute = geometry.getAttribute('uv');
+            uvAttribute.array.set(insetGndTextureUvs(uvAttribute.array, textureWidth, textureHeight));
+            uvAttribute.needsUpdate = true;
+          }
+          loadedTexture.needsUpdate = true;
         }, undefined, () => {
           if (material) {
             material.map = null;
