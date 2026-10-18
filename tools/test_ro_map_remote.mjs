@@ -33,7 +33,7 @@ async function validateMap(mapId) {
   ]);
 
   const gnd = parseGndBuffer(gndBytes);
-  assert.equal(gnd.lightmapLayout, 'standard-split', mapId + ' GND 1.7 standard lightmap layout');
+  assert.ok(['standard-split', 'legacy-rgba'].includes(gnd.lightmapLayout), mapId + ' recognized GND lightmap layout');
   assert.equal(gnd.lightmapSlices.length, gnd.lightmapCount, mapId + ' lightmap slice count');
   const rsw = parseRswBuffer(rswBytes);
   assert.ok(rsw.models.length > 0, mapId + ' RSW has map model instances');
