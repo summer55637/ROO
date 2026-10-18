@@ -8,6 +8,12 @@
 
     node tools/convert_gat.js --input /path/to/prontera.gat --out data/maps/prontera.walk.json --map prontera
 
+整批轉換已解出的多張地圖（只掃資料夾第一層的 `.gat` 檔）：
+
+    node tools/convert_gat.js --input-dir /path/to/extracted/maps --out-dir data/maps
+
+每張地圖會依檔名輸出成小寫的 `<mapId>.walk.json`。即使其中某張失敗，工具仍會繼續處理其餘檔案，最後列出成功／失敗數；只要有失敗，程序就會以非零狀態結束，適合接進自動化檢查。
+
 輸出只保留通行格，不保留四角高度資料，並使用 RLE 壓縮，避免把每格展開成大量 JSON 布林值。地圖 ID 必須與遊戲資料中的 map.id 一致。
 
 ## 格子規則
