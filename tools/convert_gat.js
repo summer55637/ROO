@@ -2,7 +2,7 @@
 'use strict';
 
 /* 將作者授權取得的 RO GAT 檔轉成適合 GitHub Pages 的通行格 JSON。
-   GAT 1.2/1.3：14-byte header；每格 20 bytes，地形與水域欄位各 2 bytes。
+   GAT 1.2/1.3：14-byte header；每格 20 bytes，最後 4 bytes 為 32-bit 地形欄位。
    座標依 GAT 西南角原點排列；地形 1（障礙）和 5（懸崖）不可走。
 */
 const fs = require('fs');
@@ -57,14 +57,14 @@ function parseGatBuffer(buffer, mapId, sourceName) {
   for (let i = 0; i < cellCount; i++) {
     const tileOffset = 14 + i * 20;
     const terrainType = buffer.readUInt16LE(tileOffset + 16);
-    const waterFlag = buffer.readUInt16LE(tileOffset + 18);
+    const upperTerrainFlags = buffer.readUInt16LE(tileOffset + 18);
     // 與 rAthena map_gat2cell() 一致；未知旗標採保守阻擋。
     const isWalkable = terrainType === 0 || terrainType === 2
       || terrainType === 3 || terrainType === 4 || terrainType === 6;
     walkable[i] = isWalkable ? 1 : 0;
     terrainCounts[terrainType] = (terrainCounts[terrainType] || 0) + 1;
     if (isWalkable) walkableCount++;
-    if (waterFlag !== 0) waterCount++;
+    if (minor === 3 && (upperTerrainFlags & 0x8000) !== 0) waterCount++;
   }
 
   return {
