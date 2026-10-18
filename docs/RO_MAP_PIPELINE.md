@@ -53,7 +53,7 @@ js/map_pathfinding.js 提供解碼器、格子判定、A* 八方向尋路、最�
 
     ragx maps prontera --client "C:/Gravity/Ragnarok" --format glb --world-scale 0.2 --out ./tmp/roo-map
 
-輸出 GLB 後，開啟 tools/map_preview.html，選取 tmp/roo-map/maps/prontera.glb 與相同地圖的原始 .gat 檔。預覽工具可旋轉／縮放並疊加可走、阻擋與水域標記；它只供開發校對，未加入遊戲執行流程。Three.js 使用固定版本 CDN 僅限這個工具頁，遊戲本體仍不依賴它。
+輸出 GLB 後，開啟 tools/map_preview.html，選取 tmp/roo-map/maps/prontera.glb 與相同地圖的原始 prontera.gat。兩個檔案的地圖 ID 必須一致；不一致時會停止疊圖，避免誤校對。世界比例必須與轉換參數一致：例如 --world-scale 0.2 時，預覽比例設為 0.2（每個 GAT 格寬 1 個 glTF 單位）。此比例可調整，但 GLB 與 GAT 必須使用同一比例。預覽工具可旋轉／縮放並疊加可走、阻擋與水域標記；它只供開發校對，未加入遊戲執行流程。Three.js 使用固定版本 CDN 僅限這個工具頁，遊戲本體仍不依賴它。
 
 ## 尚未完成的下一階段
 
