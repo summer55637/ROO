@@ -2081,6 +2081,7 @@ function renderMapYieldBox(mapObj) {
 function openRoExplorer() {
   if (!state) return;
   const url = new URL('tools/ro_explorer.html', window.location.href);
+  url.searchParams.set('mode', 'native');
   url.searchParams.set('map', String(state.mapId || 'prontera'));
   window.open(url.toString(), '_blank', 'noopener,noreferrer');
 }

@@ -37,11 +37,15 @@ jobs:
           node --check tools/ro_map_assets.mjs
           node --check tools/test_ro_map_assets.mjs
           node --check tools/ro_explorer.mjs
+          node --check tools/ro_explorer_bootstrap.js
+          node --check tools/test_ro_explorer_bootstrap.mjs
           node --check js/ui.js
       - name: Test GAT conversion and pathfinding
         run: node tools/test_map_pathfinding.js
       - name: Test native GND map pipeline
         run: node tools/test_ro_map_assets.mjs
+      - name: Test map explorer direct-entry mode
+        run: node tools/test_ro_explorer_bootstrap.mjs
       - name: Run complete regression suite
         run: node tools/test.js
       - name: Run full-game smoke test

@@ -84,7 +84,7 @@
     <div id="native-toolbar" hidden>
       <label>地圖 ID <input id="native-map" type="text" value="prontera" maxlength="64" autocapitalize="none" spellcheck="false"></label>
       <button id="load-native-map" type="button">載入原生地圖</button>
-      <span class="hint">載入 GND/GAT/RSW、地表貼圖及部分 RSM 1.x 模型；有模型數量上限，尚未包含 RSM2 動畫、lightmap、水面與正式戰鬥。</span>
+      <span class="hint">載入 GND/GAT/RSW、地表貼圖與部分 RSM 1.x／RSM2 2.2–2.3 靜態模型；有模型數量上限。GND lightmap/AO 與水面已具第一階段支援，模型動畫及正式角色／戰鬥仍未完成；RSM2 真實素材仍需目視校驗。</span>
     </div>
     <div id="local-toolbar">
       <label>地圖 GLB <input id="model-file" type="file" accept=".glb,model/gltf-binary"></label>
@@ -110,46 +110,6 @@ ragx maps prontera --client "C:/Gravity/Ragnarok" --format glb --world-scale 0.2
     <a href="https://github.com/joaopedrosgs/ragx" target="_blank" rel="noopener noreferrer">ragx 轉換工具</a>
   </footer>
 
-  <script>
-    const publicMode = document.getElementById('public-mode');
-    const localMode = document.getElementById('local-mode');
-    const publicButton = document.getElementById('show-public');
-    const nativeButton = document.getElementById('show-native');
-    const localButton = document.getElementById('show-local');
-    const nativeToolbar = document.getElementById('native-toolbar');
-    const localToolbar = document.getElementById('local-toolbar');
-    let localModuleLoaded = false;
-
-    function setMode(mode) {
-      const isPublic = mode === 'public';
-      const isNative = mode === 'native';
-      publicMode.hidden = !isPublic;
-      localMode.hidden = isPublic;
-      nativeToolbar.hidden = !isNative;
-      localToolbar.hidden = isNative;
-      publicButton.setAttribute('aria-pressed', String(isPublic));
-      nativeButton.setAttribute('aria-pressed', String(isNative));
-      localButton.setAttribute('aria-pressed', String(!isPublic && !isNative));
-      if (!isPublic && !localModuleLoaded) {
-        localModuleLoaded = true;
-        const module = document.createElement('script');
-        module.type = 'module';
-        module.src = './ro_explorer.mjs';
-        module.onload = () => window.dispatchEvent(new CustomEvent('roo-explorer-mode', { detail: mode }));
-        module.onerror = () => {
-          localModuleLoaded = false;
-          document.getElementById('status').textContent = '地圖探索模組載入失敗；請確認網路連線或切回公開地圖預覽。';
-          document.getElementById('status').classList.add('error');
-        };
-        document.body.appendChild(module);
-      } else if (!isPublic) {
-        window.dispatchEvent(new CustomEvent('roo-explorer-mode', { detail: mode }));
-      }
-    }
-
-    publicButton.addEventListener('click', () => setMode('public'));
-    nativeButton.addEventListener('click', () => setMode('native'));
-    localButton.addEventListener('click', () => setMode('local'));
-  </script>
+  <script src="./ro_explorer_bootstrap.js"></script>
 </body>
 </html>

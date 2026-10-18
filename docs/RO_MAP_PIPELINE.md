@@ -74,7 +74,7 @@ js/map_pathfinding.js 提供解碼器、格子判定、A* 八方向尋路、最�
 
 ## 原生公開 GND/GAT/RSW/RSM 探索模式（2026-10-18）
 
-`tools/ro_explorer.html` 的「原生地圖（測試）」模式不依賴第三方模擬器 iframe，直接從公開 ragassets 端點載入同名 `.manifest.json`、`.gnd`、`.gat`、`.rsw`、共享 PNG 材質與模型資源，再以 Three.js 組出地表和目前支援的模型。點擊尋路只會命中標記為地表的網格，避免誤把樹木、屋頂當成目的地。地圖 ID 可輸入，例如 `prontera` 或 `tra_fild`。這仍是開發驗證工具，公開素材服務屬 best-effort，無 SLA；端點停用、跨來源政策或素材缺檔時，請切回公開模擬器或本機 GLB/GAT。
+`tools/ro_explorer.html` 的「原生地圖（測試）」模式不依賴第三方模擬器 iframe，直接從公開 ragassets 端點載入同名 `.manifest.json`、`.gnd`、`.gat`、`.rsw`、共享 PNG 材質與模型資源，再以 Three.js 組出地表和目前支援的模型。遊戲內「開啟 3D 地圖探索」入口使用 `?mode=native&map=<mapId>`，直接開啟原生地圖並載入目前選定的地圖；不帶 `mode` 時仍以公開模擬器作為預設。點擊尋路只會命中標記為地表的網格，避免誤把樹木、屋頂當成目的地。地圖 ID 可輸入，例如 `prontera` 或 `tra_fild`。目前包含 RSM 1.x 與 RSM2 2.2／2.3 靜態網格、第一階段 GND lightmap/AO 及水面；動畫仍未完整支援，RSM2 真實素材仍需目視校驗。這仍是開發驗證工具，公開素材服務屬 best-effort，無 SLA；端點停用、跨來源政策或素材缺檔時，請切回公開模擬器或本機 GLB/GAT。
 
 新增的 `tools/ro_map_assets.mjs` 負責：
 - 驗證 GND 1.7／1.8／1.9 標頭、尺寸、40-byte surface 與 cube 索引；地表網格會參照鄰接方格頂點色，並在貼圖載入後做半像素 UV 內縮。
