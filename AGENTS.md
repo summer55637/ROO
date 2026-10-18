@@ -9,9 +9,13 @@
 
 同一原則適用於程式碼註解與測試斷言（見下方 Testing Guidelines）。
 
+## Fixed Product Requirements (Must Follow)
+
+Read [`docs/PROJECT_SPEC.md`](docs/PROJECT_SPEC.md) before project work. The target is a **genuine single-player RO H5 game**, pure front-end, published on a free GitHub Pages URL. It must remain 100% free and non-commercial, with no ads, IAP, subscriptions, paid unlocks, backend, or multiplayer server. Reuse the existing RO data and mechanics wherever possible. The project author has stated that full RO-related usage authorization has been obtained; use that as the project premise, and refer to the author's authorization documents for specific scope. Do not describe the project as unlicensed or merely RO-style.
+
 ## Project Structure & Module Organization
 
-This is a build-free Ragnarok Online-inspired idle game. `index.html` is the entry point and defines the ordered loading of browser scripts. Keep that order intact: the files in `js/` share globals rather than ES modules. Core simulation and persistence live in `js/engine.js`; UI rendering and DOM events live in `js/ui.js`; game data is divided among `data.js`, `skills.js`, `jobs.js`, `monster_skills.js`, and supporting tables.
+This repository currently contains a build-free browser idle game, but its fixed product target is a genuine single-player H5 Ragnarok Online game, not merely a RO-inspired clone. `index.html` is the entry point and defines the ordered loading of browser scripts. Keep that order intact: the files in `js/` share globals rather than ES modules. Core simulation and persistence live in `js/engine.js`; UI rendering and DOM events live in `js/ui.js`; game data is divided among `data.js`, `skills.js`, `jobs.js`, `monster_skills.js`, and supporting tables. Read `docs/PROJECT_SPEC.md` before proposing or implementing project changes.
 
 Use `css/style.css` for layout and component styling, and `css/ro-theme.css` for theme tokens. Runtime assets belong in `images/`, `music/`, and `WAV/`; preserve ID-based filenames such as `images/items/501.png`. Source datasets and conversion inputs live in the `ro_*_data/` directories and root YAML/JSON files. Keep implementation notes and plans in `docs/`; reserve `tools/` for Node/Python data-maintenance scripts and test suites.
 
