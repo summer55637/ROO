@@ -6209,7 +6209,7 @@ function effectiveFleeWithBuff() {
 /* ---------------- 怪物 ---------------- */
 const EXPLORE_OFFSET_LIMITS = Object.freeze({
   minX: -0.10,
-  maxX: 0.48,
+  maxX: 0.68,
   minY: -0.25,
   maxY: 0.25,
 });
