@@ -1,4 +1,8 @@
 /* GAT 轉換與 RO A* 路徑搜尋回歸測試。 */
+const fs = require('fs');
+const os = require('os');
+const pathModule = require('path');
+const childProcess = require('child_process');
 const H = require('./harness');
 const { parseGatBuffer } = require('./convert_gat');
 const t = H.tester();
@@ -21,6 +25,35 @@ t.eq('GAT 尺寸正確', sample.width + 'x' + sample.height, '3x2');
 t.eq('障礙與懸崖都不可走', sample.walkableCount, 3);
 t.eq('通行格 RLE 保留 GAT 原始順序', sample.walkableRle, '1:1,2:0,2:1,1:0');
 t.eq('來源版本有保留', sample.sourceFormat, '1.2');
+
+const batchRoot = fs.mkdtempSync(pathModule.join(os.tmpdir(), 'roo-gat-batch-'));
+const batchInput = pathModule.join(batchRoot, 'input');
+const batchOutputDir = pathModule.join(batchRoot, 'output');
+fs.mkdirSync(batchInput);
+fs.writeFileSync(pathModule.join(batchInput, 'Prontera.gat'), makeGat(2, 1, [0, 1]));
+fs.writeFileSync(pathModule.join(batchInput, 'payon.gat'), makeGat(1, 1, [2]));
+let batchError = null;
+let batchFiles = [];
+try {
+  const batchLog = childProcess.execFileSync(process.execPath, [
+    pathModule.join(__dirname, 'convert_gat.js'),
+    '--input-dir', batchInput,
+    '--out-dir', batchOutputDir,
+  ], { encoding: 'utf8' });
+  batchFiles = fs.readdirSync(batchOutputDir).filter(name => name.endsWith('.walk.json')).sort();
+  t.ok('批次轉換摘要正確', batchLog.includes('批次轉換完成：2 成功、0 失敗。'));
+} catch (error) {
+  batchError = error;
+}
+t.ok('批次轉換命令可執行', !batchError);
+t.eq('批次轉換逐張輸出', batchFiles.length, 2);
+const pronteraWalkPath = pathModule.join(batchOutputDir, 'prontera.walk.json');
+if (fs.existsSync(pronteraWalkPath)) {
+  const pronteraWalk = JSON.parse(fs.readFileSync(pronteraWalkPath, 'utf8'));
+  t.eq('批次輸出地圖 ID 以小寫檔名對應', pronteraWalk.mapId, 'prontera');
+  t.eq('批次輸出保留可走格統計', pronteraWalk.walkableCount, 1);
+}
+fs.rmSync(batchRoot, { recursive: true, force: true });
 
 const waterGat = makeGat(1, 1, [1], 3);
 waterGat.writeUInt16LE(1, 14 + 18);
