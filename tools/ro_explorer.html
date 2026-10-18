@@ -12,14 +12,23 @@
     .brand { min-width: 210px; margin-right: auto; }
     .brand strong { display: block; font-size: 16px; }
     .brand span, .hint, footer { color: #9eafc5; font-size: 12px; line-height: 1.5; }
+    .mode-buttons { display: flex; gap: 6px; }
     label { display: flex; align-items: center; gap: 7px; font-size: 12px; }
     input[type="file"] { width: 170px; max-width: 32vw; font-size: 12px; }
     input[type="number"] { width: 72px; }
     input[type="range"] { width: 90px; }
     input[type="checkbox"] { accent-color: #48d597; }
-    button { border: 1px solid #526985; border-radius: 7px; padding: 7px 10px; background: #1a2a3e; color: #e4edf8; cursor: pointer; font: inherit; font-size: 12px; }
-    button:hover { background: #263e59; }
-    #stage { flex: 1; min-height: 420px; height: calc(100vh - 140px); position: relative; overflow: hidden; touch-action: pan-y; }
+    button, .link-button { display: inline-block; border: 1px solid #526985; border-radius: 7px; padding: 7px 10px; background: #1a2a3e; color: #e4edf8; cursor: pointer; font: inherit; font-size: 12px; text-decoration: none; }
+    button:hover, .link-button:hover { background: #263e59; }
+    button[aria-pressed="true"] { border-color: #48d597; background: #193a37; }
+    main { flex: 1; min-height: 0; }
+    main[hidden] { display: none; }
+    #public-mode { display: flex; flex-direction: column; min-height: 0; }
+    #public-info { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 10px 16px; background: #101927; border-bottom: 1px solid #273549; }
+    #public-info p { margin: 0; flex: 1; min-width: 240px; color: #b9c8da; font-size: 12px; line-height: 1.5; }
+    #public-map { width: 100%; height: calc(100vh - 180px); min-height: 460px; border: 0; background: #090f18; }
+    #local-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 16px; background: #101927; border-bottom: 1px solid #273549; }
+    #stage { height: calc(100vh - 180px); min-height: 420px; position: relative; overflow: hidden; touch-action: pan-y; }
     #stage canvas { display: block; width: 100%; height: 100%; }
     #status { position: absolute; top: 12px; left: 12px; z-index: 2; max-width: min(660px, calc(100% - 24px)); padding: 10px 12px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .9); color: #d9e7f8; font-size: 12px; line-height: 1.5; white-space: pre-line; pointer-events: none; }
     #status.error { color: #fecaca; border-color: #9f4141; }
@@ -30,42 +39,89 @@
       header { align-items: flex-start; }
       .brand { width: 100%; }
       input[type="file"] { width: 145px; max-width: 44vw; }
-      #stage { height: 65vh; min-height: 360px; }
+      #public-map { height: 68vh; min-height: 420px; }
+      #stage { height: 68vh; min-height: 360px; }
     }
   </style>
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
-      }
-    }
-  </script>
 </head>
 <body>
   <header>
     <div class="brand">
       <strong>🧭 ROO 真實地圖探索</strong>
-      <span>實驗原型：3D 地圖、點擊行走、GAT 障礙碰撞、A* 尋路</span>
+      <span>優先使用公開地圖來源；不需要你先準備地圖檔</span>
     </div>
-    <label>地圖 GLB <input id="model-file" type="file" accept=".glb,model/gltf-binary"></label>
-    <label>地圖 GAT <input id="gat-file" type="file" accept=".gat"></label>
-    <label>世界比例 <input id="world-scale" type="number" min="0.01" max="10" step="0.01" value="0.2" inputmode="decimal"></label>
-    <label>速度 <input id="move-speed" type="range" min="1" max="8" value="4"><span id="speed-value">4</span></label>
-    <label><input id="show-cells" type="checkbox">顯示通行格</label>
-    <button id="recenter" type="button">重置視角</button>
+    <div class="mode-buttons">
+      <button id="show-public" type="button" aria-pressed="true">公開地圖（免下載）</button>
+      <button id="show-local" type="button" aria-pressed="false">本機 GLB/GAT</button>
+    </div>
   </header>
-  <main id="stage">
-    <div id="status">選取同一張 RO 地圖的 GLB 與 GAT。建議使用 ragx 轉換：<br>
+
+  <main id="public-mode">
+    <div id="public-info">
+      <p><strong>公開地圖來源：</strong>此模式從已公開的 RO 地圖模擬器載入資源。進入後點選預覽區的「Caminhe com seu personagem…／探索地圖」按鈕即可載入預設訓練場 <code>tra_fild</code>。此預覽是外部網站，尚未與 ROO 戰鬥或存檔相連。</p>
+      <a class="link-button" href="https://visuais.latam-tools.com.br/#play" target="_blank" rel="noopener noreferrer">另開公開地圖來源 ↗</a>
+    </div>
+    <iframe id="public-map"
+      title="公開的 Ragnarok Online 3D 地圖模擬器"
+      src="https://visuais.latam-tools.com.br/#play"
+      loading="eager"
+      referrerpolicy="no-referrer"
+      allow="fullscreen; autoplay"></iframe>
+  </main>
+
+  <main id="local-mode" hidden>
+    <div id="local-toolbar">
+      <label>地圖 GLB <input id="model-file" type="file" accept=".glb,model/gltf-binary"></label>
+      <label>地圖 GAT <input id="gat-file" type="file" accept=".gat"></label>
+      <label>世界比例 <input id="world-scale" type="number" min="0.01" max="10" step="0.01" value="0.2" inputmode="decimal"></label>
+      <label>速度 <input id="move-speed" type="range" min="1" max="8" value="4"><span id="speed-value">4</span></label>
+      <label><input id="show-cells" type="checkbox">顯示通行格</label>
+      <button id="recenter" type="button">重置視角</button>
+    </div>
+    <div id="stage">
+      <div id="status">選取同一張 RO 地圖的 GLB 與 GAT。建議使用 ragx 轉換：<br>
 ragx maps prontera --client "C:/Gravity/Ragnarok" --format glb --world-scale 0.2 --out ./tmp/roo-map<br>
 先選 GLB，再選相同地圖的原始 GAT。點擊地面行走；拖曳旋轉視角、滾輪縮放。</div>
-    <div id="stats">尚未載入地圖</div>
+      <div id="stats">尚未載入地圖</div>
+    </div>
   </main>
+
   <footer>
-    素材只在你的瀏覽器本機讀取，不會上傳。地圖與角色位置不會寫回原遊戲存檔；探索位置只存於此瀏覽器。
+    公開模式使用第三方網站及其地圖資源主機，服務可能變動；ROO 沒有複製或重新散布該網站的程式碼／地圖二進位檔。
+    本機模式則使用你自行選取的檔案，且不會上傳。
+    <a href="https://github.com/adsonpleal/latamvisuais" target="_blank" rel="noopener noreferrer">地圖模擬器原始碼</a> ·
+    <a href="https://github.com/adsonpleal/ragassets" target="_blank" rel="noopener noreferrer">公開地圖資源管線</a> ·
     <a href="https://github.com/joaopedrosgs/ragx" target="_blank" rel="noopener noreferrer">ragx 轉換工具</a>
   </footer>
-  <script src="../js/map_pathfinding.js"></script>
-  <script type="module" src="./ro_explorer.mjs"></script>
+
+  <script>
+    const publicMode = document.getElementById('public-mode');
+    const localMode = document.getElementById('local-mode');
+    const publicButton = document.getElementById('show-public');
+    const localButton = document.getElementById('show-local');
+    let localModuleLoaded = false;
+
+    function setMode(mode) {
+      const isPublic = mode === 'public';
+      publicMode.hidden = !isPublic;
+      localMode.hidden = isPublic;
+      publicButton.setAttribute('aria-pressed', String(isPublic));
+      localButton.setAttribute('aria-pressed', String(!isPublic));
+      if (!isPublic && !localModuleLoaded) {
+        localModuleLoaded = true;
+        const module = document.createElement('script');
+        module.type = 'module';
+        module.src = './ro_explorer.mjs';
+        module.onerror = () => {
+          document.getElementById('status').textContent = '本機探索模組載入失敗；請切回公開地圖或重新整理。';
+          document.getElementById('status').classList.add('error');
+        };
+        document.body.appendChild(module);
+      }
+    }
+
+    publicButton.addEventListener('click', () => setMode('public'));
+    localButton.addEventListener('click', () => setMode('local'));
+  </script>
 </body>
 </html>
