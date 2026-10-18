@@ -221,7 +221,14 @@ export function buildGndMeshData(gnd, worldScale = 0.2) {
   const buckets = new Map();
   let quadCount = 0;
 
-  function addQuad(surfaceIndex, corners) {
+  function topColor(tileX, tileY, fallback) {
+    if (tileX < 0 || tileY < 0 || tileX >= width || tileY >= height) return fallback;
+    const neighbor = cubes[tileX + tileY * width];
+    if (!neighbor || neighbor.topSurface < 0 || neighbor.topSurface >= surfaces.length) return fallback;
+    return surfaces[neighbor.topSurface].color || fallback;
+  }
+
+  function addQuad(surfaceIndex, corners, vertexColors = null) {
     if (surfaceIndex < 0 || surfaceIndex >= surfaces.length) return;
     const surface = surfaces[surfaceIndex];
     const textureIndex = surface.textureIndex;
@@ -242,7 +249,7 @@ export function buildGndMeshData(gnd, worldScale = 0.2) {
       );
       const uv = surface.uv[corner.uvIndex];
       bucket.uvs.push(uv[0], uv[1]);
-      const color = corner.color || surface.color || [1, 1, 1, 1];
+      const color = (vertexColors && vertexColors[corner.uvIndex]) || surface.color || [1, 1, 1, 1];
       bucket.colors.push(color[0], color[1], color[2]);
     }
     bucket.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
@@ -253,12 +260,20 @@ export function buildGndMeshData(gnd, worldScale = 0.2) {
     const x = i % width;
     const y = Math.floor(i / width);
     const cube = cubes[i];
+    const baseSurface = surfaces[cube.topSurface];
+    const fallbackColor = baseSurface && baseSurface.color || [1, 1, 1, 1];
+    const vertexColors = [
+      fallbackColor,
+      topColor(x + 1, y, fallbackColor),
+      topColor(x, y + 1, fallbackColor),
+      topColor(x + 1, y + 1, fallbackColor),
+    ];
     addQuad(cube.topSurface, [
       { x, z: y, h: cube.hSW, uvIndex: 0 },
       { x: x + 1, z: y, h: cube.hSE, uvIndex: 1 },
       { x, z: y + 1, h: cube.hNW, uvIndex: 2 },
       { x: x + 1, z: y + 1, h: cube.hNE, uvIndex: 3 },
-    ]);
+    ], vertexColors);
 
     if (cube.northSurface >= 0 && y + 1 < height) {
       const neighbor = cubes[i + width];
@@ -286,6 +301,24 @@ export function buildGndMeshData(gnd, worldScale = 0.2) {
     quadCount,
     cubeCount: cubes.length,
   };
+}
+
+export function insetGndTextureUvs(uvs, textureWidth, textureHeight) {
+  if (!uvs || typeof uvs.length !== 'number' || uvs.length % 2 !== 0) {
+    throw new TypeError('UV 必須是偶數長度的陣列。');
+  }
+  if (!Number.isInteger(textureWidth) || !Number.isInteger(textureHeight)
+    || textureWidth < 1 || textureHeight < 1) {
+    throw new Error('貼圖寬高必須是正整數。');
+  }
+  const result = Float32Array.from(uvs);
+  const halfU = 0.5 / textureWidth;
+  const halfV = 0.5 / textureHeight;
+  for (let i = 0; i < result.length; i += 2) {
+    result[i] = halfU + result[i] * (1 - 2 * halfU);
+    result[i + 1] = halfV + result[i + 1] * (1 - 2 * halfV);
+  }
+  return result;
 }
 
 export function resolveRagassetsMapUrls(mapId, manifest, baseUrl = RAGASSETS_BASE_URL) {
