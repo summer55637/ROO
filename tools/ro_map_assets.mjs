@@ -343,6 +343,107 @@ export function parseGndBuffer(input) {
   };
 }
 
+/**
+ * Prepare an RSM 1.x node transform in RO source order:
+ * vertex offset -> scale -> rotation -> transformation matrix -> node position.
+ * Returned 4x4 matrix values are row-major for THREE.Matrix4.set().
+ */
+export function buildRsmNodeTransformData(node, worldScale = 0.2) {
+  if (!node || !Array.isArray(node.offsetMatrix) || node.offsetMatrix.length !== 9) {
+    throw new TypeError('必須提供含 3×3 offsetMatrix 的 RSM 節點。');
+  }
+  if (!Number.isFinite(worldScale) || worldScale <= 0 || worldScale > 10) {
+    throw new Error('RSM 世界比例必須大於 0，且不可大於 10。');
+  }
+
+  function vec3(value, label, fallback = null) {
+    const candidate = value === null || value === undefined ? fallback : value;
+    if (!Array.isArray(candidate) || candidate.length !== 3
+      || !candidate.every(Number.isFinite)) {
+      throw new TypeError('RSM ' + label + ' 必須是三個有限數值。');
+    }
+    return candidate;
+  }
+
+  const matrix = node.offsetMatrix;
+  if (!matrix.every(Number.isFinite)) {
+    throw new TypeError('RSM offsetMatrix 含無效數值。');
+  }
+  const positionSource = vec3(node.translation2, 'position');
+  const offsetSource = vec3(node.translation1, 'mesh offset', [0, 0, 0]);
+  const scale = vec3(node.scale, 'scale', [1, 1, 1]);
+  const position = [
+    positionSource[0] * worldScale,
+    -positionSource[1] * worldScale,
+    -positionSource[2] * worldScale,
+  ];
+  const meshOffset = [
+    offsetSource[0] * worldScale,
+    -offsetSource[1] * worldScale,
+    -offsetSource[2] * worldScale,
+  ];
+
+  // Convert the column-major source 3×3 to the mirrored Three.js axes.
+  const transformMatrix = [
+    matrix[0], -matrix[3], -matrix[6],
+    -matrix[1], matrix[4], matrix[7],
+    -matrix[2], matrix[5], matrix[8],
+  ];
+
+  let rotation = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  const hasRotationAnimation = Array.isArray(node.rotationKeyframes)
+    && node.rotationKeyframes.length > 0;
+  if (!hasRotationAnimation && node.rotationAngle !== null && node.rotationAngle !== undefined) {
+    if (!Number.isFinite(node.rotationAngle)) {
+      throw new TypeError('RSM rotationAngle 必須是有限數值。');
+    }
+    const axis = vec3(node.rotationAxis, 'rotationAxis');
+    const axisLength = Math.hypot(axis[0], axis[1], axis[2]);
+    if (axisLength > 1e-8) {
+      const [x, y, z] = [axis[0] / axisLength, -axis[1] / axisLength, -axis[2] / axisLength];
+      const cosine = Math.cos(node.rotationAngle);
+      const sine = Math.sin(node.rotationAngle);
+      const t = 1 - cosine;
+      rotation = [
+        cosine + x * x * t, x * y * t - z * sine, x * z * t + y * sine,
+        y * x * t + z * sine, cosine + y * y * t, y * z * t - x * sine,
+        z * x * t - y * sine, z * y * t + x * sine, cosine + z * z * t,
+      ];
+    }
+  }
+
+  const scaleMatrix = [
+    scale[0], 0, 0,
+    0, scale[1], 0,
+    0, 0, scale[2],
+  ];
+  function multiply3(left, right) {
+    const result = new Array(9).fill(0);
+    for (let row = 0; row < 3; row++) {
+      for (let column = 0; column < 3; column++) {
+        for (let index = 0; index < 3; index++) {
+          result[row * 3 + column] += left[row * 3 + index] * right[index * 3 + column];
+        }
+      }
+    }
+    return result;
+  }
+
+  // Column-vector order: M * R * S. The vertex offset is on the mesh group
+  // so it is transformed by M/R/S but does not move child-node origins.
+  const local = multiply3(transformMatrix, multiply3(rotation, scaleMatrix));
+  return {
+    position,
+    meshOffset,
+    matrix: [
+      local[0], local[1], local[2], 0,
+      local[3], local[4], local[5], 0,
+      local[6], local[7], local[8], 0,
+      0, 0, 0, 1,
+    ],
+  };
+}
+
 export function parseRsmBuffer(input) {
   const view = asView(input);
   let offset = 0;

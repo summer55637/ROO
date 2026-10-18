@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   RAGASSETS_BASE_URL,
   buildGndLightmapAtlasData,
+  buildRsmNodeTransformData,
   buildGndMeshData,
   analyzeRswPlacementBounds,
   buildGndWaterMeshData,
@@ -245,6 +246,49 @@ assert.equal(rsm.nodes[0].vertices.length, 3);
 assert.deepEqual(rsm.nodes[0].faces[0].vertexIndices, [0, 1, 2]);
 assert.deepEqual(rsm.nodes[0].faces[0].uvIndices, [0, 1, 2]);
 assert.equal(rsm.nodes[0].faces[0].textureIndex, 0);
+
+const rsmNodeTransform = buildRsmNodeTransformData({
+  offsetMatrix: [1, 0, 0, 2, 1, 0, 0, 0, 1],
+  translation1: [1, 2, 3],
+  translation2: [10, 20, 30],
+  rotationAngle: Math.PI / 2,
+  rotationAxis: [0, 0, 1],
+  scale: [2, 3, 4],
+  rotationKeyframes: [],
+}, 0.2);
+assert.deepEqual(rsmNodeTransform.position, [2, -4, -6]);
+assert.deepEqual(rsmNodeTransform.meshOffset, [0.2, -0.4, -0.6]);
+const expectedRsmNodeMatrix = [
+  4, 3, 0, 0,
+  -2, 0, 0, 0,
+  0, 0, 4, 0,
+  0, 0, 0, 1,
+];
+rsmNodeTransform.matrix.forEach((value, index) => {
+  assert.ok(Math.abs(value - expectedRsmNodeMatrix[index]) < 1e-6,
+    'RSM 應按 offsetMatrix × rotation × scale 組合節點矩陣');
+});
+const staticAnimatedNodeTransform = buildRsmNodeTransformData({
+  offsetMatrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+  translation1: null,
+  translation2: [0, 0, 0],
+  rotationAngle: 1,
+  rotationAxis: [0, 1, 0],
+  scale: [1, 1, 1],
+  rotationKeyframes: [{ frame: 0, value: 1 }],
+}, 1);
+assert.deepEqual(staticAnimatedNodeTransform.meshOffset, [0, 0, 0]);
+assert.deepEqual(staticAnimatedNodeTransform.matrix, [
+  1, 0, 0, 0,
+  0, 1, 0, 0,
+  0, 0, 1, 0,
+  0, 0, 0, 1,
+]);
+assert.throws(() => buildRsmNodeTransformData({ offsetMatrix: [] }), /offsetMatrix/);
+assert.throws(() => buildRsmNodeTransformData({
+  offsetMatrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+  translation2: [0, NaN, 0],
+}), /position/);
 
 const standardGnd = parseGndBuffer(makeStandardGnd());
 assert.equal(standardGnd.version, '1.7');

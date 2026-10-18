@@ -6,6 +6,7 @@ import {
   buildGndLightmapAtlasData,
   buildGndMeshData,
   analyzeRswPlacementBounds,
+  buildRsmNodeTransformData,
   buildGndWaterMeshData,
   compareGndGatHeights,
   insetGndTextureUvs,
@@ -516,28 +517,20 @@ function buildRsmTemplate(rsm, urls, scale) {
   if (rsm.major !== 1) return null;
 
   const modelRoot = new THREE.Group();
-  const nodeGroups = rsm.nodes.map(node => {
-    const group = new THREE.Group();
-    group.name = node.name || 'rsm-node';
-    const p = node.translation2;
-    group.position.set(p[0] * scale, -p[1] * scale, -p[2] * scale);
-    if (node.rotationKeyframes.length) {
-      group.quaternion.identity();
-    } else if (node.rotationAngle !== null && node.rotationAxis) {
-      const axis = node.rotationAxis;
-      const axisLength = Math.hypot(axis[0], axis[1], axis[2]);
-      if (axisLength > 1e-8) {
-        const halfAngle = node.rotationAngle * 0.5;
-        const sinHalf = Math.sin(halfAngle) / axisLength;
-        group.quaternion.set(
-          axis[0] * sinHalf,
-          -axis[1] * sinHalf,
-          -axis[2] * sinHalf,
-          Math.cos(halfAngle)
-        ).normalize();
-      }
-    }
-    if (node.scale) group.scale.set(node.scale[0], node.scale[1], node.scale[2]);
+  const nodeTransforms = rsm.nodes.map(node => {
+    const transform = buildRsmNodeTransformData(node, scale);
+    const positionGroup = new THREE.Group();
+    positionGroup.name = node.name || 'rsm-node';
+    positionGroup.position.set(...transform.position);
+
+    const transformGroup = new THREE.Group();
+    transformGroup.matrix.set(...transform.matrix);
+    transformGroup.matrixAutoUpdate = false;
+    positionGroup.add(transformGroup);
+
+    const meshGroup = new THREE.Group();
+    meshGroup.position.set(...transform.meshOffset);
+    transformGroup.add(meshGroup);
 
     const textureNames = rsmTextureNames(rsm, node);
     const buckets = new Map();
@@ -574,15 +567,7 @@ function buildRsmTemplate(rsm, urls, scale) {
           destinationIndex = bucket.positions.length / 3;
           bucket.lookup.set(key, destinationIndex);
           const vertex = node.vertices[vertexIndex];
-          const matrix = node.offsetMatrix;
-          const translation = node.translation1 || [0, 0, 0];
-          const x = matrix[0] * vertex[0] + matrix[3] * vertex[1]
-            + matrix[6] * vertex[2] + translation[0];
-          const y = matrix[1] * vertex[0] + matrix[4] * vertex[1]
-            + matrix[7] * vertex[2] + translation[1];
-          const z = matrix[2] * vertex[0] + matrix[5] * vertex[1]
-            + matrix[8] * vertex[2] + translation[2];
-          bucket.positions.push(x * scale, -y * scale, -z * scale);
+          bucket.positions.push(vertex[0] * scale, -vertex[1] * scale, -vertex[2] * scale);
           const uv = node.uvs[uvIndex] || [0, 0];
           bucket.uvs.push(uv[0], uv[1]);
         }
@@ -599,9 +584,9 @@ function buildRsmTemplate(rsm, urls, scale) {
       geometry.computeVertexNormals();
       const mesh = new THREE.Mesh(geometry, bucket.material);
       mesh.name = 'rsm-mesh-' + bucket.material.name;
-      group.add(mesh);
+      meshGroup.add(mesh);
     }
-    return group;
+    return { positionGroup, transformGroup };
   });
 
   const nodesByName = new Map();
@@ -616,10 +601,10 @@ function buildRsmTemplate(rsm, urls, scale) {
     const children = nodesByName.get(node.parentName) || [];
     const parentIndex = children.find(childIndex => childIndex !== index);
     if (node.parentName && parentIndex !== undefined) {
-      nodeGroups[parentIndex].add(nodeGroups[index]);
+      nodeTransforms[parentIndex].transformGroup.add(nodeTransforms[index].positionGroup);
       parented.add(index);
     } else {
-      modelRoot.add(nodeGroups[index]);
+      modelRoot.add(nodeTransforms[index].positionGroup);
     }
   }
 
@@ -628,12 +613,11 @@ function buildRsmTemplate(rsm, urls, scale) {
   const center = bounds.getCenter(new THREE.Vector3());
   const rootShift = new THREE.Vector3(-center.x, -bounds.max.y, -center.z);
   for (let index = 0; index < rsm.nodes.length; index++) {
-    if (!parented.has(index)) nodeGroups[index].position.add(rootShift);
+    if (!parented.has(index)) nodeTransforms[index].positionGroup.position.add(rootShift);
   }
   modelRoot.userData.rooModelVersion = rsm.version;
   return modelRoot;
 }
-
 function makeRswInstanceTransform(instance, scale) {
   const group = new THREE.Group();
   const p = instance.position;

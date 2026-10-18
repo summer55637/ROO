@@ -128,3 +128,10 @@ js/map_pathfinding.js 提供解碼器、格子判定、A* 八方向尋路、最�
 - 新增 `analyzeRswPlacementBounds()`，把 RSW 物件位置按同一個 world scale 轉到以地圖中心為原點的 Three.js 水平座標，檢查每個模型錨點是否落在 GND 地圖範圍內，並統計超出地圖的最大距離。
 - `prontera`：1,303／1,303 個 RSW 模型錨點在地圖邊界內；`tra_fild`：281／281 個在界內。這證明模型位置數值範圍合理，但不等同已驗證模型根節點朝向、底部錨點或逐一貼圖正確。
 - 原生探索面板會顯示高度差摘要與 RSW 擺放邊界統計，方便在實際畫面驗收時選出需檢查的地圖。
+
+
+## RSM 1.x 節點轉換校正（2026-10-18）
+
+- 原生 renderer 將節點轉換拆成位置、`offsetMatrix × rotation × scale`，並把 translation/offset 只套在該節點網格；子節點繼承父節點的矩陣，但不會被父網格的 offset 額外平移。
+- 加入純函式 `buildRsmNodeTransformData()`，集中處理 RO／Three.js 座標軸轉換，並以合成矩陣測試驗證旋轉、縮放、offsetMatrix 乘法順序及無效數值防護。
+- 此階段仍不播放 RSM 旋轉／縮放／平移動畫，RSM2 幾何也不會實例化；渲染正確性仍須用真實瀏覽器畫面逐圖驗收。
