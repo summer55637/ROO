@@ -301,6 +301,7 @@ function createCharacter(name, statAlloc, gender) {
     inventory: [],        // [{item:'jellopy', qty:3}]
     gold: 50,
     mapId: 'novice_safe',
+    exploreOffset: { x: 0, y: 0 }, // 場景中的角色移動位置（相對比例）
     monster: null,        // {defId, hp, maxHp} - 保留相容性
     monsters: [],         // [{defId, hp, maxHp, id}] 多怪物系統
     monsterIdCounter: 0,  // 怪物唯一ID計數器
@@ -6206,6 +6207,23 @@ function effectiveFleeWithBuff() {
 }
 
 /* ---------------- 怪物 ---------------- */
+const EXPLORE_OFFSET_LIMITS = Object.freeze({
+  minX: -0.10,
+  maxX: 0.48,
+  minY: -0.25,
+  maxY: 0.25,
+});
+
+function normalizeExploreOffset(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const x = Number.isFinite(source.x) ? source.x : 0;
+  const y = Number.isFinite(source.y) ? source.y : 0;
+  return {
+    x: Math.max(EXPLORE_OFFSET_LIMITS.minX, Math.min(EXPLORE_OFFSET_LIMITS.maxX, x)),
+    y: Math.max(EXPLORE_OFFSET_LIMITS.minY, Math.min(EXPLORE_OFFSET_LIMITS.maxY, y)),
+  };
+}
+
 function currentMap() { return MAPS.find(m => m.id === state.mapId); }
 
 /* ---- BOSS 名單拆兩半（#147）----
@@ -13350,6 +13368,7 @@ function changeMap(mapId) {
   const map = MAPS.find(m => m.id === mapId);
   if (!map) return false;
   state.mapId = mapId;
+  state.exploreOffset = { x: 0, y: 0 }; // 換圖從入口位置開始
   // 回安全區全隊免費滿血復活（#83）——不然倒地的隊友只能靠天地樹葉子
   if ((map.monsters || []).length === 0) reviveAlliesInTown();
   ensureCodex().maps[mapId] = 1; // 探索成就用
@@ -13433,6 +13452,7 @@ function loadGame() {
     const raw = localStorage.getItem(getSlotKey(currentSlot));
     if (!raw) return false;
     state = JSON.parse(raw);
+    state.exploreOffset = normalizeExploreOffset(state.exploreOffset); // 舊存檔遷移與範圍校正
     if (!state.lastActiveAt) state.lastActiveAt = Date.now();
     if (!state.autoPotion) state.autoPotion = { enabled: true, primary: '', fallback: 'red_potion', hpThreshold: 50 };
     if (typeof state.autoPotion.hpThreshold !== 'number') state.autoPotion.hpThreshold = 50;
