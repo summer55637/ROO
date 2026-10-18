@@ -234,7 +234,7 @@ export function parseGndBuffer(input) {
       });
     }
   } else {
-    throw new Error('GND lightmap／surface 版面無法驗證（標準 56-byte 或舊式 40-byte）。');
+    throw new Error('GND lightmap／surface 版面無法驗證（標準 56-byte surface 或舊式 40-byte surface）。');
   }
 
   const cubes = [];
