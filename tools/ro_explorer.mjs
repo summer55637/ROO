@@ -22,6 +22,7 @@ import {
   resolveRagassetsMapUrls,
   sampleGndHeightAtGatCell,
   sampleRsmAnimationPose,
+  sampleRsmTextureAnimation,
   sampleRoWaterWaveOffset,
 } from './ro_map_assets.mjs';
 
@@ -410,6 +411,9 @@ function updateStats() {
       + ' 個，未支援／失敗 ' + nativeRenderStats.unsupportedOrFailed);
     rows.push('水域：' + (nativeRenderStats.waterTileCount || 0) + ' 格；動畫影格 '
       + (nativeRenderStats.waterFrameCount || 0));
+    rows.push('RSM2.3 UV 動畫：' + (nativeRenderStats.textureAnimatedPlacements || 0)
+      + ' 個擺放實例；' + (nativeRenderStats.textureAnimationMeshes || 0)
+      + ' 個網格／' + (nativeRenderStats.textureAnimationChannels || 0) + ' 個通道');
     rows.push('GND lightmap：' + (nativeRenderStats.lightmapSlices || 0) + ' slices；'
       + (nativeRenderStats.lightmapLayout || '無') + '；貼圖合成 '
       + (nativeRenderStats.lightmapAtlas ? '已啟用' : '未啟用'));
@@ -546,6 +550,23 @@ function loadModelTexture(url) {
   return texture;
 }
 
+function loadAnimatedModelTexture(url) {
+  if (!url) return null;
+  const texture = textureLoader.load(url, loadedTexture => {
+    loadedTexture.colorSpace = THREE.SRGBColorSpace;
+    loadedTexture.wrapS = THREE.RepeatWrapping;
+    loadedTexture.wrapT = THREE.RepeatWrapping;
+    loadedTexture.needsUpdate = true;
+  }, undefined, () => {
+    console.warn('ROO RSM2.3 貼圖動畫載入失敗：' + url);
+  });
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.center.set(0.5, 0.5);
+  return texture;
+}
+
 function rsmTextureNames(rsm, node) {
   if (rsm.major === 2 && rsm.minor >= 3) return node.textureNames;
   return node.textureIndices.map(index => rsm.textures[index] || '');
@@ -621,6 +642,18 @@ function buildRsmTemplate(rsm, urls, scale) {
       geometry.setIndex(data.indices);
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = 'rsm-mesh-' + textureName;
+      if (rsm.major === 2 && rsm.minor >= 3 && textureUrl) {
+        const textureAnimation = (node.textureAnimations || [])
+          .find(item => item.textureIndex === data.textureIndex);
+        const channels = textureAnimation && Array.isArray(textureAnimation.channels)
+          ? textureAnimation.channels.filter(channel => Number.isInteger(channel.operation)
+            && channel.operation >= 0 && channel.operation <= 4
+            && Array.isArray(channel.frames) && channel.frames.length > 0)
+          : [];
+        if (channels.length) {
+          mesh.userData.rooRsmTextureAnimation = { textureUrl, channels };
+        }
+      }
       group.add(mesh);
     }
     return group;
@@ -669,19 +702,41 @@ function createRsmAnimationInstance(instance, modelRoot) {
   }
 
   const tracks = [];
+  const textureTracks = [];
   let lastKeyframe = 0;
   modelRoot.traverse(object => {
     const data = object.userData && object.userData.rooRsmAnimation;
-    if (!data) return;
-    const hasKeys = data.rotationKeyframes.length || data.scaleKeyframes.length
-      || data.translationKeyframes.length;
-    if (!hasKeys) return;
-    tracks.push({ object, data });
-    for (const keys of [data.rotationKeyframes, data.scaleKeyframes, data.translationKeyframes]) {
-      for (const key of keys) lastKeyframe = Math.max(lastKeyframe, key.frame);
+    if (data) {
+      const hasKeys = data.rotationKeyframes.length || data.scaleKeyframes.length
+        || data.translationKeyframes.length;
+      if (hasKeys) {
+        tracks.push({ object, data });
+        for (const keys of [data.rotationKeyframes, data.scaleKeyframes, data.translationKeyframes]) {
+          for (const key of keys) lastKeyframe = Math.max(lastKeyframe, key.frame);
+        }
+      }
+    }
+
+    const textureData = object.userData && object.userData.rooRsmTextureAnimation;
+    if (!textureData || !object.isMesh || !textureData.textureUrl
+      || !Array.isArray(textureData.channels) || !textureData.channels.length
+      || !object.material || Array.isArray(object.material)) return;
+    const material = object.material.clone();
+    const texture = loadAnimatedModelTexture(textureData.textureUrl);
+    if (!texture) return;
+    material.map = texture;
+    texture.center.set(0.5, 0.5);
+    texture.offset.set(0, 0);
+    texture.repeat.set(1, 1);
+    texture.rotation = 0;
+    texture.needsUpdate = true;
+    object.material = material;
+    textureTracks.push({ texture, channels: textureData.channels });
+    for (const channel of textureData.channels) {
+      for (const key of channel.frames || []) lastKeyframe = Math.max(lastKeyframe, key.frame);
     }
   });
-  if (!tracks.length) return null;
+  if (!tracks.length && !textureTracks.length) return null;
 
   const animationLength = Number(model.animationLength);
   const durationTicks = Math.max(
@@ -703,6 +758,7 @@ function createRsmAnimationInstance(instance, modelRoot) {
     speed,
     startedAt: null,
     tracks,
+    textureTracks,
   };
 }
 
@@ -720,6 +776,12 @@ function advanceRsmAnimations(now) {
       if (pose.rotation) track.object.quaternion.set(...pose.rotation);
       if (pose.scale) track.object.scale.set(...pose.scale);
       if (pose.translation) track.object.position.set(...pose.translation);
+    }
+    for (const track of animation.textureTracks) {
+      const transform = sampleRsmTextureAnimation(track.channels, frame, animation.durationTicks);
+      track.texture.offset.set(transform.offset[0], transform.offset[1]);
+      track.texture.repeat.set(transform.scale[0], transform.scale[1]);
+      track.texture.rotation = transform.rotation;
     }
   }
 }
@@ -1100,6 +1162,10 @@ async function loadRagassetsMap(mapName) {
       ...modelRenderStats,
       waterTileCount: nextWaterStats.waterTileCount,
       waterFrameCount: nextWaterStats.waterFrameCount,
+      textureAnimatedPlacements: nextRsmAnimations.filter(animation => animation.textureTracks.length > 0).length,
+      textureAnimationMeshes: nextRsmAnimations.reduce((sum, animation) => sum + animation.textureTracks.length, 0),
+      textureAnimationChannels: nextRsmAnimations.reduce((sum, animation) => sum
+        + animation.textureTracks.reduce((meshSum, track) => meshSum + track.channels.length, 0), 0),
       lightmapSlices: parsedGnd.lightmapCount,
       lightmapLayout: parsedGnd.lightmapLayout,
       lightmapAtlas: !!lightmapAtlas,
