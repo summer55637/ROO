@@ -6,6 +6,7 @@ import {
   buildGndLightmapAtlasData,
   buildGndMeshData,
   buildGndWaterMeshData,
+  compareGndGatHeights,
   insetGndTextureUvs,
   normalizeModelName,
   normalizeTextureName,
@@ -13,6 +14,7 @@ import {
   parseRsmBuffer,
   parseRswBuffer,
   resolveRagassetsMapUrls,
+  sampleGndHeightAtGatCell,
 } from './ro_map_assets.mjs';
 
 const stage = document.getElementById('stage');
@@ -60,6 +62,7 @@ let mapRoot = null;
 let mapInfo = null;
 let mapBounds = null;
 let gatInfo = null;
+let gndInfo = null;
 let rswInfo = null;
 let nativeRenderStats = null;
 let nativeWaterAnimation = null;
@@ -222,6 +225,11 @@ function removeRoute() {
 }
 
 function groundHeight(cell) {
+  if (gndInfo && gatInfo
+    && gatInfo.width === gndInfo.width * 2
+    && gatInfo.height === gndInfo.height * 2) {
+    return sampleGndHeightAtGatCell(gndInfo, cell.x, cell.y, worldScale);
+  }
   const idx = cell.y * gatInfo.width + cell.x;
   return -gatInfo.heights[idx] * worldScale;
 }
@@ -396,6 +404,14 @@ function updateStats() {
     rows.push('GND lightmap：' + (nativeRenderStats.lightmapSlices || 0) + ' slices；'
       + (nativeRenderStats.lightmapLayout || '無') + '；貼圖合成 '
       + (nativeRenderStats.lightmapAtlas ? '已啟用' : '未啟用'));
+    if (nativeRenderStats.heightAlignment) {
+      const alignment = nativeRenderStats.heightAlignment;
+      rows.push('GND/GAT 高度差：平均 ' + (alignment.meanAbsoluteError === null
+        ? '—' : alignment.meanAbsoluteError.toFixed(3)) + '、P95 '
+        + (alignment.p95AbsoluteError === null ? '—' : alignment.p95AbsoluteError.toFixed(3))
+        + '、最大 ' + (alignment.maxAbsoluteError === null ? '—' : alignment.maxAbsoluteError.toFixed(3))
+        + '（世界單位；樣本 ' + alignment.samples + '）');
+    }
   }
   rows.push('世界比例：' + worldScale + '；GAT 格寬 ' + tileSize().toFixed(2));
   if (currentCell) rows.push('目前格：(' + currentCell.x + ', ' + currentCell.y + ')');
@@ -965,8 +981,17 @@ async function loadRagassetsMap(mapName) {
       size: mapBounds.getSize(new THREE.Vector3()),
     };
     gatInfo = parsedGat;
+    gndInfo = parsedGnd;
     rswInfo = parsedRsw;
-    nativeRenderStats = { ...nextRenderStats, waterTileCount: nextWaterStats.waterTileCount, waterFrameCount: nextWaterStats.waterFrameCount, lightmapSlices: parsedGnd.lightmapCount, lightmapLayout: parsedGnd.lightmapLayout, lightmapAtlas: !!lightmapAtlas };
+    nativeRenderStats = {
+      ...nextRenderStats,
+      waterTileCount: nextWaterStats.waterTileCount,
+      waterFrameCount: nextWaterStats.waterFrameCount,
+      lightmapSlices: parsedGnd.lightmapCount,
+      lightmapLayout: parsedGnd.lightmapLayout,
+      lightmapAtlas: !!lightmapAtlas,
+      heightAlignment: compareGndGatHeights(parsedGnd, parsedGat, worldScale),
+    };
     applyRswLighting(parsedRsw, mapInfo.size);
     fitCamera();
     finishOrRefreshScene();
@@ -999,6 +1024,7 @@ async function loadMapFile(file) {
 
     const size = mapBounds.getSize(new THREE.Vector3());
     mapInfo = { name: file.name, mapId: mapIdFromName(file.name), size, native: false };
+    gndInfo = null;
     rswInfo = null;
     nativeRenderStats = null;
     resetRswLighting();
