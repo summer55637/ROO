@@ -54,6 +54,7 @@ const SUITES = [
   'test_images.js',      // 圖檔接線：別名指得到、圖鑑內不再長出缺圖（#141）
   'test_autosell_sync.js', // 自動販賣清單跨存檔同步（#140）
   'test_saveio.js',      // 存檔匯出/匯入：序列化、遷移、覆寫與失敗還原
+  'test_exploration.js', // 探索移動：位置範圍、切圖重設、舊存檔遷移
 ];
 
 let failed = 0;
