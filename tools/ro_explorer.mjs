@@ -5,8 +5,10 @@ import {
   RAGASSETS_BASE_URL,
   buildGndMeshData,
   insetGndTextureUvs,
+  normalizeModelName,
   normalizeTextureName,
   parseGndBuffer,
+  parseRsmBuffer,
   parseRswBuffer,
   resolveRagassetsMapUrls,
 } from './ro_map_assets.mjs';
@@ -57,7 +59,11 @@ let mapInfo = null;
 let mapBounds = null;
 let gatInfo = null;
 let rswInfo = null;
+let nativeRenderStats = null;
 let gridMesh = null;
+const modelTextureCache = new Map();
+const MAX_NATIVE_MODEL_ASSETS = 100;
+const MAX_NATIVE_MODEL_PLACEMENTS = 450;
 let gridGeometry = null;
 let gridMaterial = null;
 let routeLine = null;
@@ -378,6 +384,11 @@ function updateStats() {
     rows.push('RSW：' + rswInfo.version + '；模型位置 ' + rswInfo.models.length
       + '、點光源 ' + rswInfo.lights.length + '、音效 ' + rswInfo.sounds.length + '、效果 ' + rswInfo.effects.length);
   }
+  if (nativeRenderStats) {
+    rows.push('原生模型：' + nativeRenderStats.renderedPlacements + ' 個／上限 '
+      + MAX_NATIVE_MODEL_PLACEMENTS + '；載入資源 ' + nativeRenderStats.loadedAssets
+      + ' 個，跳過 RSM2／失敗 ' + nativeRenderStats.unsupportedOrFailed);
+  }
   rows.push('世界比例：' + worldScale + '；GAT 格寬 ' + tileSize().toFixed(2));
   if (currentCell) rows.push('目前格：(' + currentCell.x + ', ' + currentCell.y + ')');
   stats.textContent = rows.length ? rows.join('\n') : '尚未載入地圖';
@@ -410,6 +421,245 @@ function disposeObject(object) {
       });
     }
   });
+}
+
+function getModelTextureUrl(urls, textureName) {
+  const normalized = normalizeTextureName(textureName);
+  if (!normalized) return null;
+  if (urls.textures[normalized]) return urls.textures[normalized];
+
+  const basename = normalized.slice(normalized.lastIndexOf('/') + 1);
+  if (!basename) return null;
+  const candidates = Object.entries(urls.textures)
+    .filter(([name]) => name === basename || name.endsWith('/' + basename))
+    .map(([, url]) => url);
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+function loadModelTexture(url) {
+  if (!url) return null;
+  if (modelTextureCache.has(url)) return modelTextureCache.get(url);
+  const texture = textureLoader.load(url, loadedTexture => {
+    loadedTexture.colorSpace = THREE.SRGBColorSpace;
+    loadedTexture.wrapS = THREE.RepeatWrapping;
+    loadedTexture.wrapT = THREE.RepeatWrapping;
+    loadedTexture.needsUpdate = true;
+  }, undefined, () => {
+    modelTextureCache.delete(url);
+  });
+  modelTextureCache.set(url, texture);
+  return texture;
+}
+
+function rsmTextureNames(rsm, node) {
+  if (rsm.major === 2 && rsm.minor >= 3) return node.textureNames;
+  return node.textureIndices.map(index => rsm.textures[index] || '');
+}
+
+function buildRsmTemplate(rsm, urls, scale) {
+  if (rsm.major !== 1) return null;
+
+  const modelRoot = new THREE.Group();
+  const nodeGroups = rsm.nodes.map(node => {
+    const group = new THREE.Group();
+    group.name = node.name || 'rsm-node';
+    const p = node.translation2;
+    group.position.set(p[0] * scale, -p[1] * scale, -p[2] * scale);
+    if (node.rotationKeyframes.length) {
+      group.quaternion.identity();
+    } else if (node.rotationAngle !== null && node.rotationAxis) {
+      const axis = node.rotationAxis;
+      const axisLength = Math.hypot(axis[0], axis[1], axis[2]);
+      if (axisLength > 1e-8) {
+        const halfAngle = node.rotationAngle * 0.5;
+        const sinHalf = Math.sin(halfAngle) / axisLength;
+        group.quaternion.set(
+          axis[0] * sinHalf,
+          -axis[1] * sinHalf,
+          -axis[2] * sinHalf,
+          Math.cos(halfAngle)
+        ).normalize();
+      }
+    }
+    if (node.scale) group.scale.set(node.scale[0], node.scale[1], node.scale[2]);
+
+    const textureNames = rsmTextureNames(rsm, node);
+    const buckets = new Map();
+    for (const face of node.faces) {
+      const textureIndex = face.textureIndex;
+      let bucket = buckets.get(textureIndex);
+      if (!bucket) {
+        const textureName = textureNames[textureIndex] || '';
+        const textureUrl = getModelTextureUrl(urls, textureName);
+        const texture = loadModelTexture(textureUrl);
+        const opacity = Math.max(0, Math.min(1, rsm.alpha / 255));
+        const materialOptions = {
+          map: texture,
+          color: texture ? 0xffffff : 0xb8b4a0,
+          side: THREE.DoubleSide,
+          transparent: opacity < 1,
+          opacity,
+          roughness: 1,
+          metalness: 0,
+        };
+        const material = rsm.shadeType === 0
+          ? new THREE.MeshBasicMaterial(materialOptions)
+          : new THREE.MeshStandardMaterial(materialOptions);
+        bucket = { positions: [], uvs: [], indices: [], lookup: new Map(), material };
+        buckets.set(textureIndex, bucket);
+      }
+
+      for (let corner = 0; corner < 3; corner++) {
+        const vertexIndex = face.vertexIndices[corner];
+        const uvIndex = face.uvIndices[corner];
+        const key = vertexIndex + ':' + uvIndex;
+        let destinationIndex = bucket.lookup.get(key);
+        if (destinationIndex === undefined) {
+          destinationIndex = bucket.positions.length / 3;
+          bucket.lookup.set(key, destinationIndex);
+          const vertex = node.vertices[vertexIndex];
+          const matrix = node.offsetMatrix;
+          const translation = node.translation1 || [0, 0, 0];
+          const x = matrix[0] * vertex[0] + matrix[3] * vertex[1]
+            + matrix[6] * vertex[2] + translation[0];
+          const y = matrix[1] * vertex[0] + matrix[4] * vertex[1]
+            + matrix[7] * vertex[2] + translation[1];
+          const z = matrix[2] * vertex[0] + matrix[5] * vertex[1]
+            + matrix[8] * vertex[2] + translation[2];
+          bucket.positions.push(x * scale, -y * scale, -z * scale);
+          const uv = node.uvs[uvIndex] || [0, 0];
+          bucket.uvs.push(uv[0], uv[1]);
+        }
+        bucket.indices.push(destinationIndex);
+      }
+    }
+
+    for (const bucket of buckets.values()) {
+      if (!bucket.indices.length) continue;
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(bucket.positions, 3));
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uvs, 2));
+      geometry.setIndex(bucket.indices);
+      geometry.computeVertexNormals();
+      const mesh = new THREE.Mesh(geometry, bucket.material);
+      mesh.name = 'rsm-mesh-' + bucket.material.name;
+      group.add(mesh);
+    }
+    return group;
+  });
+
+  const nodesByName = new Map();
+  for (let index = 0; index < rsm.nodes.length; index++) {
+    const node = rsm.nodes[index];
+    if (!nodesByName.has(node.name)) nodesByName.set(node.name, []);
+    nodesByName.get(node.name).push(index);
+  }
+  const parented = new Set();
+  for (let index = 0; index < rsm.nodes.length; index++) {
+    const node = rsm.nodes[index];
+    const children = nodesByName.get(node.parentName) || [];
+    const parentIndex = children.find(childIndex => childIndex !== index && !parented.has(childIndex));
+    if (node.parentName && parentIndex !== undefined) {
+      nodeGroups[parentIndex].add(nodeGroups[index]);
+      parented.add(index);
+    } else {
+      modelRoot.add(nodeGroups[index]);
+    }
+  }
+
+  const bounds = new THREE.Box3().setFromObject(modelRoot);
+  if (bounds.isEmpty()) return null;
+  const center = bounds.getCenter(new THREE.Vector3());
+  const rootShift = new THREE.Vector3(-center.x, -bounds.max.y, -center.z);
+  for (let index = 0; index < rsm.nodes.length; index++) {
+    if (!parented.has(index)) nodeGroups[index].position.add(rootShift);
+  }
+  modelRoot.userData.rooModelVersion = rsm.version;
+  return modelRoot;
+}
+
+function makeRswInstanceTransform(instance, scale) {
+  const group = new THREE.Group();
+  const p = instance.position;
+  group.position.set(p[0] * scale, -p[1] * scale, -p[2] * scale);
+  const rotation = instance.rotation.map(value => value * Math.PI / 180);
+  const [rx, ry, rz] = rotation;
+  const sourceRotation = new THREE.Matrix4()
+    .makeRotationZ(-rz)
+    .multiply(new THREE.Matrix4().makeRotationX(-rx))
+    .multiply(new THREE.Matrix4().makeRotationY(ry));
+  const mirrorZ = new THREE.Matrix4().makeScale(1, 1, -1);
+  sourceRotation.premultiply(mirrorZ).multiply(mirrorZ);
+  group.quaternion.setFromRotationMatrix(sourceRotation).normalize();
+  group.scale.set(instance.scale[0], instance.scale[1], instance.scale[2]);
+  return group;
+}
+
+async function loadAndPlaceRswModels(rsw, urls, mapRoot, scale) {
+  const placements = rsw.models.slice(0, MAX_NATIVE_MODEL_PLACEMENTS);
+  const availableByUrl = new Map();
+  let unresolvedNames = 0;
+  for (const placement of placements) {
+    const assetUrl = urls.models[normalizeModelName(placement.modelName)];
+    if (!assetUrl) {
+      unresolvedNames++;
+      continue;
+    }
+    if (!availableByUrl.has(assetUrl)) availableByUrl.set(assetUrl, placement.modelName);
+  }
+
+  const assetUrls = [...availableByUrl.keys()];
+  const selectedUrls = assetUrls.slice(0, MAX_NATIVE_MODEL_ASSETS);
+  const templates = new Map();
+  let failedOrUnsupported = Math.max(0, assetUrls.length - selectedUrls.length);
+
+  for (let start = 0; start < selectedUrls.length; start += 8) {
+    const batch = selectedUrls.slice(start, start + 8);
+    const loaded = await Promise.all(batch.map(async assetUrl => {
+      try {
+        const response = await fetch(assetUrl, { mode: 'cors', signal: AbortSignal.timeout(20000) });
+        if (!response.ok) throw new Error('RSM HTTP ' + response.status);
+        const rsm = parseRsmBuffer(await response.arrayBuffer());
+        const template = buildRsmTemplate(rsm, urls, scale);
+        return { assetUrl, template, supported: !!template };
+      } catch (error) {
+        console.warn('ROO RSM 載入失敗：' + assetUrl, error);
+        return { assetUrl, template: null, supported: false };
+      }
+    }));
+    for (const item of loaded) {
+      if (item.template) templates.set(item.assetUrl, item.template);
+      else failedOrUnsupported++;
+    }
+    setStatus('已解析 ' + Math.min(start + batch.length, selectedUrls.length) + '/'
+      + selectedUrls.length + ' 個地圖模型資源…');
+  }
+
+  let renderedPlacements = 0;
+  let unsupportedPlacements = 0;
+  for (const placement of placements) {
+    const assetUrl = urls.models[normalizeModelName(placement.modelName)];
+    const template = assetUrl && templates.get(assetUrl);
+    if (!template) {
+      unsupportedPlacements++;
+      continue;
+    }
+    const instance = template.clone(true);
+    const transform = makeRswInstanceTransform(placement, scale);
+    transform.add(instance);
+    transform.userData.rooMapObject = true;
+    transform.name = placement.name || placement.modelName;
+    mapRoot.add(transform);
+    renderedPlacements++;
+  }
+
+  return {
+    renderedPlacements,
+    loadedAssets: templates.size,
+    unsupportedOrFailed: failedOrUnsupported + unsupportedPlacements + unresolvedNames,
+    unresolvedNames,
+    truncatedPlacements: Math.max(0, rsw.models.length - placements.length),
+  };
 }
 
 function applyRswLighting(rsw, mapSize) {
