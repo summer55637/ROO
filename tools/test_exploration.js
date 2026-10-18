@@ -45,4 +45,15 @@ const saved = JSON.parse(g.localStorage.getItem(g.getSlotKey(0)));
 t.eq('移動 X 寫入角色存檔', saved.explorationX, 64);
 t.eq('移動 Y 寫入角色存檔', saved.explorationY, 37);
 
+const mockGrid = {
+  width: 5,
+  height: 5,
+  findPath: (sx, sy, ex, ey) => [{ x: ex, y: ey }]
+};
+t.eq('探索畫面左上角映射到 RO 北側格', g.roExplorationPositionToTile(7, 14, mockGrid), { x: 0, y: 4 });
+t.eq('探索畫面右下角映射到 RO 南側格', g.roExplorationPositionToTile(93, 84, mockGrid), { x: 4, y: 0 });
+t.eq('RO 北側格映射回探索畫面頂部', g.roExplorationTileToPosition({ x: 0, y: 4 }, mockGrid), { x: 7, y: 14 });
+t.eq('尋路點會轉成角色可到達的畫面座標',
+  g.buildRoExplorationPath(7, 14, 93, 84, mockGrid), [{ x: 93, y: 84 }]);
+
 process.exit(t.report('角色探索移動'));

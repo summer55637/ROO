@@ -28,6 +28,8 @@ let roExplorationSaveTimer = null;
 let roExplorationTarget = null;
 let roExplorationTargetMarker = null;
 let roExplorationControlsBound = false;
+let roExplorationGatMap = null;
+let roExplorationPath = [];
 
 function normalizeRoExplorationPosition(x, y) {
   const px = Number(x);
@@ -53,6 +55,57 @@ function moveRoExplorationPosition(x, y, dx, dy, distance, aspectRatio) {
     from.x + (vx / magnitude) * step,
     from.y + (vy / magnitude) * step * ratio
   );
+}
+
+function setRoExplorationGatMap(mapData) {
+  roExplorationGatMap = mapData && typeof mapData.findPath === 'function'
+    && Number.isInteger(mapData.width) && mapData.width > 0
+    && Number.isInteger(mapData.height) && mapData.height > 0
+    ? mapData : null;
+  roExplorationPath = [];
+  roExplorationTarget = null;
+  clearRoExplorationTargetMarker();
+  if (roExplorationFrameId !== null) cancelAnimationFrame(roExplorationFrameId);
+  roExplorationFrameId = null;
+  roExplorationLastFrame = 0;
+  setRoExplorationMoving(false);
+}
+
+function roExplorationPositionToTile(x, y, mapData) {
+  if (!mapData || mapData.width < 1 || mapData.height < 1) return null;
+  const pos = normalizeRoExplorationPosition(x, y);
+  const xRatio = (pos.x - RO_EXPLORATION_BOUNDS.minX)
+    / (RO_EXPLORATION_BOUNDS.maxX - RO_EXPLORATION_BOUNDS.minX);
+  const yRatio = (pos.y - RO_EXPLORATION_BOUNDS.minY)
+    / (RO_EXPLORATION_BOUNDS.maxY - RO_EXPLORATION_BOUNDS.minY);
+  return {
+    x: Math.max(0, Math.min(mapData.width - 1, Math.round(xRatio * (mapData.width - 1)))),
+    y: Math.max(0, Math.min(mapData.height - 1,
+      mapData.height - 1 - Math.round(yRatio * (mapData.height - 1))))
+  };
+}
+
+function roExplorationTileToPosition(tile, mapData) {
+  if (!tile || !mapData || mapData.width < 1 || mapData.height < 1) return null;
+  const xRatio = mapData.width > 1 ? tile.x / (mapData.width - 1) : 0.5;
+  const yRatio = mapData.height > 1 ? (mapData.height - 1 - tile.y) / (mapData.height - 1) : 0.5;
+  return normalizeRoExplorationPosition(
+    RO_EXPLORATION_BOUNDS.minX + xRatio * (RO_EXPLORATION_BOUNDS.maxX - RO_EXPLORATION_BOUNDS.minX),
+    RO_EXPLORATION_BOUNDS.minY + yRatio * (RO_EXPLORATION_BOUNDS.maxY - RO_EXPLORATION_BOUNDS.minY)
+  );
+}
+
+function buildRoExplorationPath(startX, startY, endX, endY, mapData) {
+  if (!mapData || typeof mapData.findPath !== 'function') return null;
+  const start = roExplorationPositionToTile(startX, startY, mapData);
+  const end = roExplorationPositionToTile(endX, endY, mapData);
+  if (!start || !end) return null;
+  const route = mapData.findPath(start.x, start.y, end.x, end.y, {
+    diagonal: true,
+    preventCornerCutting: true
+  });
+  if (!route) return null;
+  return route.map(tile => roExplorationTileToPosition(tile, mapData)).filter(Boolean);
 }
 
 function roExplorationDirectionForKey(key) {
@@ -176,26 +229,36 @@ function roExplorationTick(timestamp) {
       dx += vector[0];
       dy += vector[1];
     });
+  } else if (roExplorationPath.length) {
+    const waypoint = roExplorationPath[0];
+    dx = waypoint.x - state.explorationX;
+    dy = (waypoint.y - state.explorationY) / aspectRatio;
   } else if (roExplorationTarget) {
     dx = roExplorationTarget.x - state.explorationX;
     dy = (roExplorationTarget.y - state.explorationY) / aspectRatio;
   }
 
   const distance = elapsed * 0.022;
-  const remaining = roExplorationTarget && !hasKeys
+  const activeWaypoint = roExplorationPath.length ? roExplorationPath[0] : roExplorationTarget;
+  const remaining = activeWaypoint && !hasKeys
     ? Math.hypot(
-      roExplorationTarget.x - state.explorationX,
-      (roExplorationTarget.y - state.explorationY) / aspectRatio
+      activeWaypoint.x - state.explorationX,
+      (activeWaypoint.y - state.explorationY) / aspectRatio
     )
     : Math.hypot(dx, dy);
 
-  if (!hasKeys && roExplorationTarget && remaining <= distance) {
-    setRoExplorationPosition(roExplorationTarget.x, roExplorationTarget.y, false);
-    roExplorationTarget = null;
-    clearRoExplorationTargetMarker();
-    setRoExplorationMoving(false);
-    scheduleRoExplorationSave();
-    roExplorationLastFrame = 0;
+  if (!hasKeys && activeWaypoint && remaining <= distance) {
+    setRoExplorationPosition(activeWaypoint.x, activeWaypoint.y, false);
+    if (roExplorationPath.length) roExplorationPath.shift();
+    if (!roExplorationPath.length) {
+      roExplorationTarget = null;
+      clearRoExplorationTargetMarker();
+      setRoExplorationMoving(false);
+      scheduleRoExplorationSave();
+      roExplorationLastFrame = 0;
+      return;
+    }
+    roExplorationFrameId = requestAnimationFrame(roExplorationTick);
     return;
   }
 
@@ -224,6 +287,7 @@ function onRoExplorationKeyDown(event) {
   if (event.preventDefault) event.preventDefault();
   roExplorationHeldKeys.add(key);
   roExplorationTarget = null;
+  roExplorationPath = [];
   clearRoExplorationTargetMarker();
   startRoExplorationFrame();
 }
@@ -245,6 +309,7 @@ function holdRoCharacterDirection(direction, event) {
   if (event && event.preventDefault) event.preventDefault();
   roExplorationHeldKeys.add('__touch_' + direction);
   roExplorationTarget = null;
+  roExplorationPath = [];
   clearRoExplorationTargetMarker();
   startRoExplorationFrame();
 }
@@ -281,7 +346,28 @@ function onRoExplorationSceneClick(event) {
     ((event.clientY - rect.top) / rect.height) * 100
   );
   roExplorationHeldKeys.clear();
-  roExplorationTarget = pos;
+  roExplorationPath = [];
+  if (roExplorationGatMap) {
+    const route = buildRoExplorationPath(
+      state.explorationX, state.explorationY, pos.x, pos.y, roExplorationGatMap
+    );
+    if (!route) {
+      roExplorationTarget = null;
+      clearRoExplorationTargetMarker();
+      setRoExplorationMoving(false);
+      if (typeof showToast === 'function') showToast('該位置不可通行，或沒有可行走路線。');
+      return;
+    }
+    roExplorationPath = route;
+    const snappedTarget = route.length ? route[route.length - 1] : normalizeRoExplorationPosition(
+      state.explorationX, state.explorationY
+    );
+    roExplorationTarget = snappedTarget;
+    pos.x = snappedTarget.x;
+    pos.y = snappedTarget.y;
+  } else {
+    roExplorationTarget = pos;
+  }
   clearRoExplorationTargetMarker();
 
   roExplorationTargetMarker = document.createElement('span');
@@ -319,6 +405,7 @@ function bindRoExplorationControls() {
 
 function stopRoExplorationMovement() {
   roExplorationHeldKeys.clear();
+  roExplorationPath = [];
   roExplorationTarget = null;
   clearRoExplorationTargetMarker();
   if (roExplorationFrameId !== null) cancelAnimationFrame(roExplorationFrameId);

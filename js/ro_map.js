@@ -117,6 +117,118 @@
       return index >= 0 && minorVersion >= 3 && (terrainTypesRaw[index] & 0x80) !== 0;
     }
 
+    function findPath(startX, startY, endX, endY, options) {
+      const start = indexOf(startX, startY);
+      const goal = indexOf(endX, endY);
+      if (start < 0 || goal < 0 || !isWalkable(startX, startY) || !isWalkable(endX, endY)) {
+        return null;
+      }
+      if (start === goal) return [];
+
+      const opts = options || {};
+      const diagonal = opts.diagonal !== false;
+      const preventCornerCutting = opts.preventCornerCutting !== false;
+      const visitLimitValue = Number(opts.maxVisited);
+      const maxVisited = Number.isFinite(visitLimitValue) && visitLimitValue > 0
+        ? Math.min(tileCount, Math.floor(visitLimitValue))
+        : Math.min(tileCount, 100000);
+      const gScore = new Float64Array(tileCount);
+      gScore.fill(Infinity);
+      const cameFrom = new Int32Array(tileCount);
+      cameFrom.fill(-1);
+      const closed = new Uint8Array(tileCount);
+      const open = [];
+
+      function heuristic(x, y) {
+        const dx = Math.abs(endX - x);
+        const dy = Math.abs(endY - y);
+        if (!diagonal) return dx + dy;
+        return dx + dy + (Math.SQRT2 - 2) * Math.min(dx, dy);
+      }
+
+      function push(node) {
+        let i = open.length;
+        open.push(node);
+        while (i > 0) {
+          const parent = (i - 1) >> 1;
+          if (open[parent].score <= node.score) break;
+          open[i] = open[parent];
+          i = parent;
+        }
+        open[i] = node;
+      }
+
+      function pop() {
+        if (!open.length) return null;
+        const first = open[0];
+        const last = open.pop();
+        if (open.length) {
+          let i = 0;
+          while (true) {
+            const left = i * 2 + 1;
+            const right = left + 1;
+            if (left >= open.length) break;
+            let child = left;
+            if (right < open.length && open[right].score < open[left].score) child = right;
+            if (open[child].score >= last.score) break;
+            open[i] = open[child];
+            i = child;
+          }
+          open[i] = last;
+        }
+        return first;
+      }
+
+      const directions = diagonal
+        ? [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
+        : [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      gScore[start] = 0;
+      push({ index: start, score: heuristic(startX, startY) });
+      let visited = 0;
+      let found = false;
+
+      while (open.length) {
+        const current = pop();
+        const currentIndex = current.index;
+        if (closed[currentIndex]) continue;
+        closed[currentIndex] = 1;
+        visited++;
+        if (visited > maxVisited) return null;
+        if (currentIndex === goal) {
+          found = true;
+          break;
+        }
+
+        const x = currentIndex % width;
+        const y = Math.floor(currentIndex / width);
+        for (const direction of directions) {
+          const dx = direction[0];
+          const dy = direction[1];
+          const nx = x + dx;
+          const ny = y + dy;
+          const nextIndex = indexOf(nx, ny);
+          if (nextIndex < 0 || closed[nextIndex] || !isWalkable(nx, ny)) continue;
+          if (dx && dy && preventCornerCutting
+            && (!isWalkable(x + dx, y) || !isWalkable(x, y + dy))) continue;
+
+          const nextScore = gScore[currentIndex] + (dx && dy ? Math.SQRT2 : 1);
+          if (nextScore >= gScore[nextIndex]) continue;
+          cameFrom[nextIndex] = currentIndex;
+          gScore[nextIndex] = nextScore;
+          push({ index: nextIndex, score: nextScore + heuristic(nx, ny) });
+        }
+      }
+
+      if (!found) return null;
+      const path = [];
+      for (let cursor = goal; cursor !== start; cursor = cameFrom[cursor]) {
+        if (cursor < 0) return null;
+        path.push({ x: cursor % width, y: Math.floor(cursor / width) });
+      }
+      path.reverse();
+      return path;
+    }
+
     return {
       format: 'GAT',
       majorVersion,
@@ -132,6 +244,7 @@
       getTile,
       isWalkable,
       isWater,
+      findPath,
     };
   }
 

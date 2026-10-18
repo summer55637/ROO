@@ -55,4 +55,28 @@ t.ok('無效標頭、截斷資料與不支援版本會拒絕', [
   fails(() => g.ROMapData.parseGat(makeGat({ width: 2, height: 2 }).slice(0, 25))),
 ].every(Boolean));
 
+const routeTypes = Array(25).fill(0);
+for (let y = 0; y < 5; y++) {
+  if (y !== 2) routeTypes[y * 5 + 2] = 1;
+}
+const routeMap = g.ROMapData.parseGat(makeGat({
+  minor: 2, width: 5, height: 5, types: routeTypes
+}));
+const route = routeMap.findPath(0, 0, 4, 0);
+t.ok('A* 能繞過牆格缺口抵達目的地',
+  !!route && route.length > 4 && route[route.length - 1].x === 4
+  && route[route.length - 1].y === 0
+  && route.some(tile => tile.y === 2)
+  && route.every(tile => routeMap.isWalkable(tile.x, tile.y)));
+t.eq('起終點相同回傳空路徑', routeMap.findPath(0, 0, 0, 0).length, 0);
+t.eq('不可走終點不會產生路徑', routeMap.findPath(0, 0, 2, 0), null);
+
+const cornerMap = g.ROMapData.parseGat(makeGat({
+  minor: 2, width: 2, height: 2, types: [0, 1, 1, 0]
+}));
+t.eq('預設尋路不會斜切兩個障礙角', cornerMap.findPath(0, 0, 1, 1), null);
+t.eq('四方向模式能正確判定被牆封死', routeMap.findPath(0, 0, 4, 0, {
+  diagonal: false, maxVisited: 1
+}), null);
+
 process.exit(t.report('RO 地圖 GAT 解析'));
