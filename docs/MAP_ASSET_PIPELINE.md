@@ -21,6 +21,12 @@
 
 取得匹配的地圖檔後，下一步才是把 GAT 格子座標映射至角色畫面座標，讓點擊移動尋路避開障礙，再以配對的 GND/RSW 資料渲染真正的 RO 場景。
 
+## 水面波紋（本輪）
+
+`js/ro_water.js` 在既有水域圖層加入純 Canvas 波紋擴散；水下場景改畫緩慢流動的光紋。只在 `renderMapBackground()` 判定為水域時掛載，沒有外部網路依賴，並限制畫布像素比以控制手機成本。
+
+這是現有背景上的程序化視覺效果，**不是原生 RO 的 RSW/GND 水面渲染**，也沒有取代地圖原始素材。原生水面仍須有同一地圖的 GAT/GND/RSW、材質與動畫影格配套後才能接入。
+
 ## 格式參考
 
 - [Ragnarok Research Lab — GAT](https://ragnarokresearchlab.github.io/file-formats/gat/)
