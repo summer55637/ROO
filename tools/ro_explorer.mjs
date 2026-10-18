@@ -21,6 +21,7 @@ import {
   parseRswBuffer,
   resolveRagassetsMapUrls,
   sampleGndHeightAtGatCell,
+  sampleRsmAnimationPose,
   sampleRoWaterWaveOffset,
 } from './ro_map_assets.mjs';
 
@@ -73,6 +74,7 @@ let gndInfo = null;
 let rswInfo = null;
 let nativeRenderStats = null;
 let nativeWaterAnimation = null;
+let activeRsmAnimations = [];
 let gridMesh = null;
 const modelTextureCache = new Map();
 const MAX_NATIVE_MODEL_ASSETS = 100;
@@ -576,6 +578,19 @@ function buildRsmTemplate(rsm, urls, scale) {
     group.position.set(...transform.position);
     group.quaternion.set(...transform.rotation);
     group.scale.set(...transform.scale);
+    const animationTrack = {
+      rotationKeyframes: node.rotationKeyframes || [],
+      scaleKeyframes: node.scaleKeyframes || [],
+      translationKeyframes: node.translationKeyframes || [],
+    };
+    if (animationTrack.rotationKeyframes.length || animationTrack.scaleKeyframes.length
+      || animationTrack.translationKeyframes.length) {
+      group.userData.rooRsmAnimation = animationTrack;
+      const firstPose = sampleRsmAnimationPose(animationTrack, 0, rsm.major, scale);
+      if (firstPose.rotation) group.quaternion.set(...firstPose.rotation);
+      if (firstPose.scale) group.scale.set(...firstPose.scale);
+      if (firstPose.translation) group.position.set(...firstPose.translation);
+    }
 
     const textureNames = rsmTextureNames(rsm, node);
     const meshData = rsm.major === 2
@@ -633,8 +648,78 @@ function buildRsmTemplate(rsm, urls, scale) {
   }
   modelRoot.userData.rooModelVersion = rsm.version;
   modelRoot.userData.rooModelIsRsm2 = rsm.major === 2;
+  modelRoot.userData.rooRsmModel = {
+    major: rsm.major,
+    framesPerSecond: Number.isFinite(rsm.framesPerSecond) && rsm.framesPerSecond > 0
+      ? rsm.framesPerSecond : 60,
+    animationLength: rsm.animationLength,
+    worldScale: scale,
+  };
   return modelRoot;
 }
+
+function createRsmAnimationInstance(instance, modelRoot) {
+  const model = modelRoot && modelRoot.userData.rooRsmModel;
+  if (!model || !Number.isFinite(Number(instance.animationType)) || Number(instance.animationType) === 0) {
+    return null;
+  }
+
+  const tracks = [];
+  let lastKeyframe = 0;
+  modelRoot.traverse(object => {
+    const data = object.userData && object.userData.rooRsmAnimation;
+    if (!data) return;
+    const hasKeys = data.rotationKeyframes.length || data.scaleKeyframes.length
+      || data.translationKeyframes.length;
+    if (!hasKeys) return;
+    tracks.push({ object, data });
+    for (const keys of [data.rotationKeyframes, data.scaleKeyframes, data.translationKeyframes]) {
+      for (const key of keys) lastKeyframe = Math.max(lastKeyframe, key.frame);
+    }
+  });
+  if (!tracks.length) return null;
+
+  const animationLength = Number(model.animationLength);
+  const durationTicks = Math.max(
+    Number.isFinite(animationLength) && animationLength > 0 ? animationLength : 0,
+    lastKeyframe
+  );
+  if (!(durationTicks > 0)) return null;
+
+  const configuredSpeed = Number(instance.animationSpeed);
+  const speed = Math.max(
+    Number.isFinite(configuredSpeed) && configuredSpeed > 0 ? configuredSpeed : 1,
+    0.03
+  );
+  return {
+    major: model.major,
+    framesPerSecond: model.framesPerSecond,
+    durationTicks,
+    worldScale: model.worldScale,
+    speed,
+    startedAt: null,
+    tracks,
+  };
+}
+
+function advanceRsmAnimations(now) {
+  for (const animation of activeRsmAnimations) {
+    if (animation.startedAt === null) animation.startedAt = now;
+    const elapsedSeconds = Math.max(0, (now - animation.startedAt) / 1000);
+    const ticksPerSecond = animation.major === 1 ? 1000 : animation.framesPerSecond;
+    const rawTime = elapsedSeconds * ticksPerSecond * animation.speed;
+    const frame = ((rawTime % animation.durationTicks) + animation.durationTicks)
+      % animation.durationTicks;
+
+    for (const track of animation.tracks) {
+      const pose = sampleRsmAnimationPose(track.data, frame, animation.major, animation.worldScale);
+      if (pose.rotation) track.object.quaternion.set(...pose.rotation);
+      if (pose.scale) track.object.scale.set(...pose.scale);
+      if (pose.translation) track.object.position.set(...pose.translation);
+    }
+  }
+}
+
 function makeRswInstanceTransform(instance, scale) {
   const group = new THREE.Group();
   const p = instance.position;
@@ -668,6 +753,7 @@ async function loadAndPlaceRswModels(rsw, urls, mapRoot, scale) {
   const assetUrls = [...availableByUrl.keys()];
   const selectedUrls = assetUrls.slice(0, MAX_NATIVE_MODEL_ASSETS);
   const templates = new Map();
+  const animations = [];
   let failedOrUnsupported = Math.max(0, assetUrls.length - selectedUrls.length);
 
   for (let start = 0; start < selectedUrls.length; start += 8) {
@@ -702,6 +788,8 @@ async function loadAndPlaceRswModels(rsw, urls, mapRoot, scale) {
       continue;
     }
     const instance = template.clone(true);
+    const animation = createRsmAnimationInstance(placement, instance);
+    if (animation) animations.push(animation);
     const transform = makeRswInstanceTransform(placement, scale);
     transform.add(instance);
     transform.userData.rooMapObject = true;
@@ -716,6 +804,7 @@ async function loadAndPlaceRswModels(rsw, urls, mapRoot, scale) {
     unsupportedOrFailed: failedOrUnsupported + unsupportedPlacements + unresolvedNames,
     unresolvedNames,
     truncatedPlacements: Math.max(0, rsw.models.length - placements.length),
+    animations,
   };
 }
 
@@ -976,6 +1065,7 @@ async function loadRagassetsMap(mapName) {
     setStatus('地表已建立，正在載入 RSW 模型資源…');
     modelTextureCache.clear();
     const nextRenderStats = await loadAndPlaceRswModels(parsedRsw, urls, nextRoot, worldScale);
+    const { animations: nextRsmAnimations, ...modelRenderStats } = nextRenderStats;
     const waterConfig = parsedGnd.water || parsedRsw.water;
     setStatus('模型已載入，正在建立水域…');
     const nextWaterStats = await addNativeWater(nextRoot, parsedGat, waterConfig, urls, worldScale);
@@ -989,6 +1079,7 @@ async function loadRagassetsMap(mapName) {
     }
     nativeWaterAnimation = nextWaterStats.animation;
     mapRoot = nextRoot;
+    activeRsmAnimations = nextRsmAnimations;
     scene.add(mapRoot);
     mapRoot.updateMatrixWorld(true);
     mapBounds = new THREE.Box3().setFromObject(mapRoot);
@@ -1002,7 +1093,7 @@ async function loadRagassetsMap(mapName) {
     gndInfo = parsedGnd;
     rswInfo = parsedRsw;
     nativeRenderStats = {
-      ...nextRenderStats,
+      ...modelRenderStats,
       waterTileCount: nextWaterStats.waterTileCount,
       waterFrameCount: nextWaterStats.waterFrameCount,
       lightmapSlices: parsedGnd.lightmapCount,
@@ -1014,7 +1105,7 @@ async function loadRagassetsMap(mapName) {
     applyRswLighting(parsedRsw, mapInfo.size);
     fitCamera();
     finishOrRefreshScene();
-    setStatus('原生地圖已載入：地表＋RSM 模型 ' + nextRenderStats.renderedPlacements
+    setStatus('原生地圖已載入：地表＋RSM 模型 ' + modelRenderStats.renderedPlacements
       + ' 個／' + parsedRsw.models.length + ' 個擺放位置；水域 ' + nextWaterStats.waterTileCount
       + ' 格、動畫影格 ' + nextWaterStats.waterFrameCount + ' 張。GND lightmap/AO 與頂點水波已啟用，實際畫面仍待校驗。');
     updateStats();
@@ -1036,6 +1127,7 @@ async function loadMapFile(file) {
       disposeObject(mapRoot);
     }
     mapRoot = gltf.scene;
+    activeRsmAnimations = [];
     scene.add(mapRoot);
     mapRoot.updateMatrixWorld(true);
     mapBounds = new THREE.Box3().setFromObject(mapRoot);
@@ -1281,6 +1373,7 @@ function animate(now) {
   lastFrame = now;
   advanceMovement(delta);
   advanceNativeWater(now);
+  advanceRsmAnimations(now);
   controls.update();
   renderer.render(scene, camera);
 }
