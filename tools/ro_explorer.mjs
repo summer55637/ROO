@@ -616,7 +616,28 @@ document.getElementById('recenter').addEventListener('click', () => {
   fitCamera();
   setStatus('已重置視角。');
 });
-renderer.domElement.addEventListener('click', requestWalk);
+let pointerOrigin = null;
+let pointerDragged = false;
+renderer.domElement.addEventListener('pointerdown', event => {
+  pointerOrigin = { x: event.clientX, y: event.clientY };
+  pointerDragged = false;
+});
+renderer.domElement.addEventListener('pointermove', event => {
+  if (!pointerOrigin) return;
+  if (Math.hypot(event.clientX - pointerOrigin.x, event.clientY - pointerOrigin.y) > 6) {
+    pointerDragged = true;
+  }
+});
+renderer.domElement.addEventListener('pointercancel', () => {
+  pointerOrigin = null;
+  pointerDragged = false;
+});
+renderer.domElement.addEventListener('click', event => {
+  const wasDrag = pointerDragged;
+  pointerOrigin = null;
+  pointerDragged = false;
+  if (!wasDrag) requestWalk(event);
+});
 
 function animate(now) {
   requestAnimationFrame(animate);
