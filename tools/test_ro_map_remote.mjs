@@ -3,6 +3,7 @@ import {
   RAGASSETS_BASE_URL,
   normalizeTextureName,
   parseGndBuffer,
+  parseRswBuffer,
   resolveRagassetsMapUrls,
 } from './ro_map_assets.mjs';
 
@@ -18,16 +19,22 @@ async function validateMap(mapId) {
   const manifest = await manifestResponse.json();
   const urls = resolveRagassetsMapUrls(mapId, manifest);
 
-  const [gndResponse, gatResponse] = await Promise.all([
+  const [gndResponse, gatResponse, rswResponse] = await Promise.all([
     fetchResponse(urls.gnd, mapId + ' GND'),
     fetchResponse(urls.gat, mapId + ' GAT'),
+    fetchResponse(urls.rsw, mapId + ' RSW'),
   ]);
-  const [gndBytes, gatBytes] = await Promise.all([
+  const [gndBytes, gatBytes, rswBytes] = await Promise.all([
     gndResponse.arrayBuffer(),
     gatResponse.arrayBuffer(),
+    rswResponse.arrayBuffer(),
   ]);
 
   const gnd = parseGndBuffer(gndBytes);
+  const rsw = parseRswBuffer(rswBytes);
+  assert.ok(rsw.models.length > 0, mapId + ' RSW has map model instances');
+  assert.ok(rsw.light.ambient.every(Number.isFinite), mapId + ' RSW ambient light is finite');
+  assert.ok(rsw.light.diffuse.every(Number.isFinite), mapId + ' RSW diffuse light is finite');
   const gatView = new DataView(gatBytes);
   assert.equal(String.fromCharCode(
     gatView.getUint8(0), gatView.getUint8(1), gatView.getUint8(2), gatView.getUint8(3)
@@ -64,6 +71,7 @@ async function validateMap(mapId) {
     mapId + ': GND ' + gnd.version + ' ' + gnd.width + '×' + gnd.height
       + ', GAT ' + gatWidth + '×' + gatHeight
       + ', surfaces ' + gnd.surfaces.length
+      + ', RSW ' + rsw.version + ' with ' + rsw.models.length + ' model placements'
       + ', mapped used ground textures ' + usedTextures.length
       + ', sample PNG OK'
   );
