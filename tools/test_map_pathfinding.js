@@ -11,8 +11,7 @@ function makeGat(width, height, terrainTypes, minor) {
   buffer.writeUInt32LE(width, 6);
   buffer.writeUInt32LE(height, 10);
   terrainTypes.forEach((type, index) => {
-    const rawType = ((type & 0xff) << 24) >>> 0;
-    buffer.writeUInt32LE(rawType, 14 + index * 20 + 16);
+    buffer.writeUInt16LE(type & 0xffff, 14 + index * 20 + 16);
   });
   return buffer;
 }
@@ -24,7 +23,7 @@ t.eq('通行格 RLE 保留 GAT 原始順序', sample.walkableRle, '1:1,2:0,2:1,1
 t.eq('來源版本有保留', sample.sourceFormat, '1.2');
 
 const waterGat = makeGat(1, 1, [1], 3);
-waterGat.writeUInt32LE(0x01000080, 14 + 16);
+waterGat.writeUInt16LE(1, 14 + 18);
 const water = parseGatBuffer(waterGat, 'water_map', 'water.gat');
 t.eq('GAT 1.3 水域旗標可識別', water.waterFlagCount, 1);
 t.eq('GAT 1.3 障礙仍不可走', water.walkableCount, 0);
