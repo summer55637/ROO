@@ -100,3 +100,14 @@ js/map_pathfinding.js 提供解碼器、格子判定、A* 八方向尋路、最�
 - 回歸測試新增水域幾何、舊版候選格、空水域及共享水面 URL 路徑驗證。
 
 本階段**尚未完成 GND lightmap／ambient occlusion 貼圖合成**。先讓水域管線可測試，下一階段再按 GND 真實格式實作光照貼圖，避免把未驗證的偏移或 surface stride 猜測寫進正式解析器。
+
+
+## GND lightmap 與 AO 第一階段（2026-10-18）
+
+- `parseGndBuffer()` 會依完整檔案長度辨識兩種佈局：標準 268-byte lightmap slice／56-byte surface，以及公開素材實際使用的全域 RGBA slice／40-byte surface。只靠版本號判斷會漏掉後者；無法通過尾端、surface 與 cube 長度驗證的檔案會拒絕解析。
+- 標準佈局解析 8×8 灰階 shadow/AO 與 RGB lightmap；舊式佈局解析 RGBA slice，RGB 作烘焙光照、alpha 作 AO。每片保留原始像素，並由 `buildGndLightmapAtlasData()` 合成帶 1px gutter 的 atlas，預設套用 RO 常見的 16 階 RGB posterization。
+- `buildGndMeshData()` 將每個 surface 的 lightmap slice 索引轉成第二組 UV。原生探索在有 lightmap 時使用地表專用 shader，將漫反射貼圖、烘焙 RGB 與 AO 相乘，避免把 RSW 已烘焙的靜態光照再當額外即時光源疊加。
+- 單元測試涵蓋標準 56-byte surface、舊式 40-byte surface、slice 像素、atlas 邊界 UV 與 AO；公開素材 smoke test 會對 `prontera`、`tra_fild` 真實 GND 建立 atlas 並驗證 slice UV 數量。
+- 2026-10-18 公開素材驗證：`prontera` 有 5,221 個 lightmap slices，atlas 730×720；`tra_fild` 有 2,972 個，atlas 550×550。這是解析／atlas 建置測試，不代表已通過瀏覽器畫面比對。
+
+仍待用瀏覽器實際畫面校對光照方向、明暗比例與 AO 強度；手機、桌面與 GitHub Pages 仍未宣稱完成視覺驗收。
