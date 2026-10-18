@@ -55,11 +55,16 @@ if (fs.existsSync(pronteraWalkPath)) {
 }
 fs.rmSync(batchRoot, { recursive: true, force: true });
 
+const legacyFlagsGat = makeGat(1, 1, [0], 2);
+legacyFlagsGat.writeUInt16LE(0x8000, 14 + 18);
+const legacy = parseGatBuffer(legacyFlagsGat, 'legacy_map', 'legacy.gat');
+t.eq('GAT 1.2 忽略未定義高字', legacy.waterFlagCount, 0);
+
 const waterGat = makeGat(1, 1, [1], 3);
-waterGat.writeUInt16LE(1, 14 + 18);
+waterGat.writeUInt32LE(0x80000001, 14 + 16);
 const water = parseGatBuffer(waterGat, 'water_map', 'water.gat');
-t.eq('GAT 1.3 水域旗標可識別', water.waterFlagCount, 1);
-t.eq('GAT 1.3 障礙仍不可走', water.walkableCount, 0);
+t.eq('GAT 1.3 最高位水域標記可識別', water.waterFlagCount, 1);
+t.eq('GAT 1.3 水域標記不覆寫障礙地形', water.walkableCount, 0);
 
 let invalidRejected = false;
 try { parseGatBuffer(Buffer.from('not a gat'), 'bad', 'bad.gat'); } catch (e) { invalidRejected = true; }
