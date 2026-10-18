@@ -296,9 +296,9 @@ const rsm2 = parseRsmBuffer(makeRsm2(2));
 assert.equal(rsm2.version, '2.2');
 assert.equal(rsm2.nodes[0].translation1, null);
 assert.deepEqual(rsm2.textures, ['grass.bmp']);
-assert.deepEqual(buildRsm2NodeTransformData(rsm2.nodes[0], null, 0.2).position, [1, -2, -3]);
+assert.deepEqual(buildRsm2NodeTransformData(rsm2.nodes[0], null, 0.2).position, [1, 2, -3]);
 const rsm2Vertex = transformRsm2Vertex(rsm2.nodes[0], [1, 2, 3], 0.2);
-[0.2, -0.4, -0.6].forEach((value, index) => {
+[0.2, 0.4, -0.6].forEach((value, index) => {
   assert.ok(Math.abs(rsm2Vertex[index] - value) < 1e-6);
 });
 const rsm2Mesh = buildRsm2NodeMeshData(rsm2.nodes[0], rsm2.shadeType, 0.2);

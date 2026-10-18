@@ -589,7 +589,7 @@ export function transformRsm2Vertex(node, vertex, worldScale = 0.2) {
   const x = vertex[0] * worldScale;
   const y = vertex[1] * worldScale;
   const z = vertex[2] * worldScale;
-  return [x === 0 ? 0 : x, y === 0 ? 0 : -y, z === 0 ? 0 : -z];
+  return [x === 0 ? 0 : x, y === 0 ? 0 : y, z === 0 ? 0 : -z];
 }
 
 export function buildRsmNodeMeshData(node, shadeType, worldScale = 0.2) {
@@ -651,7 +651,7 @@ export function buildRsm2NodeTransformData(node, parentNode = null, worldScale =
   );
 
   // Current RO scene coordinates reflect both Y and Z.
-  const signs = [1, -1, -1];
+  const signs = [1, 1, -1];
   const matrix = localMatrix.map((row, r) => row.map((value, c) => value * signs[r] * signs[c]));
   let x, y, z, w;
   const trace = matrix[0][0] + matrix[1][1] + matrix[2][2];
@@ -690,7 +690,7 @@ export function buildRsm2NodeTransformData(node, parentNode = null, worldScale =
   });
   const position = [
     localTranslation[0] * worldScale,
-    -localTranslation[1] * worldScale,
+    localTranslation[1] * worldScale,
     -localTranslation[2] * worldScale,
   ].map(value => value === 0 ? 0 : value);
   return { position, rotation, scale: [1, 1, 1] };
