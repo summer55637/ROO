@@ -18,6 +18,7 @@ import {
   parseRswBuffer,
   resolveRagassetsMapUrls,
   sampleGndHeightAtGatCell,
+  sampleRsmAnimationPose,
   sampleRoWaterWaveOffset,
 } from './ro_map_assets.mjs';
 
@@ -652,4 +653,35 @@ assert.throws(() => resolveRagassetsMapUrls('prontera', {
   files: { ...manifest.files, gat: 'other.gat' },
 }), /檔名不符合/);
 
-console.log('RO 原生 GND 1.7–1.9 解析、幾何與素材 URL 測試通過');
+
+const rsmAnimationTrack = {
+  rotationKeyframes: [
+    { frame: 0, value: [0, 0, 0, 1] },
+    { frame: 10, value: [0, 0, 1, 0] },
+  ],
+  scaleKeyframes: [
+    { frame: 0, value: [1, 1, 1] },
+    { frame: 10, value: [3, 5, 7] },
+  ],
+  translationKeyframes: [
+    { frame: 0, value: [0, 0, 0] },
+    { frame: 10, value: [10, 20, 30] },
+  ],
+};
+const rsm2Pose = sampleRsmAnimationPose(rsmAnimationTrack, 5, 2, 0.2);
+assert.deepEqual(rsm2Pose.scale, [2, 3, 4]);
+assert.deepEqual(rsm2Pose.translation, [1, 2, -3]);
+assert.ok(Math.abs(rsm2Pose.rotation[2] - Math.SQRT1_2) < 1e-6);
+assert.ok(Math.abs(rsm2Pose.rotation[3] - Math.SQRT1_2) < 1e-6);
+const rsm1Pose = sampleRsmAnimationPose({
+  rotationKeyframes: rsmAnimationTrack.rotationKeyframes,
+  scaleKeyframes: [],
+}, 5, 1, 0.2);
+assert.ok(Math.abs(rsm1Pose.rotation[2] + Math.SQRT1_2) < 1e-6);
+assert.ok(Math.abs(rsm1Pose.rotation[3] - Math.SQRT1_2) < 1e-6);
+assert.deepEqual(sampleRsmAnimationPose({ scaleKeyframes: rsmAnimationTrack.scaleKeyframes }, -1, 1).scale, [1, 1, 1]);
+assert.deepEqual(sampleRsmAnimationPose({ scaleKeyframes: rsmAnimationTrack.scaleKeyframes }, 20, 1).scale, [3, 5, 7]);
+assert.throws(() => sampleRsmAnimationPose(rsmAnimationTrack, NaN, 2), /有限數值/);
+assert.throws(() => sampleRsmAnimationPose(rsmAnimationTrack, 5, 2, 0), /世界比例/);
+
+console.log('RO 原生 GND 1.7–1.9 解析、幾何、素材 URL 與 RSM 動畫取樣測試通過');
