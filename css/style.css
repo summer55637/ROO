@@ -1948,7 +1948,7 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg-deep); co
 
 /* ---------------- 點擊移動（第一階段）---------------- */
 .player-area {
-  transition: transform 120ms ease-out;
+  transition: transform 220ms ease-out;
   will-change: transform;
 }
 @media (prefers-reduced-motion: reduce) {
