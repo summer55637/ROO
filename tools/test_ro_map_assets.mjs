@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   RAGASSETS_BASE_URL,
   buildGndMeshData,
+  buildGndWaterMeshData,
   insetGndTextureUvs,
   parseGndBuffer,
   parseRsmBuffer,
@@ -237,6 +238,40 @@ assert.deepEqual(
 );
 assert.throws(() => insetGndTextureUvs([0, 0], 0, 32), /正整數/);
 
+const waterMesh = buildGndWaterMeshData({
+  version: '1.3',
+  width: 2,
+  height: 1,
+  terrainTypes: new Uint16Array([1, 0]),
+  water: new Uint8Array([1, 0]),
+}, 2, 0.2);
+assert.equal(waterMesh.waterTileCount, 1);
+assert.equal(waterMesh.positions.length, 12);
+assert.equal(waterMesh.indices.length, 6);
+assert.equal(waterMesh.positions[1], -0.4);
+assert.deepEqual(waterMesh.uvs, [0, 0, 1, 0, 0, 1, 1, 1]);
+
+const legacyWaterMesh = buildGndWaterMeshData({
+  version: '1.2',
+  width: 2,
+  height: 1,
+  terrainTypes: new Uint16Array([6, 0]),
+  water: new Uint8Array([0, 0]),
+}, 0, 0.2);
+assert.equal(legacyWaterMesh.waterTileCount, 1);
+assert.equal(buildGndWaterMeshData({
+  version: '1.3',
+  width: 1,
+  height: 1,
+  terrainTypes: new Uint16Array([0]),
+  water: new Uint8Array([0]),
+}, 0).waterTileCount, 0);
+assert.throws(() => buildGndWaterMeshData(null, 0), /GAT 水域/);
+assert.throws(() => buildGndWaterMeshData({
+  version: '1.3', width: 1, height: 1,
+  terrainTypes: new Uint16Array([0]), water: new Uint8Array([0]),
+}, Infinity), /有限數值/);
+
 const water18 = parseGndBuffer(makeGnd(40, 8));
 assert.equal(water18.version, '1.8');
 assert.equal(water18.water.gridU, 1);
@@ -283,6 +318,10 @@ const manifest = {
     'bad.rsm': 'https://example.invalid/model.rsm',
     'escape.rsm': '../../secrets.rsm',
   },
+  water: {
+    type: 3,
+    frames: ['../_w/0123456789abcdef.jpg', 'https://example.invalid/water.jpg', '../../secrets.jpg'],
+  },
 };
 const urls = resolveRagassetsMapUrls('prontera', manifest);
 assert.equal(urls.manifest, RAGASSETS_BASE_URL + '/maps/prontera/manifest.json');
@@ -291,6 +330,7 @@ assert.equal(urls.textures['필드바닥/prt_초원01.bmp'], RAGASSETS_BASE_URL 
 assert.equal(Object.keys(urls.textures).length, 1);
 assert.equal(urls.models['tree/tree01.rsm'], RAGASSETS_BASE_URL + '/maps/_m/abcdef0123456789.rsm');
 assert.equal(Object.keys(urls.models).length, 1);
+assert.deepEqual(urls.waterFrames, [RAGASSETS_BASE_URL + '/maps/_w/0123456789abcdef.jpg']);
 
 assert.throws(() => resolveRagassetsMapUrls('../prontera', manifest), /地圖 ID/);
 assert.throws(() => resolveRagassetsMapUrls('payon', manifest), /ID 不一致/);
