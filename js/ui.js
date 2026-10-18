@@ -400,6 +400,7 @@ function enterGame() {
   refreshIdleReportBtn();
   playMapMusic();
   showScreen('screen-game');
+  initRoExploration();
 }
 
 /* ---------------- 主畫面渲染 ---------------- */

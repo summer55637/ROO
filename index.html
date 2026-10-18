@@ -186,7 +186,7 @@
           <div id="ally-panel-body"></div>
         </div>
         <div class="battle-scene" id="battle-scene">
-          <div class="player-area">
+          <div class="player-area" id="player-area">
             <!-- 隊友站在玩家的上下方、往後靠（left 較小）；有沒有人由 renderAllySprites() 決定 -->
             <div class="ally-sprite" id="ally-sprite-0"></div>
             <div class="player-sprite" id="player-sprite">
@@ -196,6 +196,15 @@
           </div>
           <div class="monster-area-right" id="monster-area"></div>
           <div id="damage-container" class="damage-container"></div>
+          <div class="exploration-hint" aria-live="polite">WASD／方向鍵移動</div>
+          <div class="exploration-controls" role="group" aria-label="角色移動方向">
+            <button type="button" aria-label="向上移動" onclick="stepRoCharacter('up')">▲</button>
+            <div class="exploration-controls-row">
+              <button type="button" aria-label="向左移動" onclick="stepRoCharacter('left')">◀</button>
+              <button type="button" aria-label="向下移動" onclick="stepRoCharacter('down')">▼</button>
+              <button type="button" aria-label="向右移動" onclick="stepRoCharacter('right')">▶</button>
+            </div>
+          </div>
         </div>
         <!-- 畫面上的技能按鈕列已移除（#101）：技能一律在自動戰鬥分頁設定 -->
         <!-- 資訊欄三塊：一般戰鬥／技能（雙方）／隊友 -->
@@ -289,6 +298,7 @@
 <script src="js/relics.js"></script>
 <script src="js/achievements.js"></script>
 <script src="js/engine.js"></script>
+<script src="js/exploration.js"></script>
 <script src="js/ui.js"></script>
 <script>
   window.addEventListener('load', initApp);

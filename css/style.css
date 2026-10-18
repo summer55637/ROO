@@ -2024,3 +2024,75 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg-deep); co
 .codex-cats .btn-small { padding: 2px 8px; font-size: 11px; }
 .codex-cats .btn-small.empty { opacity: 0.45; }
 .codex-cat-n { font-size: 10px; opacity: 0.7; margin-left: 2px; font-variant-numeric: tabular-nums; }
+
+
+/* ---------------- 角色探索移動 ---------------- */
+.battle-scene.ro-exploration-active .player-area {
+  position: absolute;
+  z-index: 4;
+  flex: none;
+  width: 120px;
+  height: 160px;
+  justify-content: center;
+  align-items: center;
+  transform: translate(-50%, -50%);
+  transition: none;
+  pointer-events: none;
+}
+.battle-scene.ro-exploration-active .player-area .player-sprite,
+.battle-scene.ro-exploration-active .player-area .ally-sprite {
+  pointer-events: auto;
+}
+.exploration-hint {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  z-index: 15;
+  padding: 5px 9px;
+  border: 1px solid rgba(212, 175, 55, 0.65);
+  border-radius: 14px;
+  color: var(--gold-soft);
+  background: rgba(12, 16, 28, 0.78);
+  font-size: 11px;
+  line-height: 1.35;
+  pointer-events: none;
+  text-shadow: 0 1px 2px #000;
+}
+.exploration-controls { display: none; }
+@media (pointer: coarse), (max-width: 760px) {
+  .exploration-hint { display: none; }
+  .exploration-controls {
+    position: absolute;
+    left: 8px;
+    bottom: 8px;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 5px;
+    border: 1px solid rgba(212, 175, 55, 0.62);
+    border-radius: 9px;
+    background: rgba(12, 16, 28, 0.62);
+    touch-action: manipulation;
+  }
+  .exploration-controls button {
+    width: 32px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid rgba(232, 201, 106, 0.6);
+    border-radius: 5px;
+    color: var(--gold-soft);
+    background: rgba(35, 40, 66, 0.94);
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .exploration-controls button:active { background: rgba(92, 179, 173, 0.55); }
+  .exploration-controls-row { display: flex; gap: 3px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .battle-scene.ro-exploration-active .player-area { transition: none; }
+}
