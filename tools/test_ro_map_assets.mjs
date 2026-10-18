@@ -226,12 +226,19 @@ const manifest = {
     'evil.bmp': 'https://example.invalid/evil.png',
     'traversal.bmp': '../../secrets.png',
   },
+  models: {
+    'tree/tree01.rsm': '../_m/abcdef0123456789.rsm',
+    'bad.rsm': 'https://example.invalid/model.rsm',
+    'escape.rsm': '../../secrets.rsm',
+  },
 };
 const urls = resolveRagassetsMapUrls('prontera', manifest);
 assert.equal(urls.manifest, RAGASSETS_BASE_URL + '/maps/prontera/manifest.json');
 assert.equal(urls.gat, RAGASSETS_BASE_URL + '/maps/prontera/prontera.gat');
 assert.equal(urls.textures['필드바닥/prt_초원01.bmp'], RAGASSETS_BASE_URL + '/maps/_t/0123456789abcdef.png');
 assert.equal(Object.keys(urls.textures).length, 1);
+assert.equal(urls.models['tree/tree01.rsm'], RAGASSETS_BASE_URL + '/maps/_m/abcdef0123456789.rsm');
+assert.equal(Object.keys(urls.models).length, 1);
 
 assert.throws(() => resolveRagassetsMapUrls('../prontera', manifest), /地圖 ID/);
 assert.throws(() => resolveRagassetsMapUrls('payon', manifest), /ID 不一致/);
