@@ -15,16 +15,19 @@ const RO_EXPLORATION_VECTORS = Object.freeze({
 });
 
 const RO_EXPLORATION_KEYS = Object.freeze({
-  arrowup: 'up', w: 'up',
-  arrowdown: 'down', s: 'down',
-  arrowleft: 'left', a: 'left',
-  arrowright: 'right', d: 'right'
+  arrowup: 'up', w: 'up', __touch_up: 'up',
+  arrowdown: 'down', s: 'down', __touch_down: 'down',
+  arrowleft: 'left', a: 'left', __touch_left: 'left',
+  arrowright: 'right', d: 'right', __touch_right: 'right'
 });
 
 let roExplorationHeldKeys = new Set();
 let roExplorationFrameId = null;
 let roExplorationLastFrame = 0;
 let roExplorationSaveTimer = null;
+let roExplorationTarget = null;
+let roExplorationTargetMarker = null;
+let roExplorationControlsBound = false;
 
 function normalizeRoExplorationPosition(x, y) {
   const px = Number(x);
@@ -114,7 +117,13 @@ function stepRoCharacter(direction) {
 
 function roExplorationTick(timestamp) {
   roExplorationFrameId = null;
-  if (!roExplorationHeldKeys.size || !roExplorationGameIsActive()) {
+  if (!roExplorationGameIsActive()) {
+    roExplorationLastFrame = 0;
+    return;
+  }
+
+  const hasKeys = roExplorationHeldKeys.size > 0;
+  if (!hasKeys && !roExplorationTarget) {
     roExplorationLastFrame = 0;
     return;
   }
@@ -127,15 +136,32 @@ function roExplorationTick(timestamp) {
 
   let dx = 0;
   let dy = 0;
-  roExplorationHeldKeys.forEach(key => {
-    const direction = RO_EXPLORATION_KEYS[key];
-    const vector = RO_EXPLORATION_VECTORS[direction];
-    if (!vector) return;
-    dx += vector[0];
-    dy += vector[1];
-  });
+  if (hasKeys) {
+    roExplorationTarget = null;
+    clearRoExplorationTargetMarker();
+    roExplorationHeldKeys.forEach(key => {
+      const direction = RO_EXPLORATION_KEYS[key];
+      const vector = RO_EXPLORATION_VECTORS[direction];
+      if (!vector) return;
+      dx += vector[0];
+      dy += vector[1];
+    });
+  } else if (roExplorationTarget) {
+    dx = roExplorationTarget.x - state.explorationX;
+    dy = roExplorationTarget.y - state.explorationY;
+  }
 
   const distance = elapsed * 0.022;
+  const remaining = Math.hypot(dx, dy);
+  if (!hasKeys && roExplorationTarget && remaining <= distance) {
+    setRoExplorationPosition(roExplorationTarget.x, roExplorationTarget.y, false);
+    roExplorationTarget = null;
+    clearRoExplorationTargetMarker();
+    scheduleRoExplorationSave();
+    roExplorationLastFrame = 0;
+    return;
+  }
+
   const pos = moveRoExplorationPosition(
     state.explorationX, state.explorationY, dx, dy, distance
   );
@@ -145,6 +171,11 @@ function roExplorationTick(timestamp) {
   }
   roExplorationFrameId = requestAnimationFrame(roExplorationTick);
 }
+function startRoExplorationFrame() {
+  if (roExplorationFrameId !== null || (!roExplorationHeldKeys.size && !roExplorationTarget)) return;
+  roExplorationLastFrame = 0;
+  roExplorationFrameId = requestAnimationFrame(roExplorationTick);
+}
 
 function onRoExplorationKeyDown(event) {
   if (!roExplorationGameIsActive() || roExplorationEditableTarget(event.target)) return;
@@ -152,17 +183,16 @@ function onRoExplorationKeyDown(event) {
   if (!Object.prototype.hasOwnProperty.call(RO_EXPLORATION_KEYS, key)) return;
   if (event.preventDefault) event.preventDefault();
   roExplorationHeldKeys.add(key);
-  if (roExplorationFrameId === null) {
-    roExplorationLastFrame = 0;
-    roExplorationFrameId = requestAnimationFrame(roExplorationTick);
-  }
+  roExplorationTarget = null;
+  clearRoExplorationTargetMarker();
+  startRoExplorationFrame();
 }
 
 function onRoExplorationKeyUp(event) {
   const key = String(event.key || '').toLowerCase();
   if (!Object.prototype.hasOwnProperty.call(RO_EXPLORATION_KEYS, key)) return;
   roExplorationHeldKeys.delete(key);
-  if (!roExplorationHeldKeys.size) {
+  if (!roExplorationHeldKeys.size && !roExplorationTarget) {
     if (roExplorationFrameId !== null) cancelAnimationFrame(roExplorationFrameId);
     roExplorationFrameId = null;
     roExplorationLastFrame = 0;
@@ -170,8 +200,81 @@ function onRoExplorationKeyUp(event) {
   }
 }
 
+function holdRoCharacterDirection(direction, event) {
+  if (!roExplorationGameIsActive() || !RO_EXPLORATION_VECTORS[direction]) return;
+  if (event && event.preventDefault) event.preventDefault();
+  roExplorationHeldKeys.add('__touch_' + direction);
+  roExplorationTarget = null;
+  clearRoExplorationTargetMarker();
+  startRoExplorationFrame();
+}
+
+function releaseRoCharacterDirection(direction) {
+  roExplorationHeldKeys.delete('__touch_' + direction);
+  if (!roExplorationHeldKeys.size && !roExplorationTarget) {
+    if (roExplorationFrameId !== null) cancelAnimationFrame(roExplorationFrameId);
+    roExplorationFrameId = null;
+    roExplorationLastFrame = 0;
+    scheduleRoExplorationSave();
+  }
+}
+
+function clearRoExplorationTargetMarker() {
+  if (roExplorationTargetMarker && roExplorationTargetMarker.parentNode) {
+    roExplorationTargetMarker.parentNode.removeChild(roExplorationTargetMarker);
+  }
+  roExplorationTargetMarker = null;
+}
+
+function onRoExplorationSceneClick(event) {
+  if (!roExplorationGameIsActive() || !event || event.button > 0) return;
+  const target = event.target;
+  if (target && typeof target.closest === 'function'
+    && target.closest('button, a, input, select, textarea, .monster-slot, .damage-float, .exploration-controls, .ally-panel, .gm-panel, .idle-report-panel')) return;
+  const scene = document.getElementById('battle-scene');
+  if (!scene) return;
+  const rect = scene.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+
+  const pos = normalizeRoExplorationPosition(
+    ((event.clientX - rect.left) / rect.width) * 100,
+    ((event.clientY - rect.top) / rect.height) * 100
+  );
+  roExplorationHeldKeys.clear();
+  roExplorationTarget = pos;
+  clearRoExplorationTargetMarker();
+
+  roExplorationTargetMarker = document.createElement('span');
+  roExplorationTargetMarker.className = 'exploration-target-marker';
+  roExplorationTargetMarker.setAttribute('aria-hidden', 'true');
+  roExplorationTargetMarker.style.left = pos.x + '%';
+  roExplorationTargetMarker.style.top = pos.y + '%';
+  scene.appendChild(roExplorationTargetMarker);
+
+  startRoExplorationFrame();
+}
+
+function bindRoExplorationControls() {
+  if (roExplorationControlsBound) return;
+  roExplorationControlsBound = true;
+  const scene = document.getElementById('battle-scene');
+  if (scene) scene.addEventListener('click', onRoExplorationSceneClick);
+
+  document.querySelectorAll('.exploration-controls button[data-direction]').forEach(button => {
+    const direction = button.dataset.direction;
+    button.addEventListener('pointerdown', event => holdRoCharacterDirection(direction, event));
+    const release = () => releaseRoCharacterDirection(direction);
+    button.addEventListener('pointerup', release);
+    button.addEventListener('pointercancel', release);
+    button.addEventListener('lostpointercapture', release);
+    button.addEventListener('contextmenu', event => event.preventDefault());
+  });
+}
+
 function stopRoExplorationMovement() {
   roExplorationHeldKeys.clear();
+  roExplorationTarget = null;
+  clearRoExplorationTargetMarker();
   if (roExplorationFrameId !== null) cancelAnimationFrame(roExplorationFrameId);
   roExplorationFrameId = null;
   roExplorationLastFrame = 0;
@@ -180,6 +283,7 @@ function stopRoExplorationMovement() {
 
 function initRoExploration() {
   if (typeof state === 'undefined' || !state) return;
+  bindRoExplorationControls();
   renderRoExplorationPosition();
 }
 
