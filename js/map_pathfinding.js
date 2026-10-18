@@ -187,3 +187,34 @@ function roMapCellFromScreenPoint(map, clientX, clientY, rect) {
   const displayRow = Math.floor((clientY - rect.top) / rect.height * map.height);
   return { x, y: map.height - 1 - displayRow };
 }
+/* ragx GLB 世界座標 ↔ GAT 格座標。
+   ragx 將地形置中於原點，-Z 是地圖北方；一個 GAT 格為 5 個世界單位，
+   worldScale 對應 ragx 的 --world-scale。此處只轉換水平面，不處理地形高度。 */
+function roMapCellFromWorldPoint(map, worldX, worldZ, worldScale) {
+  const scale = worldScale === undefined ? 1 : worldScale;
+  if (!map || !map.walkable || !Number.isInteger(map.width) || !Number.isInteger(map.height)
+    || map.width < 1 || map.height < 1
+    || !Number.isFinite(worldX) || !Number.isFinite(worldZ)
+    || !Number.isFinite(scale) || scale <= 0) return null;
+
+  const tileSize = 5 * scale;
+  const x = Math.floor(worldX / tileSize + map.width / 2);
+  const y = Math.floor(map.height / 2 - worldZ / tileSize);
+  if (x < 0 || y < 0 || x >= map.width || y >= map.height) return null;
+  return { x, y };
+}
+
+function roMapWorldPointFromCell(map, x, y, worldScale) {
+  const scale = worldScale === undefined ? 1 : worldScale;
+  if (!map || !map.walkable || !Number.isInteger(map.width) || !Number.isInteger(map.height)
+    || map.width < 1 || map.height < 1
+    || !Number.isInteger(x) || !Number.isInteger(y)
+    || x < 0 || y < 0 || x >= map.width || y >= map.height
+    || !Number.isFinite(scale) || scale <= 0) return null;
+
+  const tileSize = 5 * scale;
+  return {
+    x: (x + 0.5 - map.width / 2) * tileSize,
+    z: (map.height / 2 - y - 0.5) * tileSize,
+  };
+}
