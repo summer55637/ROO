@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   RAGASSETS_BASE_URL,
+  buildGndLightmapAtlasData,
   buildGndMeshData,
   buildGndWaterMeshData,
   insetGndTextureUvs,
@@ -75,6 +76,54 @@ function makeGnd(surfaceStride = 40, minor = 7) {
       buffer.writeInt32LE(4, waterOffset + 52);
     }
   }
+  return buffer;
+}
+
+function makeStandardGnd() {
+  const texturePath = Buffer.alloc(80);
+  texturePath.write('grass.bmp', 0, 'ascii');
+  const buffer = Buffer.alloc(26 + 80 + 4 + 268 + 4 + 56 + 28);
+  buffer.write('GRGN', 0, 'ascii');
+  buffer.writeUInt8(1, 4);
+  buffer.writeUInt8(7, 5);
+  buffer.writeInt32LE(1, 6);
+  buffer.writeInt32LE(1, 10);
+  buffer.writeFloatLE(10, 14);
+  buffer.writeInt32LE(1, 18);
+  buffer.writeInt32LE(80, 22);
+  texturePath.copy(buffer, 26);
+
+  const lightmapCountAt = 106;
+  buffer.writeInt32LE(1, lightmapCountAt);
+  const lightmapAt = lightmapCountAt + 4;
+  buffer.writeInt32LE(1, lightmapAt);
+  buffer.writeInt32LE(8, lightmapAt + 4);
+  buffer.writeInt32LE(8, lightmapAt + 8);
+  buffer.fill(128, lightmapAt + 12, lightmapAt + 76);
+  for (let pixel = 0; pixel < 64; pixel++) {
+    const at = lightmapAt + 76 + pixel * 3;
+    buffer[at] = 127;
+    buffer[at + 1] = 95;
+    buffer[at + 2] = 63;
+  }
+
+  const surfaceCountAt = lightmapAt + 268;
+  buffer.writeInt32LE(1, surfaceCountAt);
+  const surfaceAt = surfaceCountAt + 4;
+  [0, 1, 0, 1, 0, 0, 1, 1].forEach((uv, index) => {
+    buffer.writeFloatLE(uv, surfaceAt + index * 4);
+  });
+  buffer.writeInt32LE(0, surfaceAt + 32);
+  buffer.writeInt32LE(0, surfaceAt + 36);
+  for (let corner = 0; corner < 4; corner++) {
+    buffer.set([255, 255, 255, 255], surfaceAt + 40 + corner * 4);
+  }
+
+  const cubeAt = surfaceAt + 56;
+  [0, 0, 0, 0].forEach((height, index) => buffer.writeFloatLE(height, cubeAt + index * 4));
+  buffer.writeInt32LE(0, cubeAt + 16);
+  buffer.writeInt32LE(-1, cubeAt + 20);
+  buffer.writeInt32LE(-1, cubeAt + 24);
   return buffer;
 }
 
@@ -193,6 +242,40 @@ assert.equal(rsm.nodes[0].vertices.length, 3);
 assert.deepEqual(rsm.nodes[0].faces[0].vertexIndices, [0, 1, 2]);
 assert.deepEqual(rsm.nodes[0].faces[0].uvIndices, [0, 1, 2]);
 assert.equal(rsm.nodes[0].faces[0].textureIndex, 0);
+
+const standardGnd = parseGndBuffer(makeStandardGnd());
+assert.equal(standardGnd.version, '1.7');
+assert.equal(standardGnd.surfaceRecordBytes, 56);
+assert.equal(standardGnd.lightmapLayout, 'standard-split');
+assert.equal(standardGnd.lightmapCount, 1);
+assert.equal(standardGnd.lightmapSlices[0].colorPixels.length, 192);
+assert.equal(standardGnd.lightmapSlices[0].shadowPixels.length, 64);
+assert.deepEqual(standardGnd.surfaces[0].colors[0], [1, 1, 1, 1]);
+
+const lightmapAtlas = buildGndLightmapAtlasData(standardGnd, 0);
+assert.equal(lightmapAtlas.width, 10);
+assert.equal(lightmapAtlas.height, 10);
+assert.deepEqual(Array.from(lightmapAtlas.lightMapPixels.slice((1 * 10 + 1) * 4, (1 * 10 + 1) * 4 + 4)),
+  [127, 95, 63, 255]);
+assert.deepEqual(Array.from(lightmapAtlas.aoMapPixels.slice((1 * 10 + 1) * 4, (1 * 10 + 1) * 4 + 4)),
+  [128, 128, 128, 255]);
+assert.deepEqual(lightmapAtlas.uvsBySlice[0], [[0.15, 0.15], [0.85, 0.15], [0.15, 0.85], [0.85, 0.85]]);
+const standardMesh = buildGndMeshData(standardGnd, 0.2, lightmapAtlas);
+assert.equal(standardMesh.buckets[0].lightmapUvs.length, 8);
+assert.deepEqual(standardMesh.buckets[0].colors.slice(0, 3), [1, 1, 1]);
+
+const legacyAtlas = buildGndLightmapAtlasData({
+  lightmapSlices: [{
+    width: 1, height: 1, channels: 4,
+    colorPixels: new Uint8Array([20, 40, 60, 90]),
+    shadowPixels: null,
+  }],
+}, 0);
+assert.deepEqual(Array.from(legacyAtlas.lightMapPixels.slice(0, 4)), [20, 40, 60, 255]);
+assert.deepEqual(Array.from(legacyAtlas.aoMapPixels.slice(16, 20)), [90, 90, 90, 255]);
+assert.equal(buildGndLightmapAtlasData({ lightmapSlices: [] }), null);
+assert.throws(() => buildGndLightmapAtlasData(null), /lightmap slices/);
+assert.throws(() => buildGndLightmapAtlasData({ lightmapSlices: [] }, -1), /0–255/);
 
 const gnd = parseGndBuffer(makeGnd());
 assert.equal(gnd.format, 'roo-gnd-v1');
