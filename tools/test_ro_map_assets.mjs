@@ -4,6 +4,7 @@ import {
   buildGndMeshData,
   insetGndTextureUvs,
   parseGndBuffer,
+  parseRsmBuffer,
   parseRswBuffer,
   resolveRagassetsMapUrls,
 } from './ro_map_assets.mjs';
@@ -140,6 +141,57 @@ assert.equal(rsw.models.length, 1);
 assert.equal(rsw.models[0].modelName, 'tree/tree01.rsm');
 assert.deepEqual(rsw.models[0].position, [12, -3, -18]);
 assert.deepEqual(rsw.models[0].scale, [1, 1, 1]);
+
+function makeRsm14() {
+  const chunks = [];
+  function bytes(length) { const result = Buffer.alloc(length); chunks.push(result); return result; }
+  function u8(value) { const result = bytes(1); result.writeUInt8(value); }
+  function u16(value) { const result = bytes(2); result.writeUInt16LE(value); }
+  function u32(value) { const result = bytes(4); result.writeUInt32LE(value); }
+  function i32(value) { const result = bytes(4); result.writeInt32LE(value); }
+  function f32(value) { const result = bytes(4); result.writeFloatLE(value); }
+  function fixed(value, length) { const result = bytes(length); result.write(value, 0, 'latin1'); }
+  function vec(values) { values.forEach(f32); }
+
+  chunks.push(Buffer.from('GRSM', 'ascii'));
+  u8(1); u8(4);
+  u32(1000); // animation length
+  u32(2); // smooth shading
+  u8(255); // alpha
+  bytes(16); // reserved
+  u32(1); fixed('grass.bmp', 40);
+  fixed('root', 40);
+  u32(1); // node count
+  fixed('root', 40); fixed('', 40);
+  u32(1); u32(0); // one node texture -> model texture 0
+  vec([1, 0, 0, 0, 1, 0, 0, 0, 1]); // offset matrix
+  vec([0, 0, 0]); // translation1
+  vec([0, 0, 0]); // translation2
+  f32(0); vec([0, 1, 0]); vec([1, 1, 1]); // static rotation and scale
+  u32(3); vec([0, 0, 0]); vec([1, 0, 0]); vec([0, 0, 1]);
+  u32(3);
+  u32(0xffffffff); vec([0, 0]);
+  u32(0xffffffff); vec([1, 0]);
+  u32(0xffffffff); vec([0, 1]);
+  u32(1); // face count
+  [0, 1, 2, 0, 1, 2, 0, 0].forEach(u16);
+  i32(1); i32(0); // two-sided, smoothing group
+  u32(0); // rotation keyframe count
+  return Buffer.concat(chunks);
+}
+
+const rsm = parseRsmBuffer(makeRsm14());
+assert.equal(rsm.format, 'roo-rsm-v1');
+assert.equal(rsm.version, '1.4');
+assert.equal(rsm.shadeType, 2);
+assert.equal(rsm.alpha, 255);
+assert.deepEqual(rsm.textures, ['grass.bmp']);
+assert.deepEqual(rsm.rootNodeNames, ['root']);
+assert.equal(rsm.nodes.length, 1);
+assert.equal(rsm.nodes[0].vertices.length, 3);
+assert.deepEqual(rsm.nodes[0].faces[0].vertexIndices, [0, 1, 2]);
+assert.deepEqual(rsm.nodes[0].faces[0].uvIndices, [0, 1, 2]);
+assert.equal(rsm.nodes[0].faces[0].textureIndex, 0);
 
 const gnd = parseGndBuffer(makeGnd());
 assert.equal(gnd.format, 'roo-gnd-v1');
