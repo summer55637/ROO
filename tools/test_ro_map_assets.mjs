@@ -246,7 +246,9 @@ assert.equal(rsm.nodes.length, 1);
 assert.equal(rsm.nodes[0].vertices.length, 3);
 assert.deepEqual(rsm.nodes[0].faces[0].vertexIndices, [0, 1, 2]);
 assert.deepEqual(rsm.nodes[0].faces[0].uvIndices, [0, 1, 2]);
-assert.equal(rsm.nodes[0].faces[const rsmNodeTransform = buildRsmNodeTransformData({
+assert.equal(rsm.nodes[0].faces[0].textureIndex, 0);
+
+const rsmNodeTransform = buildRsmNodeTransformData({
   offsetMatrix: [1, 0, 0, 2, 1, 0, 0, 0, 1],
   translation1: [1, 2, 3],
   translation2: [10, 20, 30],
@@ -295,9 +297,6 @@ assert.throws(() => buildRsmNodeTransformData({
 assert.throws(() => transformRsmVertex({
   offsetMatrix: [1, 0, 0],
 }, [0, 0, 0]), /offsetMatrix/);
-
-0],
-}), /position/);
 
 const standardGnd = parseGndBuffer(makeStandardGnd());
 assert.equal(standardGnd.version, '1.7');
