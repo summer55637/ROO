@@ -19,6 +19,7 @@ import {
   resolveRagassetsMapUrls,
   sampleGndHeightAtGatCell,
   sampleRsmAnimationPose,
+  sampleRsmTextureAnimation,
   sampleRoWaterWaveOffset,
 } from './ro_map_assets.mjs';
 
@@ -684,4 +685,31 @@ assert.deepEqual(sampleRsmAnimationPose({ scaleKeyframes: rsmAnimationTrack.scal
 assert.throws(() => sampleRsmAnimationPose(rsmAnimationTrack, NaN, 2), /有限數值/);
 assert.throws(() => sampleRsmAnimationPose(rsmAnimationTrack, 5, 2, 0), /世界比例/);
 
-console.log('RO 原生 GND 1.7–1.9 解析、幾何、素材 URL 與 RSM 動畫取樣測試通過');
+const rsmTextureChannels = [
+  { operation: 0, frames: [{ frame: 0, value: 0 }, { frame: 10, value: 1 }] },
+  { operation: 1, frames: [{ frame: 0, value: 0.25 }, { frame: 10, value: 0.75 }] },
+  { operation: 2, frames: [{ frame: 0, value: 1 }, { frame: 10, value: 3 }] },
+  { operation: 3, frames: [{ frame: 0, value: 2 }, { frame: 10, value: 4 }] },
+  { operation: 4, frames: [{ frame: 0, value: 0 }, { frame: 10, value: Math.PI }] },
+];
+const texturePose = sampleRsmTextureAnimation(rsmTextureChannels, 5, 20);
+assert.deepEqual(texturePose.offset, [0.5, 0.5]);
+assert.deepEqual(texturePose.scale, [2, 3]);
+assert.ok(Math.abs(texturePose.rotation - Math.PI / 2) < 1e-9);
+const heldTexturePose = sampleRsmTextureAnimation(rsmTextureChannels, 15, 20);
+assert.deepEqual(heldTexturePose.offset, [1, 0.75]);
+assert.deepEqual(heldTexturePose.scale, [3, 4]);
+assert.equal(heldTexturePose.rotation, Math.PI);
+assert.deepEqual(sampleRsmTextureAnimation([], 5, 20), {
+  offset: [0, 0], scale: [1, 1], rotation: 0,
+});
+assert.deepEqual(sampleRsmTextureAnimation([
+  { operation: 0, frames: [{ frame: 5, value: 1 }] },
+], 0, 20).offset, [0, 0]);
+assert.deepEqual(sampleRsmTextureAnimation([
+  { operation: 0, frames: [{ frame: 5, value: 1 }] },
+], 2.5, 20).offset, [0.5, 0]);
+assert.throws(() => sampleRsmTextureAnimation([], NaN, 20), /有限數值/);
+assert.throws(() => sampleRsmTextureAnimation([], 0, 0), /長度/);
+
+console.log('RO 原生 GND 解析、幾何、素材 URL 與 RSM 變換／UV 動畫取樣測試通過');
