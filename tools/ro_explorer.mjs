@@ -7,6 +7,7 @@ import {
   insetGndTextureUvs,
   normalizeTextureName,
   parseGndBuffer,
+  parseRswBuffer,
   resolveRagassetsMapUrls,
 } from './ro_map_assets.mjs';
 
@@ -31,7 +32,8 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.domElement.style.touchAction = 'none';
 stage.appendChild(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0xddeaff, 0x384252, 2.0));
+const hemisphereLight = new THREE.HemisphereLight(0xddeaff, 0x384252, 2.0);
+scene.add(hemisphereLight);
 const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
 keyLight.position.set(250, 500, 300);
 scene.add(keyLight);
@@ -54,6 +56,7 @@ let mapRoot = null;
 let mapInfo = null;
 let mapBounds = null;
 let gatInfo = null;
+let rswInfo = null;
 let gridMesh = null;
 let gridGeometry = null;
 let gridMaterial = null;
@@ -371,6 +374,10 @@ function updateStats() {
     rows.push('版本 ' + gatInfo.version + '；尺寸 ' + gatInfo.width + ' × ' + gatInfo.height);
     rows.push('可走 ' + gatInfo.walkableCount + ' 格／阻擋 ' + gatInfo.blockedCount + ' 格');
   }
+  if (rswInfo) {
+    rows.push('RSW：' + rswInfo.version + '；模型位置 ' + rswInfo.models.length
+      + '、點光源 ' + rswInfo.lights.length + '、音效 ' + rswInfo.sounds.length + '、效果 ' + rswInfo.effects.length);
+  }
   rows.push('世界比例：' + worldScale + '；GAT 格寬 ' + tileSize().toFixed(2));
   if (currentCell) rows.push('目前格：(' + currentCell.x + ', ' + currentCell.y + ')');
   stats.textContent = rows.length ? rows.join('\n') : '尚未載入地圖';
@@ -405,6 +412,44 @@ function disposeObject(object) {
   });
 }
 
+function applyRswLighting(rsw, mapSize) {
+  if (!rsw || !rsw.light) return;
+  const ambient = rsw.light.ambient;
+  const diffuse = rsw.light.diffuse;
+  hemisphereLight.groundColor.setRGB(ambient[0], ambient[1], ambient[2]);
+  hemisphereLight.color.setRGB(
+    Math.min(1, ambient[0] + 0.12),
+    Math.min(1, ambient[1] + 0.12),
+    Math.min(1, ambient[2] + 0.12)
+  );
+  keyLight.color.setRGB(diffuse[0], diffuse[1], diffuse[2]);
+  fillLight.color.setRGB(
+    Math.min(1, diffuse[0] * 0.65 + ambient[0] * 0.35),
+    Math.min(1, diffuse[1] * 0.65 + ambient[1] * 0.35),
+    Math.min(1, diffuse[2] * 0.65 + ambient[2] * 0.35)
+  );
+
+  const longitude = rsw.light.longitude * Math.PI / 180;
+  const latitude = rsw.light.latitude * Math.PI / 180;
+  const direction = new THREE.Vector3(
+    Math.cos(latitude) * Math.cos(longitude),
+    Math.sin(latitude),
+    Math.cos(latitude) * Math.sin(longitude)
+  ).normalize();
+  const distance = Math.max(mapSize.x, mapSize.y, mapSize.z, 100) * 1.5;
+  keyLight.position.copy(direction.clone().multiplyScalar(distance));
+  fillLight.position.copy(direction.clone().multiplyScalar(-distance * 0.6));
+}
+
+function resetRswLighting() {
+  hemisphereLight.color.set('#ddeaff');
+  hemisphereLight.groundColor.set('#384252');
+  keyLight.color.set('#ffffff');
+  keyLight.position.set(250, 500, 300);
+  fillLight.color.set('#b6d5ff');
+  fillLight.position.set(-300, 150, -250);
+}
+
 async function loadRagassetsMap(mapName) {
   const mapId = String(mapName || '').trim().toLowerCase();
   if (!/^[a-z0-9_@-]{1,64}$/.test(mapId)) {
@@ -412,7 +457,7 @@ async function loadRagassetsMap(mapName) {
     return;
   }
 
-  setStatus('正在從公開素材來源載入 ' + mapId + ' 的 GND／GAT…');
+  setStatus('正在從公開素材來源載入 ' + mapId + ' 的 GND／GAT／RSW…');
   try {
     const manifestUrl = new URL('/maps/' + mapId + '/manifest.json', RAGASSETS_BASE_URL);
     const manifestResponse = await fetch(manifestUrl.href, { mode: 'cors' });
@@ -422,14 +467,16 @@ async function loadRagassetsMap(mapName) {
     const responses = await Promise.all([
       fetch(urls.gnd, { mode: 'cors' }),
       fetch(urls.gat, { mode: 'cors' }),
+      fetch(urls.rsw, { mode: 'cors' }),
     ]);
-    const labels = ['GND 地表', 'GAT 通行格'];
+    const labels = ['GND 地表', 'GAT 通行格', 'RSW 場景設定'];
     for (let i = 0; i < responses.length; i++) {
       if (!responses[i].ok) throw new Error(labels[i] + ' HTTP ' + responses[i].status);
     }
     const buffers = await Promise.all(responses.map(response => response.arrayBuffer()));
     const parsedGnd = parseGndBuffer(buffers[0]);
     const parsedGat = parseGatBuffer(buffers[1], mapId + '.gat');
+    const parsedRsw = parseRswBuffer(buffers[2]);
     if (parsedGat.width !== parsedGnd.width * 2 || parsedGat.height !== parsedGnd.height * 2) {
       throw new Error('GND／GAT 尺寸不相符：GND=' + parsedGnd.width + '×' + parsedGnd.height
         + '，GAT=' + parsedGat.width + '×' + parsedGat.height + '。');
@@ -500,14 +547,17 @@ async function loadRagassetsMap(mapName) {
     mapRoot.updateMatrixWorld(true);
     mapBounds = new THREE.Box3().setFromObject(mapRoot);
     mapInfo = {
-      name: mapId + '（公開 GND）',
+      name: mapId + '（公開 GND/RSW）',
       mapId,
       size: mapBounds.getSize(new THREE.Vector3()),
     };
     gatInfo = parsedGat;
+    rswInfo = parsedRsw;
+    applyRswLighting(parsedRsw, mapInfo.size);
     fitCamera();
     finishOrRefreshScene();
-    setStatus('原生 GND 地表已載入：可點地面依 GAT 通行格行走。此階段尚未載入 RSW 物件模型、角色動畫或水面。');
+    setStatus('原生 GND/GAT/RSW 已載入：已套用場景燈光並讀取 ' + parsedRsw.models.length
+      + ' 個模型位置。RSM 模型、lightmap 合成與水面仍待實作。');
     updateStats();
   } catch (error) {
     setStatus('公開原生地圖載入失敗：' + error.message
@@ -533,6 +583,8 @@ async function loadMapFile(file) {
 
     const size = mapBounds.getSize(new THREE.Vector3());
     mapInfo = { name: file.name, mapId: mapIdFromName(file.name), size };
+    rswInfo = null;
+    resetRswLighting();
     fitCamera();
     finishOrRefreshScene();
     if (!gatInfo) setStatus('已載入 GLB。請再選取同一張地圖的 GAT 檔，才能啟用碰撞與尋路。');
