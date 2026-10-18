@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
   RAGASSETS_BASE_URL,
+  buildGndLightmapAtlasData,
   buildGndMeshData,
   buildGndWaterMeshData,
   insetGndTextureUvs,
@@ -392,6 +393,9 @@ function updateStats() {
       + ' 個，跳過 RSM2／失敗 ' + nativeRenderStats.unsupportedOrFailed);
     rows.push('水域：' + (nativeRenderStats.waterTileCount || 0) + ' 格；動畫影格 '
       + (nativeRenderStats.waterFrameCount || 0));
+    rows.push('GND lightmap：' + (nativeRenderStats.lightmapSlices || 0) + ' slices；'
+      + (nativeRenderStats.lightmapLayout || '無') + '；貼圖合成 '
+      + (nativeRenderStats.lightmapAtlas ? '已啟用' : '未啟用'));
   }
   rows.push('世界比例：' + worldScale + '；GAT 格寬 ' + tileSize().toFixed(2));
   if (currentCell) rows.push('目前格：(' + currentCell.x + ', ' + currentCell.y + ')');
@@ -729,6 +733,25 @@ function resetRswLighting() {
   fillLight.position.set(-300, 150, -250);
 }
 
+function createLightmapDataTexture(data, width, height) {
+  const texture = new THREE.DataTexture(
+    data,
+    width,
+    height,
+    THREE.RGBAFormat,
+    THREE.UnsignedByteType
+  );
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  texture.flipY = false;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 async function addNativeWater(root, gat, waterConfig, urls, scale) {
   if (!waterConfig || !Number.isFinite(waterConfig.level)) {
     return { animation: null, waterTileCount: 0, waterFrameCount: 0 };
@@ -822,7 +845,14 @@ async function loadRagassetsMap(mapName) {
     const nextScale = safeScale();
     if (!nextScale) throw new Error('世界比例必須大於 0，且不可大於 10。');
     worldScale = nextScale;
-    const meshData = buildGndMeshData(parsedGnd, worldScale);
+    const lightmapAtlas = buildGndLightmapAtlasData(parsedGnd);
+    const meshData = buildGndMeshData(parsedGnd, worldScale, lightmapAtlas);
+    const lightmapTexture = lightmapAtlas
+      ? createLightmapDataTexture(lightmapAtlas.lightMapPixels, lightmapAtlas.width, lightmapAtlas.height)
+      : null;
+    const aoTexture = lightmapAtlas
+      ? createLightmapDataTexture(lightmapAtlas.aoMapPixels, lightmapAtlas.width, lightmapAtlas.height)
+      : null;
     const nextRoot = new THREE.Group();
     nextRoot.name = 'roo-native-map-' + mapId;
 
@@ -831,6 +861,7 @@ async function loadRagassetsMap(mapName) {
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.Float32BufferAttribute(bucket.positions, 3));
       geometry.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uvs, 2));
+      if (lightmapAtlas) geometry.setAttribute('uv2', new THREE.Float32BufferAttribute(bucket.lightmapUvs, 2));
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(bucket.colors, 3));
       geometry.setIndex(bucket.indices);
       geometry.computeVertexNormals();
@@ -862,6 +893,10 @@ async function loadRagassetsMap(mapName) {
       }
       material = new THREE.MeshStandardMaterial({
         map: texture,
+        lightMap: lightmapTexture,
+        aoMap: aoTexture,
+        lightMapIntensity: 1,
+        aoMapIntensity: 1,
         color: texture ? 0xffffff : 0x9cb68c,
         vertexColors: true,
         side: THREE.DoubleSide,
@@ -901,7 +936,7 @@ async function loadRagassetsMap(mapName) {
     };
     gatInfo = parsedGat;
     rswInfo = parsedRsw;
-    nativeRenderStats = { ...nextRenderStats, waterTileCount: nextWaterStats.waterTileCount, waterFrameCount: nextWaterStats.waterFrameCount };
+    nativeRenderStats = { ...nextRenderStats, waterTileCount: nextWaterStats.waterTileCount, waterFrameCount: nextWaterStats.waterFrameCount, lightmapSlices: parsedGnd.lightmapCount, lightmapLayout: parsedGnd.lightmapLayout, lightmapAtlas: !!lightmapAtlas };
     applyRswLighting(parsedRsw, mapInfo.size);
     fitCamera();
     finishOrRefreshScene();
