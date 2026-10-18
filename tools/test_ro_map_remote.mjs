@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   RAGASSETS_BASE_URL,
+  analyzeRswPlacementBounds,
   buildGndLightmapAtlasData,
   compareGndGatHeights,
   normalizeModelName,
@@ -92,6 +93,9 @@ async function validateMap(mapId) {
     width: gatWidth, height: gatHeight, heights: gatHeights,
   }, 0.2);
   assert.ok(heightAlignment.samples > 0, mapId + ' GND/GAT has comparable height samples');
+  const placementBounds = analyzeRswPlacementBounds(gnd, rsw, 0.2);
+  assert.equal(placementBounds.total, rsw.models.length, mapId + ' RSW placement audit count');
+  assert.equal(placementBounds.invalidPositions, 0, mapId + ' RSW placement coordinates are finite');
   assert.ok(gnd.cubes.some(cube => cube.topSurface >= 0), mapId + ' has terrain tops');
   assert.ok(gnd.surfaces.length > 0, mapId + ' has surfaces');
 
@@ -125,6 +129,9 @@ async function validateMap(mapId) {
       + ', height Δ mean/P95/max ' + heightAlignment.meanAbsoluteError.toFixed(3) + '/'
       + heightAlignment.p95AbsoluteError.toFixed(3) + '/' + heightAlignment.maxAbsoluteError.toFixed(3)
       + ' world units (' + heightAlignment.samples + ' samples)'
+      + ', RSW placements in map bounds ' + placementBounds.withinBounds + '/' + placementBounds.total
+      + ' (within one-tile margin ' + placementBounds.withinOneTileMargin
+      + ', max outside ' + placementBounds.maximumOutsideDistance.toFixed(2) + ')'
       + ', mapped used ground textures ' + usedTextures.length
       + ', sample PNG OK'
   );
