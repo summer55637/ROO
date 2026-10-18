@@ -8,6 +8,7 @@ const stats = document.getElementById('stats');
 const modelInput = document.getElementById('model-file');
 const gatInput = document.getElementById('gat-file');
 const opacityInput = document.getElementById('grid-opacity');
+const worldScaleInput = document.getElementById('world-scale');
 const walkableInput = document.getElementById('show-walkable');
 const blockedInput = document.getElementById('show-blocked');
 
@@ -49,18 +50,25 @@ function setStatus(message, isError = false) {
   status.classList.toggle('error', isError);
 }
 
+function mapIdFromName(name) {
+  return String(name || '').replace(/\.[^.]+$/, '').trim().toLowerCase();
+}
+
 function updateStats() {
   const parts = [];
   if (mapInfo) {
-    parts.push('GLB：' + mapInfo.name);
+    parts.push('GLB：' + mapInfo.name + '（' + mapInfo.mapId + '）');
     parts.push('場景範圍：約 ' + [mapInfo.size.x, mapInfo.size.y, mapInfo.size.z]
       .map(n => n.toFixed(1)).join(' × '));
   }
   if (gatInfo) {
-    parts.push('GAT ' + gatInfo.version + '：' + gatInfo.width + ' × ' + gatInfo.height);
+    parts.push('GAT：' + gatInfo.name + '（' + gatInfo.mapId + '）');
+    parts.push('版本 ' + gatInfo.version + '，尺寸 ' + gatInfo.width + ' × ' + gatInfo.height);
     parts.push('可走 ' + gatInfo.walkableCount + ' 格／阻擋 ' + gatInfo.blockedCount + ' 格');
     parts.push('水域標記 ' + gatInfo.waterCount + ' 格');
   }
+  const worldScale = Number(worldScaleInput.value);
+  if (Number.isFinite(worldScale) && worldScale > 0) parts.push('世界比例：' + worldScale + '（GAT 單格 ' + (worldScale * 5).toFixed(2) + ' 單位）');
   stats.textContent = parts.length ? parts.join('\n') : '尚未載入地圖';
 }
 
@@ -160,7 +168,19 @@ function rebuildGrid() {
     updateStats();
     return;
   }
+  if (mapInfo.mapId !== gatInfo.mapId) {
+    setStatus('地圖名稱不一致，已停止疊圖：GLB=' + mapInfo.mapId + '，GAT=' + gatInfo.mapId + '。請選取同一張地圖。', true);
+    updateStats();
+    return;
+  }
 
+  const worldScale = Number(worldScaleInput.value);
+  if (!Number.isFinite(worldScale) || worldScale <= 0 || worldScale > 10) {
+    setStatus('世界比例必須大於 0，且不可大於 10。', true);
+    updateStats();
+    return;
+  }
+  const tileSize = worldScale * 5;
   const showWalkable = walkableInput.checked;
   const showBlocked = blockedInput.checked;
   const visibleCells = [];
@@ -173,7 +193,7 @@ function rebuildGrid() {
     return;
   }
 
-  gridGeometry = new THREE.PlaneGeometry(0.92, 0.92);
+  gridGeometry = new THREE.PlaneGeometry(tileSize * 0.92, tileSize * 0.92);
   gridGeometry.rotateX(-Math.PI / 2);
   gridMaterial = new THREE.MeshBasicMaterial({
     color: 0xffffff,
@@ -196,11 +216,11 @@ function rebuildGrid() {
     const y = Math.floor(index / gatInfo.width);
     // ragx --world-scale 0.2 makes one GAT tile equal one world unit.
     // RO heights use the negative Y axis; convert to glTF's Y-up coordinates.
-    const height = -cell.height * 0.2 + 0.06;
+    const height = -cell.height * worldScale + tileSize * 0.06;
     transform.position.set(
-      x - gatInfo.width / 2 + 0.5,
+      (x - gatInfo.width / 2 + 0.5) * tileSize,
       height,
-      gatInfo.height / 2 - y - 0.5
+      (gatInfo.height / 2 - y - 0.5) * tileSize
     );
     transform.updateMatrix();
     gridMesh.setMatrixAt(i, transform.matrix);
@@ -234,8 +254,10 @@ async function loadMapFile(file) {
     if (mapBounds.isEmpty()) throw new Error('GLB 沒有可顯示的模型。');
 
     const size = mapBounds.getSize(new THREE.Vector3());
-    const center = mapBounds.getCenter(new THREE.Vector3());
-    mapInfo = { name: file.name, size };
+    // ragx centers the terrain grid on the origin; decorations may skew scene bounds.
+    const center = new THREE.Vector3(0, 0, 0);
+    const embeddedMapId = gltf.scene.userData && gltf.scene.userData.map;
+    mapInfo = { name: file.name, mapId: mapIdFromName(embeddedMapId || file.name), size };
     const maxDimension = Math.max(size.x, size.y, size.z, 10);
     camera.near = Math.max(maxDimension / 10000, 0.01);
     camera.far = maxDimension * 50;
@@ -261,7 +283,7 @@ async function loadMapFile(file) {
 async function loadGatFile(file) {
   setStatus('正在解析 ' + file.name + '…');
   try {
-    gatInfo = parseGatBuffer(await file.arrayBuffer());
+    gatInfo = { ...parseGatBuffer(await file.arrayBuffer()), name: file.name, mapId: mapIdFromName(file.name) };
     setStatus('已解析 ' + file.name + '。綠色可走、紅色阻擋、橘色懸崖、藍色水域。', false);
     rebuildGrid();
   } catch (error) {
@@ -283,6 +305,7 @@ gatInput.addEventListener('change', () => {
 opacityInput.addEventListener('input', () => {
   if (gridMaterial) gridMaterial.opacity = Number(opacityInput.value) / 100;
 });
+worldScaleInput.addEventListener('change', rebuildGrid);
 walkableInput.addEventListener('change', rebuildGrid);
 blockedInput.addEventListener('change', rebuildGrid);
 
