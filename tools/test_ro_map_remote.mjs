@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   RAGASSETS_BASE_URL,
   buildGndLightmapAtlasData,
+  compareGndGatHeights,
   normalizeModelName,
   normalizeTextureName,
   parseGndBuffer,
@@ -77,6 +78,20 @@ async function validateMap(mapId) {
   assert.equal(gatBytes.byteLength, 14 + gatWidth * gatHeight * 20, mapId + ' GAT byte length');
   assert.equal(gatWidth, gnd.width * 2, mapId + ' GND/GAT width alignment');
   assert.equal(gatHeight, gnd.height * 2, mapId + ' GND/GAT height alignment');
+  const gatHeights = new Float32Array(gatWidth * gatHeight);
+  for (let index = 0; index < gatHeights.length; index++) {
+    const at = 14 + index * 20;
+    gatHeights[index] = (
+      gatView.getFloat32(at, true)
+      + gatView.getFloat32(at + 4, true)
+      + gatView.getFloat32(at + 8, true)
+      + gatView.getFloat32(at + 12, true)
+    ) / 4;
+  }
+  const heightAlignment = compareGndGatHeights(gnd, {
+    width: gatWidth, height: gatHeight, heights: gatHeights,
+  }, 0.2);
+  assert.ok(heightAlignment.samples > 0, mapId + ' GND/GAT has comparable height samples');
   assert.ok(gnd.cubes.some(cube => cube.topSurface >= 0), mapId + ' has terrain tops');
   assert.ok(gnd.surfaces.length > 0, mapId + ' has surfaces');
 
@@ -107,6 +122,9 @@ async function validateMap(mapId) {
       + ', RSW ' + rsw.version + ' with ' + rsw.models.length + ' model placements'
       + ', sample RSM versions ' + versionSummary
       + ', sample model faces ' + parsedModels.reduce((sum, model) => sum + model.faces, 0)
+      + ', height Δ mean/P95/max ' + heightAlignment.meanAbsoluteError.toFixed(3) + '/'
+      + heightAlignment.p95AbsoluteError.toFixed(3) + '/' + heightAlignment.maxAbsoluteError.toFixed(3)
+      + ' world units (' + heightAlignment.samples + ' samples)'
       + ', mapped used ground textures ' + usedTextures.length
       + ', sample PNG OK'
   );
