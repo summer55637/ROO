@@ -103,6 +103,7 @@ let playerSprite = null;
 let fallbackPlayer = null;
 let playerSpriteFrames = [];
 let playerSpriteFrameLayout = null;
+let playerSpriteFrameMetrics = null;
 const playerRoot = new THREE.Group();
 let currentCell = null;
 let movementPath = null;
@@ -271,6 +272,14 @@ function cellWorldPosition(cell, lift = 0) {
 function updatePlayerPosition() {
   if (!currentCell || !gatInfo) return;
   const ground = cellWorldPosition(currentCell);
+  if (playerSpriteFrameMetrics) {
+    playerSpriteFrameLayout = buildRoExplorerSpriteLayout(
+      playerSpriteFrameMetrics.width,
+      playerSpriteFrameMetrics.height,
+      playerSpriteFrameMetrics.bounds,
+      tileSize()
+    );
+  }
   playerRoot.position.copy(ground);
   if (playerSpriteFrameLayout) {
     playerSprite.position.set(
@@ -1494,7 +1503,7 @@ function advanceMovement(deltaSeconds) {
   let changedCell = false;
   while (budget > 0 && movementPath && pathIndex < movementPath.length) {
     const nextCell = movementPath[pathIndex];
-    const destination = cellWorldPosition(nextCell, 1.0);
+    const destination = cellWorldPosition(nextCell);
     const distance = playerRoot.position.distanceTo(destination);
     if (distance <= budget || distance < 0.0001) {
       playerRoot.position.copy(destination);
@@ -1689,10 +1698,10 @@ async function loadExplorerSpriteFrames() {
   const width = firstImage && (firstImage.naturalWidth || firstImage.width);
   const height = firstImage && (firstImage.naturalHeight || firstImage.height);
   const bounds = measureSpriteAlphaBounds(firstImage);
-  const layout = buildRoExplorerSpriteLayout(width, height, bounds, tileSize());
   frames.forEach(texture => { texture.colorSpace = THREE.SRGBColorSpace; });
   playerSpriteFrames = frames;
-  playerSpriteFrameLayout = layout;
+  playerSpriteFrameMetrics = { width, height, bounds };
+  playerSpriteFrameLayout = buildRoExplorerSpriteLayout(width, height, bounds, tileSize());
 
   const previousTexture = playerMaterial.map;
   playerMaterial.map = frames[0];
