@@ -4,8 +4,9 @@ const g = H.boot({ captureLog: true });
 const t = H.tester();
 
 const map = g.MAPS.find(item => Array.isArray(item.monsters) && item.monsters.length > 0
-  && item.monsters.some(spawn => g.MONSTERS[spawn.id] && g.MONSTERS[spawn.id].hp >= 10000));
-if (!map) throw new Error('找不到可用於低傷害測試的野外地圖');
+  && item.monsters.some(spawn => g.MONSTERS[spawn.id] && g.MONSTERS[spawn.id].hp >= 10000
+    && g.MONSTERS[spawn.id].element !== 'poison'));
+if (!map) throw new Error('找不到可用於低傷害測試的非毒屬性野外地圖');
 const spawn = map.monsters.find(item => g.MONSTERS[item.id] && g.MONSTERS[item.id].hp >= 10000
   && g.MONSTERS[item.id].element !== 'poison');
 const def = g.MONSTERS[spawn.id];
@@ -64,6 +65,7 @@ t.eq('未學會的技能不得從探索頁施放', unlearnedSkill.ok, false);
 
 g.state.jobId = 'thief';
 g.state.learnedSkills.envenom = 10;
+g.state.maxSp = Math.max(100, g.state.maxSp);
 g.state.sp = g.state.maxSp;
 g.state.cooldowns = {};
 const poisonSkill = g.castRoExplorerSkill('ex-status-session', 'm0', map.id, spawn.id, 'envenom');
