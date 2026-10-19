@@ -23,6 +23,7 @@ import {
   sampleGndHeightAtGatCell,
   sampleRsmAnimationPose,
   sampleRsmTextureAnimation,
+  sampleRoWaterTextureIntervalMs,
   sampleRoWaterWaveOffset,
 } from './ro_map_assets.mjs';
 
@@ -1008,7 +1009,7 @@ async function addNativeWater(root, gat, waterConfig, urls, scale) {
       textures: availableTextures,
       frameIndex: 0,
       nextFrameAt: 0,
-      intervalMs: Math.max(50, Math.min(4000, (Number.isFinite(interval) && interval > 0 ? interval : 3) * (1000 / 30))),
+      intervalMs: sampleRoWaterTextureIntervalMs(interval),
       waveEnabled,
       waterConfig,
       worldScale: scale,
