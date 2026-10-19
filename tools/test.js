@@ -11,6 +11,7 @@
    但**沒有載入 js/ui.js**，畫面長什麼樣、分頁會不會炸，還是得開瀏覽器看。
 */
 const { execFileSync } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 
 const SUITES = [
@@ -54,10 +55,18 @@ const SUITES = [
   'test_images.js',      // 圖檔接線：別名指得到、圖鑑內不再長出缺圖（#141）
   'test_autosell_sync.js', // 自動販賣清單跨存檔同步（#140）
   'test_saveio.js',      // 存檔匯出/匯入：序列化、遷移、覆寫與失敗還原
-  'test_exploration.js', // 探索移動：位置範圍、切圖重設、舊存檔遷移
+  'test_exploration.js', // RO 格線探索移動、邊界與尋路
+  'test_exploration_offset.js', // 探索位置存檔遷移
   'test_map_pathfinding.js', // GAT 通行格、A* 繞路與地圖座標轉換
   'test_ro_map_assets.mjs', // GND 地表解析、幾何與公開素材 URL 驗證
 ];
+
+// 分支尚未載入新版即時探索模組時，跳過只屬於該模組的測試。
+// PR 合併工作樹包含 js/exploration.js 時，會同時執行兩組探索測試。
+if (!fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8').includes('src="js/exploration.js"')) {
+  const index = SUITES.indexOf('test_exploration.js');
+  if (index !== -1) SUITES.splice(index, 1);
+}
 
 let failed = 0;
 for (const f of SUITES) {
