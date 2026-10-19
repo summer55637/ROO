@@ -12,6 +12,7 @@ import {
   buildRsm2NodeMeshData,
   transformRsmVertex,
   buildGndWaterMeshData,
+  buildGndWaterMeshDataByPlane,
   compareGndGatHeights,
   insetGndTextureUvs,
   normalizeModelName,
@@ -75,7 +76,7 @@ let gatInfo = null;
 let gndInfo = null;
 let rswInfo = null;
 let nativeRenderStats = null;
-let nativeWaterAnimation = null;
+let nativeWaterAnimations = [];
 let activeRsmAnimations = [];
 let gridMesh = null;
 const modelTextureCache = new Map();
@@ -453,59 +454,63 @@ function fitCamera() {
 }
 
 function clearNativeWaterAnimation() {
-  if (!nativeWaterAnimation) return;
-  const activeTexture = nativeWaterAnimation.mesh && nativeWaterAnimation.mesh.material
-    ? nativeWaterAnimation.mesh.material.map : null;
-  for (const texture of nativeWaterAnimation.textures) {
-    if (texture && texture !== activeTexture) texture.dispose();
+  if (!nativeWaterAnimations.length) return;
+  const activeTextures = new Set();
+  const ownedTextures = new Set();
+  for (const animation of nativeWaterAnimations) {
+    for (const texture of animation.textures) ownedTextures.add(texture);
+    const activeTexture = animation.mesh && animation.mesh.material
+      ? animation.mesh.material.map : null;
+    if (activeTexture) activeTextures.add(activeTexture);
   }
-  nativeWaterAnimation = null;
+  for (const texture of ownedTextures) {
+    if (texture && !activeTextures.has(texture)) texture.dispose();
+  }
+  nativeWaterAnimations = [];
 }
 
 function advanceNativeWater(now) {
-  const animation = nativeWaterAnimation;
-  if (!animation) return;
+  for (const animation of nativeWaterAnimations) {
+    if (animation.waveEnabled && animation.basePositions && animation.tileCoordinates) {
+      if (animation.waveStartedAt === null) animation.waveStartedAt = now;
+      const elapsedSeconds = Math.max(0, (now - animation.waveStartedAt) / 1000);
+      const positionAttribute = animation.mesh.geometry.getAttribute('position');
+      const positions = positionAttribute.array;
+      const diagonalCount = animation.mapWidth + animation.mapHeight + 1;
+      const waveOffsets = new Float32Array(diagonalCount);
 
-  if (animation.waveEnabled && animation.basePositions && animation.tileCoordinates) {
-    if (animation.waveStartedAt === null) animation.waveStartedAt = now;
-    const elapsedSeconds = Math.max(0, (now - animation.waveStartedAt) / 1000);
-    const positionAttribute = animation.mesh.geometry.getAttribute('position');
-    const positions = positionAttribute.array;
-    const diagonalCount = animation.mapWidth + animation.mapHeight + 1;
-    const waveOffsets = new Float32Array(diagonalCount);
-
-    // Wave crests travel along the map's (1, 1) diagonal. Reuse the sample for
-    // each diagonal so neighbouring water tiles share exactly the same heights.
-    for (let diagonal = 0; diagonal < diagonalCount; diagonal++) {
-      waveOffsets[diagonal] = sampleRoWaterWaveOffset(
-        animation.waterConfig, diagonal, 0, elapsedSeconds, animation.worldScale
-      );
+      // Reuse one sampled height per map diagonal so adjacent vertices stay aligned.
+      for (let diagonal = 0; diagonal < diagonalCount; diagonal++) {
+        waveOffsets[diagonal] = sampleRoWaterWaveOffset(
+          animation.waterConfig, diagonal, 0, elapsedSeconds, animation.worldScale
+        );
+      }
+      for (let tile = 0; tile < animation.tileCoordinates.length / 2; tile++) {
+        const x = animation.tileCoordinates[tile * 2];
+        const z = animation.tileCoordinates[tile * 2 + 1];
+        const base = tile * 12;
+        // Vertex layout: (x,z+1), (x+1,z+1), (x,z), (x+1,z).
+        positions[base + 1] = animation.basePositions[base + 1] + waveOffsets[x + z + 1];
+        positions[base + 4] = animation.basePositions[base + 4] + waveOffsets[x + z + 2];
+        positions[base + 7] = animation.basePositions[base + 7] + waveOffsets[x + z];
+        positions[base + 10] = animation.basePositions[base + 10] + waveOffsets[x + z + 1];
+      }
+      positionAttribute.needsUpdate = true;
     }
-    for (let tile = 0; tile < animation.tileCoordinates.length / 2; tile++) {
-      const x = animation.tileCoordinates[tile * 2];
-      const z = animation.tileCoordinates[tile * 2 + 1];
-      const base = tile * 12;
-      // Vertex layout: (x,z+1), (x+1,z+1), (x,z), (x+1,z).
-      positions[base + 1] = animation.basePositions[base + 1] + waveOffsets[x + z + 1];
-      positions[base + 4] = animation.basePositions[base + 4] + waveOffsets[x + z + 2];
-      positions[base + 7] = animation.basePositions[base + 7] + waveOffsets[x + z];
-      positions[base + 10] = animation.basePositions[base + 10] + waveOffsets[x + z + 1];
-    }
-    positionAttribute.needsUpdate = true;
-  }
 
-  // Texture cycling and vertex waves are independent in the RO map format.
-  if (animation.textures.length < 2) return;
-  if (!animation.nextFrameAt) {
-    animation.nextFrameAt = now + animation.intervalMs;
-    return;
+    // Texture cycling and vertex waves are independent in the RO map format.
+    if (animation.textures.length < 2) continue;
+    if (!animation.nextFrameAt) {
+      animation.nextFrameAt = now + animation.intervalMs;
+      continue;
+    }
+    if (now < animation.nextFrameAt) continue;
+    const steps = Math.floor((now - animation.nextFrameAt) / animation.intervalMs) + 1;
+    animation.frameIndex = (animation.frameIndex + steps) % animation.textures.length;
+    animation.mesh.material.map = animation.textures[animation.frameIndex];
+    animation.mesh.material.needsUpdate = true;
+    animation.nextFrameAt += steps * animation.intervalMs;
   }
-  if (now < animation.nextFrameAt) return;
-  const steps = Math.floor((now - animation.nextFrameAt) / animation.intervalMs) + 1;
-  animation.frameIndex = (animation.frameIndex + steps) % animation.textures.length;
-  animation.mesh.material.map = animation.textures[animation.frameIndex];
-  animation.mesh.material.needsUpdate = true;
-  animation.nextFrameAt += steps * animation.intervalMs;
 }
 
 function disposeObject(object) {
@@ -957,70 +962,93 @@ function createLightmapDataTexture(data, width, height) {
 }
 
 async function addNativeWater(root, gat, waterConfig, urls, scale) {
-  if (!waterConfig || !Number.isFinite(waterConfig.level)) {
-    return { animation: null, waterTileCount: 0, waterFrameCount: 0 };
-  }
-  const data = buildGndWaterMeshData(gat, waterConfig.level, scale);
-  if (!data.waterTileCount) {
-    return { animation: null, waterTileCount: 0, waterFrameCount: 0 };
+  const waterData = buildGndWaterMeshDataByPlane(gat, waterConfig, scale);
+  if (!waterData.waterTileCount) {
+    return { animations: [], waterTileCount: 0, waterFrameCount: 0 };
   }
 
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(data.positions, 3));
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(data.uvs, 2));
-  geometry.setIndex(data.indices);
-  geometry.computeVertexNormals();
+  // Cache each decoded water texture once, even when several planes share a type.
+  const texturePromises = new Map();
+  async function loadTextures(frameUrls) {
+    const requests = frameUrls.slice(0, 32).map(url => {
+      if (!texturePromises.has(url)) {
+        texturePromises.set(url, textureLoader.loadAsync(url).then(texture => {
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.wrapS = THREE.RepeatWrapping;
+          texture.wrapT = THREE.RepeatWrapping;
+          texture.needsUpdate = true;
+          return texture;
+        }).catch(error => {
+          console.warn('ROO 水面影格載入失敗：' + url, error);
+          return null;
+        }));
+      }
+      return texturePromises.get(url);
+    });
+    return (await Promise.all(requests)).filter(Boolean);
+  }
 
-  const frameUrls = Array.isArray(urls.waterFrames) ? urls.waterFrames.slice(0, 32) : [];
-  const textures = await Promise.all(frameUrls.map(async url => {
-    try {
-      const texture = await textureLoader.loadAsync(url);
-      texture.colorSpace = THREE.SRGBColorSpace;
-      texture.wrapS = THREE.RepeatWrapping;
-      texture.wrapT = THREE.RepeatWrapping;
-      texture.needsUpdate = true;
-      return texture;
-    } catch (error) {
-      console.warn('ROO 水面影格載入失敗：' + url, error);
-      return null;
+  const animations = [];
+  let maxFrameCount = 0;
+  for (const plane of waterData.planes) {
+    const config = plane.config;
+    const typedFrames = urls.waterFramesByType
+      && urls.waterFramesByType[String(config.type)];
+    const matchesDefaultType = urls.waterType === null
+      || urls.waterType === undefined
+      || Number(config.type) === Number(urls.waterType);
+    const frameUrls = Array.isArray(typedFrames) ? typedFrames
+      : (matchesDefaultType && Array.isArray(urls.waterFrames) ? urls.waterFrames : []);
+    const textures = await loadTextures(frameUrls);
+    maxFrameCount = Math.max(maxFrameCount, textures.length);
+
+    const data = plane.data;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(data.positions, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(data.uvs, 2));
+    geometry.setIndex(data.indices);
+    geometry.computeVertexNormals();
+
+    const material = new THREE.MeshBasicMaterial({
+      map: textures[0] || null,
+      color: textures.length ? 0xffffff : 0x63b5d8,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.68,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = 'roo-native-water-' + plane.gridX + '-' + plane.gridY;
+    mesh.renderOrder = 2;
+    mesh.userData.rooMapWater = true;
+    root.add(mesh);
+
+    const interval = Number(config.textureCyclingInterval);
+    const waveEnabled = Number.isFinite(config.waveHeight) && Math.abs(config.waveHeight) > 1e-8;
+    const textureCyclingEnabled = textures.length > 1;
+    if (waveEnabled || textureCyclingEnabled) {
+      animations.push({
+        mesh,
+        textures,
+        frameIndex: 0,
+        nextFrameAt: 0,
+        intervalMs: sampleRoWaterTextureIntervalMs(interval),
+        waveEnabled,
+        waterConfig: config,
+        worldScale: scale,
+        mapWidth: gat.width,
+        mapHeight: gat.height,
+        tileCoordinates: Uint32Array.from(data.tileCoordinates),
+        basePositions: Float32Array.from(data.positions),
+        waveStartedAt: null,
+      });
     }
-  }));
-  const availableTextures = textures.filter(Boolean);
-  const material = new THREE.MeshBasicMaterial({
-    map: availableTextures[0] || null,
-    color: availableTextures.length ? 0xffffff : 0x63b5d8,
-    side: THREE.DoubleSide,
-    transparent: true,
-    opacity: 0.68,
-    depthWrite: false,
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.name = 'roo-native-water';
-  mesh.renderOrder = 2;
-  mesh.userData.rooMapWater = true;
-  root.add(mesh);
+  }
 
-  const interval = Number(waterConfig.textureCyclingInterval);
-  const waveEnabled = Number.isFinite(waterConfig.waveHeight) && Math.abs(waterConfig.waveHeight) > 1e-8;
-  const textureCyclingEnabled = availableTextures.length > 1;
   return {
-    animation: waveEnabled || textureCyclingEnabled ? {
-      mesh,
-      textures: availableTextures,
-      frameIndex: 0,
-      nextFrameAt: 0,
-      intervalMs: sampleRoWaterTextureIntervalMs(interval),
-      waveEnabled,
-      waterConfig,
-      worldScale: scale,
-      mapWidth: gat.width,
-      mapHeight: gat.height,
-      tileCoordinates: Uint32Array.from(data.tileCoordinates),
-      basePositions: Float32Array.from(data.positions),
-      waveStartedAt: null,
-    } : null,
-    waterTileCount: data.waterTileCount,
-    waterFrameCount: availableTextures.length,
+    animations,
+    waterTileCount: waterData.waterTileCount,
+    waterFrameCount: maxFrameCount,
   };
 }
 
@@ -1144,7 +1172,7 @@ async function loadRagassetsMap(mapName) {
       scene.remove(mapRoot);
       disposeObject(mapRoot);
     }
-    nativeWaterAnimation = nextWaterStats.animation;
+    nativeWaterAnimations = nextWaterStats.animations;
     mapRoot = nextRoot;
     activeRsmAnimations = nextRsmAnimations;
     scene.add(mapRoot);
