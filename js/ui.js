@@ -2082,16 +2082,16 @@ function renderMapTab() {
         title="回到本區的安全區；這一區沒有的話回普隆德拉">🏠 回安全區</button>
     </h3>
     <div class="map-select-group">
-      <label class="map-select-label">王國/大陸</label>
-      <select class="map-select" onchange="onKingdomSelectChange(this.value)">${kingdomOptions}</select>
+      <label class="map-select-label" for="map-select-kingdom">王國/大陸</label>
+      <select id="map-select-kingdom" class="map-select" onchange="onKingdomSelectChange(this.value)">${kingdomOptions}</select>
     </div>
     <div class="map-select-group">
-      <label class="map-select-label">地區</label>
-      <select class="map-select" onchange="onRegionSelectChange(this.value)">${regionOptions}</select>
+      <label class="map-select-label" for="map-select-region">地區</label>
+      <select id="map-select-region" class="map-select" onchange="onRegionSelectChange(this.value)">${regionOptions}</select>
     </div>
     <div class="map-select-group">
-      <label class="map-select-label">地點</label>
-      <select class="map-select" onchange="selectMap(this.value)">${mapOptions}</select>
+      <label class="map-select-label" for="map-select-place">地點</label>
+      <select id="map-select-place" class="map-select" onchange="selectMap(this.value)">${mapOptions}</select>
     </div>
     <div class="region-subtitle-detail">${region.subtitle}</div>
     <div class="map-preview-box">
