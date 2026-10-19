@@ -310,16 +310,45 @@ export function parseGndBuffer(input) {
   let water = null;
   if (minor >= 8) {
     const base = tailOffset;
-    water = {
+    const gridU = view.getInt32(base + 24, true);
+    const gridV = view.getInt32(base + 28, true);
+    const defaultPlane = {
       level: view.getFloat32(base, true),
       type: view.getInt32(base + 4, true),
       waveHeight: view.getFloat32(base + 8, true),
       waveSpeed: view.getFloat32(base + 12, true),
       wavePitch: view.getFloat32(base + 16, true),
       textureCyclingInterval: view.getInt32(base + 20, true),
-      gridU: view.getInt32(base + 24, true),
-      gridV: view.getInt32(base + 28, true),
     };
+    const planeCount = gridU * gridV;
+    const planes = [];
+
+    for (let i = 0; i < planeCount; i++) {
+      const gridX = i % gridU;
+      const gridY = Math.floor(i / gridU);
+      if (minor === 8) {
+        planes.push({
+          ...defaultPlane,
+          level: view.getFloat32(base + 32 + i * 4, true),
+          gridX,
+          gridY,
+        });
+      } else {
+        const at = base + 32 + i * 24;
+        planes.push({
+          level: view.getFloat32(at, true),
+          type: view.getInt32(at + 4, true),
+          waveHeight: view.getFloat32(at + 8, true),
+          waveSpeed: view.getFloat32(at + 12, true),
+          wavePitch: view.getFloat32(at + 16, true),
+          textureCyclingInterval: view.getInt32(at + 20, true),
+          gridX,
+          gridY,
+        });
+      }
+    }
+
+    water = { ...defaultPlane, gridU, gridV, planes };
   }
 
   return {
@@ -1763,6 +1792,72 @@ export function buildGndWaterMeshData(gat, waterLevel, worldScale = 0.2) {
   }
 
   return { positions, uvs, indices, tileCoordinates, waterTileCount, level: waterLevel };
+}
+
+/**
+ * Split the GAT water mask across the water-plane grid stored in GND 1.8/1.9.
+ * GND 1.8 stores one level per plane; GND 1.9 stores a complete config per plane.
+ */
+export function buildGndWaterMeshDataByPlane(gat, waterConfig, worldScale = 0.2) {
+  if (!waterConfig || typeof waterConfig !== 'object') {
+    throw new TypeError('必須提供 GND／RSW 水面設定。');
+  }
+  if (!gat || !Number.isInteger(gat.width) || !Number.isInteger(gat.height)
+    || !gat.terrainTypes || !gat.water) {
+    throw new TypeError('必須提供已解析的 GAT 水域資料。');
+  }
+
+  const total = gat.width * gat.height;
+  const gridU = Number.isInteger(waterConfig.gridU) && waterConfig.gridU > 0 ? waterConfig.gridU : 1;
+  const gridV = Number.isInteger(waterConfig.gridV) && waterConfig.gridV > 0 ? waterConfig.gridV : 1;
+  if (gridU > 64 || gridV > 64 || gridU * gridV > 4096) {
+    throw new Error('水面分區數量超過安全上限。');
+  }
+
+  const declaredPlanes = Array.isArray(waterConfig.planes) ? waterConfig.planes : [];
+  const planes = declaredPlanes.length
+    ? declaredPlanes.slice(0, gridU * gridV)
+    : [{ ...waterConfig, gridX: 0, gridY: 0, wholeMap: true }];
+  const results = [];
+  let waterTileCount = 0;
+
+  for (let planeIndex = 0; planeIndex < planes.length; planeIndex++) {
+    const plane = planes[planeIndex];
+    if (!plane || !Number.isFinite(plane.level)) {
+      throw new Error('第 ' + planeIndex + ' 組水面缺少有效水位。');
+    }
+    const gridX = Number.isInteger(plane.gridX) ? plane.gridX : planeIndex % gridU;
+    const gridY = Number.isInteger(plane.gridY) ? plane.gridY : Math.floor(planeIndex / gridU);
+    const filteredWater = new Uint8Array(total);
+    const filteredTypes = new Uint16Array(total);
+
+    for (let i = 0; i < total; i++) {
+      const x = i % gat.width;
+      const y = Math.floor(i / gat.width);
+      const isWaterTile = gat.water[i] === 1
+        || (gat.version === '1.2' && gat.terrainTypes[i] === 6);
+      if (!isWaterTile) continue;
+
+      const belongsToPlane = plane.wholeMap
+        || (Math.floor(x * gridU / gat.width) === gridX
+          && Math.floor(y * gridV / gat.height) === gridY);
+      if (!belongsToPlane) continue;
+      filteredWater[i] = 1;
+      filteredTypes[i] = gat.terrainTypes[i];
+    }
+
+    const filteredGat = {
+      ...gat,
+      water: filteredWater,
+      terrainTypes: filteredTypes,
+    };
+    const data = buildGndWaterMeshData(filteredGat, plane.level, worldScale);
+    if (!data.waterTileCount) continue;
+    results.push({ config: plane, data, gridX, gridY });
+    waterTileCount += data.waterTileCount;
+  }
+
+  return { planes: results, waterTileCount };
 }
 
 export function resolveRagassetsMapUrls(mapId, manifest, baseUrl = RAGASSETS_BASE_URL) {
