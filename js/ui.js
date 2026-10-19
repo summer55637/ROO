@@ -13,6 +13,8 @@ let creationAlloc = { str: 0, agi: 0, vit: 0, int: 0, dex: 0, luk: 0 };
 let creationBudget = 15;
 let selectedGender = 'male';
 let activeTab = 'map';
+let roPronteraLoadToken = 0;
+let roPronteraReadyToastShown = false;
 
 /* ---------------- 初始畫面切換 ---------------- */
 function showScreen(id) {
@@ -5266,10 +5268,30 @@ function renderMapBackground() {
     }
   }
 
-  // 普隆德拉使用倉庫內的地圖預覽；其他地圖沿用原有背景映射。
+  // 普隆德拉使用本機地圖預覽及 GAT 衍生碰撞格；其他地圖仍沿用原背景。
   img.src = hasPronteraMap
     ? 'images/maps/prontera-minimap.webp'
     : mapImgSrc(state.mapId);
+
+  if (hasPronteraMap && typeof ROPronteraMap !== 'undefined') {
+    const token = ++roPronteraLoadToken;
+    ROPronteraMap.load().then(mapData => {
+      if (token !== roPronteraLoadToken || !state
+        || String(state.mapId || '').toLowerCase() !== 'prontera') return;
+      if (typeof setRoExplorationGatMap === 'function') setRoExplorationGatMap(mapData);
+      if (!roPronteraReadyToastShown && typeof showToast === 'function') {
+        showToast('普隆德拉尋路已啟用，可點地面繞過建築。');
+        roPronteraReadyToastShown = true;
+      }
+    }).catch(() => {
+      if (token !== roPronteraLoadToken) return;
+      if (typeof setRoExplorationGatMap === 'function') setRoExplorationGatMap(null);
+      if (typeof showToast === 'function') showToast('普隆德拉地形資料載入失敗，暫時保留自由移動。');
+    });
+  } else {
+    roPronteraLoadToken++;
+    if (typeof setRoExplorationGatMap === 'function') setRoExplorationGatMap(null);
+  }
 }
 
 /* ---------------- 背景音樂 ----------------

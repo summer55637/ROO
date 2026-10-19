@@ -11,7 +11,7 @@
 
 ## 重要限制
 
-**這不是已完成的原生 RO 地圖渲染，也尚未把碰撞套入探索移動。** 目前倉庫沒有與現有場景背景相配套的原生 GAT/GND/RSW 組合。為避免角色被不相干的地形格擋住，本輪只完成可測試的資料解析層。
+**原生 GND/RSW 渲染仍未完成。** 倉庫目前沒有已配對的原始 GAT/GND/RSW 組合；因此不能把預覽圖宣稱為原生 3D 地圖。普隆德拉例外：已接入開源轉換專案提供的 GAT 衍生建築阻擋區，用它生成 104×104 導航格，限普隆德拉使用。
 
 原生地圖需要把檔案配套處理：
 
@@ -25,7 +25,7 @@
 
 `ROMapData.findPath()` 現在能在 GAT 網格上以 A* 找路，支援八方向／四方向、對角防穿角與搜尋上限。探索模組增加 `setRoExplorationGatMap()` 接口，接入匹配地圖後，點地移動會按路徑逐格行走，無路可走則拒絕移動；鍵盤／觸控方向移動仍保留原控制方式。
 
-**目前沒有可安全啟用的完整原生地圖組合。** 倉庫仍未包含已配對的 GAT/GND/RSW 和對應畫面；所以這輪不自動將任意 GAT 套到現有通用背景，以免畫面與碰撞不一致。取得並渲染匹配場景後，再由場景載入器呼叫 `setRoExplorationGatMap(mapData)`。GAT 的資料用途與格子高度／地形旗標已參考 [Ragnarok Research Lab 的 GAT 規格](https://ragnarokresearchlab.github.io/file-formats/gat/)。
+**目前沒有可安全啟用的完整原生地圖組合。** 倉庫仍未包含已配對的 GAT/GND/RSW 和對應畫面；所以這輪不自動將任意 GAT 套到現有通用背景，以免畫面與碰撞不一致。普隆德拉目前會從 `data/maps/prontera-blocked-zones.json` 載入來源專案衍生的阻擋區，透過 `js/ro_prontera.js` 生成暫用 GAT 格網並呼叫 `setRoExplorationGatMap(mapData)`。點擊移動會用 A* 繞開已知建築區，鍵盤／觸控移動也會阻擋進入已標記格。此格網不是原始 .gat 完整逐格資料，所以只限與此預覽配套的普隆德拉，不會套到其他地圖。GAT 的資料用途與格子高度／地形旗標已參考 [Ragnarok Research Lab 的 GAT 規格](https://ragnarokresearchlab.github.io/file-formats/gat/)。
 
 ## 水面波紋（本輪）
 
@@ -48,3 +48,12 @@
 ## 普隆德拉 2D 地圖預覽（新增）
 
 `images/maps/prontera-minimap.webp` 取自開源專案 `portons/codex-pet-share` 的已生成俯視預覽，並依其 MIT 授權附帶完整授權文字及來源紀錄。只在 `prontera` 地圖選取時顯示，作為更明確的普隆德拉畫面素材；此圖不等於原生地圖渲染，亦不啟用 GAT 碰撞／尋路。遊戲執行時使用倉庫內靜態檔，不呼叫外部來源。
+
+
+## 普隆德拉碰撞接線（新增）
+
+- `data/maps/prontera-blocked-zones.json`：182 個矩形阻擋區，取自 `portons/codex-pet-share` 生成資料，其專案文件標記這批區域來源為 GAT 網格；已附 MIT 授權文字與來源紀錄。
+- `js/ro_prontera.js`：只在普隆德拉載入該靜態 JSON，建立 104×104 的暫用通行格，再交給既有 `ROMapData.findPath()`。
+- 點地移動使用 A* 繞開阻擋格；WASD、方向鍵與手機方向按鈕不能穿過已標記格，遇牆會嘗試沿邊滑動。
+- 離開普隆德拉會解除該碰撞格；其餘地圖不會套用同一份格網。
+- 該資料只涵蓋已辨識的阻擋區，沒標記的格子暫視為可走；要達到正式原生 GAT 精度，仍需匯入該地圖的完整原始 GAT 並對齊 GND/RSW。

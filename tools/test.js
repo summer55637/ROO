@@ -15,6 +15,7 @@ const path = require('path');
 
 const SUITES = [
   'test_ro_map.js',       // 原生 RO 地圖 GAT 解析
+  'test_ro_prontera.js', // 普隆德拉碰撞格與探索尋路
   'test_ro_water.js',     // 水面波紋核心
   'test_exploration.js', // 角色移動座標與存檔
   'test_smoke.js',        // 全庫掃描，先跑：這支掛了通常代表載入或資料壞了

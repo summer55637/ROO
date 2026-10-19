@@ -57,8 +57,26 @@ function moveRoExplorationPosition(x, y, dx, dy, distance, aspectRatio) {
   );
 }
 
+function findNearestRoWalkableTile(start, mapData) {
+  if (!start || !mapData || typeof mapData.isWalkable !== 'function') return null;
+  let best = null;
+  let bestDistance = Infinity;
+  for (let y = 0; y < mapData.height; y++) {
+    for (let x = 0; x < mapData.width; x++) {
+      if (!mapData.isWalkable(x, y)) continue;
+      const distance = (x - start.x) * (x - start.x) + (y - start.y) * (y - start.y);
+      if (distance < bestDistance) {
+        best = { x, y };
+        bestDistance = distance;
+      }
+    }
+  }
+  return best;
+}
+
 function setRoExplorationGatMap(mapData) {
   roExplorationGatMap = mapData && typeof mapData.findPath === 'function'
+    && typeof mapData.isWalkable === 'function'
     && Number.isInteger(mapData.width) && mapData.width > 0
     && Number.isInteger(mapData.height) && mapData.height > 0
     ? mapData : null;
@@ -69,6 +87,15 @@ function setRoExplorationGatMap(mapData) {
   roExplorationFrameId = null;
   roExplorationLastFrame = 0;
   setRoExplorationMoving(false);
+
+  if (roExplorationGatMap && typeof state !== 'undefined' && state) {
+    const tile = roExplorationPositionToTile(state.explorationX, state.explorationY, roExplorationGatMap);
+    if (!roExplorationGatMap.isWalkable(tile.x, tile.y)) {
+      const nearest = findNearestRoWalkableTile(tile, roExplorationGatMap);
+      const position = nearest && roExplorationTileToPosition(nearest, roExplorationGatMap);
+      if (position) setRoExplorationPosition(position.x, position.y);
+    }
+  }
 }
 
 function roExplorationPositionToTile(x, y, mapData) {
@@ -106,6 +133,16 @@ function buildRoExplorationPath(startX, startY, endX, endY, mapData) {
   });
   if (!route) return null;
   return route.map(tile => roExplorationTileToPosition(tile, mapData)).filter(Boolean);
+}
+
+function roExplorationCanTraverse(fromX, fromY, toX, toY, mapData) {
+  if (!mapData || typeof mapData.isWalkable !== 'function') return true;
+  const from = roExplorationPositionToTile(fromX, fromY, mapData);
+  const to = roExplorationPositionToTile(toX, toY, mapData);
+  if (!from || !to || !mapData.isWalkable(to.x, to.y)) return false;
+  if (from.x !== to.x && from.y !== to.y
+    && (!mapData.isWalkable(to.x, from.y) || !mapData.isWalkable(from.x, to.y))) return false;
+  return true;
 }
 
 function roExplorationDirectionForKey(key) {
@@ -191,6 +228,9 @@ function stepRoCharacter(direction) {
     state.explorationX, state.explorationY, vector[0], vector[1], 4,
     roExplorationAspectRatio()
   );
+  if (roExplorationGatMap && !roExplorationCanTraverse(
+    state.explorationX, state.explorationY, pos.x, pos.y, roExplorationGatMap
+  )) return false;
   setRoExplorationPosition(pos.x, pos.y);
   return true;
 }
@@ -262,9 +302,37 @@ function roExplorationTick(timestamp) {
     return;
   }
 
-  const pos = moveRoExplorationPosition(
+  let pos = moveRoExplorationPosition(
     state.explorationX, state.explorationY, dx, dy, distance, aspectRatio
   );
+  if (roExplorationGatMap
+    && !roExplorationCanTraverse(state.explorationX, state.explorationY, pos.x, pos.y, roExplorationGatMap)) {
+    if (hasKeys) {
+      const currentX = state.explorationX;
+      const currentY = state.explorationY;
+      const candidates = [
+        moveRoExplorationPosition(currentX, currentY, dx, 0, distance, aspectRatio),
+        moveRoExplorationPosition(currentX, currentY, 0, dy, distance, aspectRatio)
+      ].filter(candidate => roExplorationCanTraverse(
+        currentX, currentY, candidate.x, candidate.y, roExplorationGatMap
+      ));
+      if (candidates.length) {
+        candidates.sort((left, right) => {
+          const leftProgress = (left.x - currentX) * dx + (left.y - currentY) * dy;
+          const rightProgress = (right.x - currentX) * dx + (right.y - currentY) * dy;
+          return rightProgress - leftProgress;
+        });
+        pos = candidates[0];
+      } else {
+        pos = normalizeRoExplorationPosition(currentX, currentY);
+      }
+    } else {
+      roExplorationPath = [];
+      roExplorationTarget = null;
+      clearRoExplorationTargetMarker();
+      pos = normalizeRoExplorationPosition(state.explorationX, state.explorationY);
+    }
+  }
   const changed = pos.x !== state.explorationX || pos.y !== state.explorationY;
   setRoExplorationMoving(changed);
   if (changed) {

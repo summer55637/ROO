@@ -198,6 +198,7 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg-deep); co
 .battle-panel.has-prontera-map .map-bg-layer img {
   opacity: 0.86;
   filter: saturate(0.95) brightness(0.9);
+  object-fit: fill;
 }
 
 /* ---------------- RO 水面：港口／島嶼／水域場景 ----------------
