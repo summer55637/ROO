@@ -30,6 +30,7 @@ import {
   sampleRoWaterWaveOffset,
 } from './ro_map_assets.mjs';
 import { createLatestRequestGate } from './latest_request_gate.mjs';
+import { createVisibilityAwareFrameLoop } from './visibility_frame_loop.mjs';
 
 const stage = document.getElementById('stage');
 const status = document.getElementById('status');
@@ -1574,17 +1575,21 @@ renderer.domElement.addEventListener('click', event => {
   if (!wasDrag) requestWalk(event);
 });
 
-function animate(now) {
-  requestAnimationFrame(animate);
-  const delta = lastFrame ? Math.min((now - lastFrame) / 1000, 0.05) : 0;
-  lastFrame = now;
-  advanceMovement(delta);
-  advanceNativeWater(now);
-  advanceRsmAnimations(now);
-  controls.update();
-  renderer.render(scene, camera);
-}
-requestAnimationFrame(animate);
+const stopRenderLoop = createVisibilityAwareFrameLoop(
+  document,
+  now => {
+    const delta = lastFrame ? Math.min((now - lastFrame) / 1000, 0.05) : 0;
+    lastFrame = now;
+    advanceMovement(delta);
+    advanceNativeWater(now);
+    advanceRsmAnimations(now);
+    controls.update();
+    renderer.render(scene, camera);
+  },
+  callback => window.requestAnimationFrame(callback),
+  frameId => window.cancelAnimationFrame(frameId)
+);
+window.addEventListener('pagehide', stopRenderLoop, { once: true });
 
 const params = new URLSearchParams(window.location.search);
 const requestedMap = params.get('map');

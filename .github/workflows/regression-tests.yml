@@ -40,6 +40,8 @@ jobs:
           node --check tools/test_latest_request_gate.mjs
           node --check tools/ro_explorer_bootstrap.js
           node --check tools/test_ro_explorer_bootstrap.mjs
+          node --check tools/visibility_frame_loop.mjs
+          node --check tools/test_visibility_frame_loop.mjs
           node --check js/ui.js
       - name: Test GAT conversion and pathfinding
         run: node tools/test_map_pathfinding.js
