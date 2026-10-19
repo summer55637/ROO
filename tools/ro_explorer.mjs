@@ -1575,7 +1575,7 @@ renderer.domElement.addEventListener('click', event => {
   if (!wasDrag) requestWalk(event);
 });
 
-createVisibilityAwareFrameLoop(
+const stopRenderLoop = createVisibilityAwareFrameLoop(
   document,
   now => {
     const delta = lastFrame ? Math.min((now - lastFrame) / 1000, 0.05) : 0;
@@ -1589,6 +1589,14 @@ createVisibilityAwareFrameLoop(
   callback => window.requestAnimationFrame(callback),
   frameId => window.cancelAnimationFrame(frameId)
 );
+
+function handleRenderPageHide(event) {
+  // BFCache pages must keep their visibility listener so rendering resumes on pageshow.
+  if (event.persisted) return;
+  stopRenderLoop();
+  window.removeEventListener('pagehide', handleRenderPageHide);
+}
+window.addEventListener('pagehide', handleRenderPageHide);
 
 const params = new URLSearchParams(window.location.search);
 const requestedMap = params.get('map');
