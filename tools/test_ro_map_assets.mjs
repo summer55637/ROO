@@ -18,6 +18,7 @@ import {
   parseRsmBuffer,
   parseRswBuffer,
   resolveRagassetsMapUrls,
+  resolveWaterFramesForType,
   sampleGndHeightAtGatCell,
   sampleRsmAnimationPose,
   sampleRsmTextureAnimation,
@@ -723,6 +724,31 @@ assert.deepEqual(urls.waterFrames, [RAGASSETS_BASE_URL + '/maps/_w/0123456789abc
 assert.equal(urls.waterType, 3);
 assert.deepEqual(urls.waterFramesByType['3'], [RAGASSETS_BASE_URL + '/maps/_w/0123456789abcdef.jpg']);
 assert.deepEqual(urls.waterFramesByType['5'], [RAGASSETS_BASE_URL + '/maps/_w/fedcba9876543210.jpg']);
+
+assert.deepEqual(resolveWaterFramesForType(urls, 3), {
+  frames: [RAGASSETS_BASE_URL + '/maps/_w/0123456789abcdef.jpg'],
+  sourceType: 3,
+  exactTypeMatch: true,
+  usedFallback: false,
+});
+assert.deepEqual(resolveWaterFramesForType(urls, 5), {
+  frames: [RAGASSETS_BASE_URL + '/maps/_w/fedcba9876543210.jpg'],
+  sourceType: 5,
+  exactTypeMatch: true,
+  usedFallback: false,
+});
+assert.deepEqual(resolveWaterFramesForType(urls, 10), {
+  frames: [RAGASSETS_BASE_URL + '/maps/_w/0123456789abcdef.jpg'],
+  sourceType: 3,
+  exactTypeMatch: false,
+  usedFallback: true,
+});
+assert.deepEqual(resolveWaterFramesForType({
+  waterFrames: [], waterFramesByType: {}, waterType: null,
+}, 10), {
+  frames: [], sourceType: null, exactTypeMatch: false, usedFallback: false,
+});
+assert.throws(() => resolveWaterFramesForType(null, 1), /水面素材 URL/);
 
 assert.throws(() => resolveRagassetsMapUrls('../prontera', manifest), /地圖 ID/);
 assert.throws(() => resolveRagassetsMapUrls('payon', manifest), /ID 不一致/);
