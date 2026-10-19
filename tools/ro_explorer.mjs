@@ -31,6 +31,11 @@ import {
 } from './ro_map_assets.mjs';
 import { createLatestRequestGate } from './latest_request_gate.mjs';
 import { createVisibilityAwareFrameLoop } from './visibility_frame_loop.mjs';
+import {
+  buildRoExplorerSpriteLayout,
+  resolveRoExplorerSpriteKey,
+  roExplorerSpriteFramePath,
+} from './ro_explorer_sprites.mjs';
 
 const stage = document.getElementById('stage');
 const status = document.getElementById('status');
@@ -72,6 +77,9 @@ const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const normalMatrix = new THREE.Matrix3();
 const textureLoader = new THREE.TextureLoader();
+const explorerSpriteKey = resolveRoExplorerSpriteKey(
+  new URLSearchParams(window.location.search).get('sprite')
+);
 
 let mapRoot = null;
 let mapInfo = null;
@@ -93,6 +101,9 @@ let routeLine = null;
 let targetRing = null;
 let playerSprite = null;
 let fallbackPlayer = null;
+let playerSpriteFrames = [];
+let playerSpriteFrameLayout = null;
+const playerRoot = new THREE.Group();
 let currentCell = null;
 let movementPath = null;
 let pathIndex = 1;
@@ -112,7 +123,8 @@ const playerMaterial = new THREE.SpriteMaterial({
 });
 playerSprite = new THREE.Sprite(playerMaterial);
 playerSprite.visible = false;
-scene.add(playerSprite);
+playerRoot.add(playerSprite);
+scene.add(playerRoot);
 
 const fallbackMaterial = new THREE.MeshStandardMaterial({
   color: '#62e2ad',
@@ -258,10 +270,24 @@ function cellWorldPosition(cell, lift = 0) {
 
 function updatePlayerPosition() {
   if (!currentCell || !gatInfo) return;
-  const pos = cellWorldPosition(currentCell, 1.0);
-  playerSprite.position.copy(pos);
-  playerSprite.scale.set(tileSize() * 1.0, tileSize() * 1.8, 1);
-  fallbackPlayer.position.set(pos.x, groundHeight(currentCell) + tileSize() * 0.55, pos.z);
+  const ground = cellWorldPosition(currentCell);
+  playerRoot.position.copy(ground);
+  if (playerSpriteFrameLayout) {
+    playerSprite.position.set(
+      playerSpriteFrameLayout.offsetX,
+      playerSpriteFrameLayout.offsetY,
+      0
+    );
+    playerSprite.scale.set(
+      playerSpriteFrameLayout.width,
+      playerSpriteFrameLayout.height,
+      1
+    );
+  } else {
+    playerSprite.position.set(0, tileSize() * 0.9, 0);
+    playerSprite.scale.set(tileSize(), tileSize() * 1.8, 1);
+  }
+  fallbackPlayer.position.set(ground.x, ground.y + tileSize() * 0.55, ground.z);
   fallbackPlayer.scale.setScalar(tileSize());
 }
 
@@ -440,6 +466,7 @@ function updateStats() {
         + '；越界最大距離 ' + placement.maximumOutsideDistance.toFixed(2));
     }
   }
+  rows.push('角色素材：' + explorerSpriteKey + (playerSpriteFrames.length ? '（職業影格已載入）' : '（待機備援圖）'));
   rows.push('世界比例：' + worldScale + '；GAT 格寬 ' + tileSize().toFixed(2));
   if (currentCell) rows.push('目前格：(' + currentCell.x + ', ' + currentCell.y + ')');
   stats.textContent = rows.length ? rows.join('\n') : '尚未載入地圖';
@@ -1413,7 +1440,7 @@ function requestWalk(event) {
   // 若途中改點，先把角色吸附到目前腳下的可走格，再重新尋路。
   if (movementPath) {
     const positionCell = roMapCellFromWorldPoint(
-      gatInfo, playerSprite.position.x, playerSprite.position.z, worldScale
+      gatInfo, playerRoot.position.x, playerRoot.position.z, worldScale
     );
     if (positionCell && isRoMapCellWalkable(gatInfo, positionCell.x, positionCell.y)) {
       currentCell = positionCell;
@@ -1468,9 +1495,9 @@ function advanceMovement(deltaSeconds) {
   while (budget > 0 && movementPath && pathIndex < movementPath.length) {
     const nextCell = movementPath[pathIndex];
     const destination = cellWorldPosition(nextCell, 1.0);
-    const distance = playerSprite.position.distanceTo(destination);
+    const distance = playerRoot.position.distanceTo(destination);
     if (distance <= budget || distance < 0.0001) {
-      playerSprite.position.copy(destination);
+      playerRoot.position.copy(destination);
       budget -= distance;
       currentCell = { x: nextCell.x, y: nextCell.y };
       pathIndex++;
@@ -1482,15 +1509,15 @@ function advanceMovement(deltaSeconds) {
         setStatus('已到達目的地。');
       }
     } else {
-      playerSprite.position.lerp(destination, budget / distance);
+      playerRoot.position.lerp(destination, budget / distance);
       budget = 0;
     }
   }
   if (fallbackPlayer.visible) {
     fallbackPlayer.position.set(
-      playerSprite.position.x,
-      playerSprite.position.y - tileSize() * 0.45,
-      playerSprite.position.z
+      playerRoot.position.x,
+      playerRoot.position.y + tileSize() * 0.55,
+      playerRoot.position.z
     );
   }
   if (changedCell) {
@@ -1611,17 +1638,97 @@ window.addEventListener('roo-explorer-mode', event => {
   if (event.detail === 'native') loadRagassetsMap(nativeMapInput.value);
 });
 
+function measureSpriteAlphaBounds(image) {
+  const width = image && (image.naturalWidth || image.width);
+  const height = image && (image.naturalHeight || image.height);
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+    throw new Error('角色影格圖片尺寸無效。');
+  }
+  const whole = { left: 0, top: 0, right: width, bottom: height };
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) return whole;
+  let pixels;
+  try {
+    context.drawImage(image, 0, 0, width, height);
+    pixels = context.getImageData(0, 0, width, height).data;
+  } catch (error) {
+    // Keep layout stable if a browser disallows pixel reads; never block exploration.
+    return whole;
+  }
+  let left = width;
+  let top = height;
+  let right = -1;
+  let bottom = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (pixels[(y * width + x) * 4 + 3] <= 16) continue;
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < top) top = y;
+      if (y > bottom) bottom = y;
+    }
+  }
+  if (right < left || bottom < top) return whole;
+  return { left, top, right: right + 1, bottom: bottom + 1 };
+}
+
+async function loadExplorerSpriteFrames() {
+  const urls = Array.from({ length: 20 }, (_, index) => (
+    new URL(roExplorerSpriteFramePath(explorerSpriteKey, index), import.meta.url).href
+  ));
+  const loaded = await Promise.all(urls.map(url => (
+    textureLoader.loadAsync(url).catch(() => null)
+  )));
+  const frames = loaded.filter(Boolean);
+  if (!frames.length) return false;
+
+  const firstImage = frames[0].image;
+  const width = firstImage && (firstImage.naturalWidth || firstImage.width);
+  const height = firstImage && (firstImage.naturalHeight || firstImage.height);
+  const bounds = measureSpriteAlphaBounds(firstImage);
+  const layout = buildRoExplorerSpriteLayout(width, height, bounds, tileSize());
+  frames.forEach(texture => { texture.colorSpace = THREE.SRGBColorSpace; });
+  playerSpriteFrames = frames;
+  playerSpriteFrameLayout = layout;
+
+  const previousTexture = playerMaterial.map;
+  playerMaterial.map = frames[0];
+  playerMaterial.needsUpdate = true;
+  if (previousTexture && previousTexture !== frames[0]) previousTexture.dispose();
+  fallbackPlayer.visible = false;
+  if (currentCell) {
+    playerSprite.visible = true;
+    updatePlayerPosition();
+  }
+  updateStats();
+  return true;
+}
+
 try {
   textureLoader.load('../images/player_swordsman.svg', texture => {
     texture.colorSpace = THREE.SRGBColorSpace;
+    if (playerSpriteFrames.length) {
+      texture.dispose();
+      return;
+    }
     playerMaterial.map = texture;
     playerMaterial.needsUpdate = true;
     fallbackPlayer.visible = false;
-    if (currentCell) playerSprite.visible = true;
+    if (currentCell) {
+      playerSprite.visible = true;
+      updatePlayerPosition();
+    }
   }, undefined, () => {
+    if (playerSpriteFrames.length) return;
     playerSprite.visible = false;
     fallbackPlayer.visible = !!currentCell;
   });
 } catch (error) {
   playerSprite.visible = false;
 }
+loadExplorerSpriteFrames().catch(error => {
+  console.warn('ROO 角色影格載入失敗，保留備援外觀：', error);
+});

@@ -2038,6 +2038,7 @@ function openRoExplorer() {
   const url = new URL('tools/ro_explorer.html', window.location.href);
   url.searchParams.set('mode', 'native');
   url.searchParams.set('map', String(state.mapId || 'prontera'));
+  url.searchParams.set('sprite', getAnimKey());
   window.open(url.toString(), '_blank', 'noopener,noreferrer');
 }
 

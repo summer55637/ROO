@@ -61,6 +61,7 @@ const SUITES = [
   'test_visibility_frame_loop.mjs', // 背景分頁暫停 3D 連續渲染
   'test_ro_map_assets.mjs', // 原生 GND/GAT/RSW/RSM、光照與水面解析
   'test_ro_explorer_bootstrap.mjs', // 探索頁直達模式與初始化
+  'test_ro_explorer_sprites.mjs', // 原生探索使用安全的 RO 職業影格素材
   'test_saveio.js',      // 存檔匯出/匯入：序列化、遷移、覆寫與失敗還原
 ];
 
