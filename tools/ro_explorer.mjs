@@ -44,6 +44,11 @@ import {
   mapRoExplorerCellToMinimap,
   mapRoExplorerMinimapPointToCell,
 } from './ro_explorer_minimap.mjs';
+import {
+  buildRoExplorerMonsterSpawns,
+  parseRoExplorerMonsterCatalog,
+  roExplorerMonsterAnimationUrl,
+} from './ro_explorer_monsters.mjs';
 
 const stage = document.getElementById('stage');
 const status = document.getElementById('status');
@@ -58,6 +63,10 @@ const showMinimapInput = document.getElementById('show-minimap');
 const minimapPanel = document.getElementById('minimap-panel');
 const minimapCanvas = document.getElementById('minimap');
 const minimapMapName = document.getElementById('minimap-map-name');
+const monsterPanel = document.getElementById('monster-panel');
+const monsterTitle = document.getElementById('monster-title');
+const monsterDescription = document.getElementById('monster-description');
+const clearMonsterTargetButton = document.getElementById('clear-monster-target');
 const nativeMapInput = document.getElementById('native-map');
 const loadNativeMapButton = document.getElementById('load-native-map');
 
@@ -89,9 +98,10 @@ const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const normalMatrix = new THREE.Matrix3();
 const textureLoader = new THREE.TextureLoader();
-const explorerSpriteKey = resolveRoExplorerSpriteKey(
-  new URLSearchParams(window.location.search).get('sprite')
-);
+const explorerParams = new URLSearchParams(window.location.search);
+const explorerSpriteKey = resolveRoExplorerSpriteKey(explorerParams.get('sprite'));
+const monsterMapIdFromUrl = String(explorerParams.get('map') || '').trim().toLowerCase();
+const explorerMonsterCatalog = parseRoExplorerMonsterCatalog(explorerParams.get('mobs'));
 
 let mapRoot = null;
 let mapInfo = null;
@@ -137,6 +147,14 @@ let minimapGatInfo = null;
 let minimapBaseImage = null;
 let minimapBaseWidth = 0;
 let minimapBaseHeight = 0;
+const monsterSpritesRoot = new THREE.Group();
+scene.add(monsterSpritesRoot);
+const monsterTextureCache = new Map();
+const monsterTextureSet = new Set();
+const monsterEntries = [];
+let monsterGeneration = 0;
+let selectedMonsterEntry = null;
+let lastMonsterTextureUploadAt = 0;
 
 const axes = new THREE.AxesHelper(10);
 axes.material.transparent = true;
@@ -177,6 +195,11 @@ targetRing = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.4, 28), ringMaterial)
 targetRing.rotation.x = -Math.PI / 2;
 targetRing.visible = false;
 scene.add(targetRing);
+const selectedMonsterMaterial = new THREE.MeshBasicMaterial({ color: '#ff967a', side: THREE.DoubleSide, transparent: true, opacity: 0.95, depthWrite: false });
+const selectedMonsterRing = new THREE.Mesh(new THREE.RingGeometry(0.34, 0.48, 28), selectedMonsterMaterial);
+selectedMonsterRing.rotation.x = -Math.PI / 2;
+selectedMonsterRing.visible = false;
+scene.add(selectedMonsterRing);
 
 function setStatus(message, isError = false) {
   status.textContent = message;
@@ -308,6 +331,15 @@ function updateMinimap() {
   if (!context || !minimapBaseImage) return;
   context.putImageData(minimapBaseImage, 0, 0);
   context.imageSmoothingEnabled = false;
+
+  for (const entry of monsterEntries) {
+    const marker = mapRoExplorerCellToMinimap(entry.cell, gatInfo.width, gatInfo.height, size.width, size.height);
+    if (!marker) continue;
+    context.beginPath();
+    context.arc(marker.x, marker.y, entry === selectedMonsterEntry ? 3.4 : 2.2, 0, Math.PI * 2);
+    context.fillStyle = entry === selectedMonsterEntry ? '#ff967a' : '#e06f83';
+    context.fill();
+  }
 
   if (movementPath && movementPath.length > 1) {
     const points = movementPath.slice(Math.max(0, pathIndex - 1))
@@ -506,6 +538,7 @@ function updateRouteLine() {
 
 function finishOrRefreshScene() {
   if (gatInfo && mapRoot && mapInfo.mapId !== gatInfo.mapId) {
+    clearRoExplorerMonsters();
     removeGrid();
     removeRoute();
     playerSprite.visible = false;
@@ -516,6 +549,7 @@ function finishOrRefreshScene() {
   }
   makeGrid();
   if (!gatInfo || !mapRoot) {
+    clearRoExplorerMonsters();
     removeRoute();
     playerSprite.visible = false;
     fallbackPlayer.visible = false;
@@ -525,7 +559,8 @@ function finishOrRefreshScene() {
   try {
     startAtSavedOrCenter();
     makeGrid();
-    setStatus('地圖已就緒：點擊可走地面讓角色行走，障礙格會阻擋；拖曳旋轉、滾輪縮放。');
+    syncRoExplorerMonsters();
+    setStatus('地圖已就緒：點地面或小地圖行走，點選怪物查看資料；拖曳旋轉、滾輪縮放。');
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -580,6 +615,9 @@ function updateStats() {
     : (playerSpriteFrames.length ? '（本機立繪備援）' : '（通用備援圖）')));
   rows.push('世界比例：' + worldScale + '；GAT 格寬 ' + tileSize().toFixed(2));
   if (currentCell) rows.push('目前格：(' + currentCell.x + ', ' + currentCell.y + ')');
+  if (monsterEntries.length) rows.push('附近怪物：' + monsterEntries.length + ' 隻（可點選查看）');
+  else if (mapInfo && mapInfo.mapId === monsterMapIdFromUrl && !explorerMonsterCatalog.length) rows.push('此地沒有可顯示的怪物');
+  if (selectedMonsterEntry) rows.push('目標：' + selectedMonsterEntry.monster.name + ' Lv.' + selectedMonsterEntry.monster.level);
   stats.textContent = rows.length ? rows.join('\n') : '尚未載入地圖';
   updateMinimap();
 }
@@ -1521,6 +1559,126 @@ async function loadGatFile(file) {
   }
 }
 
+function clearSelectedRoExplorerMonster() {
+  selectedMonsterEntry = null;
+  selectedMonsterRing.visible = false;
+  if (monsterPanel) monsterPanel.hidden = true;
+  updateMinimap();
+  updateStats();
+}
+
+function clearRoExplorerMonsters() {
+  monsterGeneration++;
+  selectedMonsterEntry = null;
+  selectedMonsterRing.visible = false;
+  monsterEntries.forEach(entry => {
+    monsterSpritesRoot.remove(entry.root);
+    entry.sprite.material.dispose();
+  });
+  monsterEntries.length = 0;
+  monsterTextureSet.forEach(texture => texture.dispose());
+  monsterTextureSet.clear();
+  monsterTextureCache.clear();
+  if (monsterPanel) monsterPanel.hidden = true;
+  updateMinimap();
+}
+
+function updateRoExplorerMonsterPosition(entry) {
+  if (!entry || !entry.root || !entry.metrics || !gatInfo) return;
+  entry.root.position.copy(cellWorldPosition(entry.cell));
+  const layout = buildRoExplorerSpriteLayout(entry.metrics.width, entry.metrics.height, entry.metrics.bounds, tileSize());
+  entry.sprite.position.set(layout.offsetX, layout.offsetY, 0);
+  entry.sprite.scale.set(layout.width, layout.height, 1);
+}
+function updateRoExplorerMonsterPositions() {
+  monsterEntries.forEach(updateRoExplorerMonsterPosition);
+  if (selectedMonsterEntry) selectedMonsterRing.position.copy(cellWorldPosition(selectedMonsterEntry.cell, 0.12));
+}
+function loadRoExplorerMonsterTexture(imageId) {
+  if (monsterTextureCache.has(imageId)) return monsterTextureCache.get(imageId);
+  const promise = (async () => {
+    const animationUrl = roExplorerMonsterAnimationUrl(imageId);
+    let texture = null;
+    if (animationUrl) {
+      try { texture = await textureLoader.loadAsync(animationUrl); } catch (error) { texture = null; }
+    }
+    if (!texture) {
+      try { texture = await textureLoader.loadAsync(new URL('../images/monsters/' + imageId + '.png', import.meta.url).href); }
+      catch (error) { return null; }
+    }
+    try {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      return { texture, metrics: spriteMetricsForTexture(texture) };
+    } catch (error) { texture.dispose(); return null; }
+  })();
+  monsterTextureCache.set(imageId, promise);
+  return promise;
+}
+function selectRoExplorerMonster(entry) {
+  if (!entry) return;
+  selectedMonsterEntry = entry;
+  selectedMonsterRing.position.copy(cellWorldPosition(entry.cell, 0.12));
+  selectedMonsterRing.visible = true;
+  if (monsterTitle) monsterTitle.textContent = (entry.monster.icon ? entry.monster.icon + ' ' : '') + entry.monster.name + '　Lv.' + entry.monster.level;
+  if (monsterDescription) monsterDescription.textContent = 'HP ' + Math.floor(entry.monster.hp).toLocaleString()
+    + '　ATK ' + Math.floor(entry.monster.atk).toLocaleString()
+    + '\n此階段可查看目標；即時攻擊與傷害結算尚未接入。';
+  if (monsterPanel) monsterPanel.hidden = false;
+  setStatus('已選取 ' + entry.monster.name + '。怪物已使用 RO 素材顯示；戰鬥結算仍待整合。');
+  updateMinimap();
+  updateStats();
+}
+function monsterHitFromEvent(event) {
+  if (!monsterEntries.length) return null;
+  const rect = renderer.domElement.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hit = raycaster.intersectObject(monsterSpritesRoot, true).find(item => item.object.userData.rooMonsterEntry);
+  return hit ? hit.object.userData.rooMonsterEntry : null;
+}
+function syncRoExplorerMonsters() {
+  clearRoExplorerMonsters();
+  if (!gatInfo || !mapRoot || !currentCell || !mapInfo || mapInfo.mapId !== gatInfo.mapId
+    || mapInfo.mapId !== monsterMapIdFromUrl || !explorerMonsterCatalog.length) {
+    updateStats();
+    return;
+  }
+  const spawns = buildRoExplorerMonsterSpawns(gatInfo, explorerMonsterCatalog, currentCell, mapInfo.mapId, { maxCount: 8 });
+  const generation = monsterGeneration;
+  for (const spawn of spawns) {
+    const root = new THREE.Group();
+    root.position.copy(cellWorldPosition(spawn.cell));
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      color: 0xffffff, transparent: true, depthTest: true, depthWrite: false,
+    }));
+    sprite.visible = false;
+    const entry = { ...spawn, root, sprite, texture: null, metrics: null };
+    sprite.userData.rooMonsterEntry = entry;
+    root.add(sprite);
+    monsterSpritesRoot.add(root);
+    monsterEntries.push(entry);
+    loadRoExplorerMonsterTexture(spawn.monster.imageId).then(asset => {
+      if (generation !== monsterGeneration || !monsterEntries.includes(entry)) {
+        if (asset && asset.texture) asset.texture.dispose();
+        return;
+      }
+      if (!asset) { setStatus('部分怪物素材載入失敗，已保留其小地圖標記。'); return; }
+      entry.texture = asset.texture;
+      entry.metrics = asset.metrics;
+      entry.sprite.material.map = asset.texture;
+      entry.sprite.material.needsUpdate = true;
+      entry.sprite.visible = true;
+      monsterTextureSet.add(asset.texture);
+      updateRoExplorerMonsterPosition(entry);
+      updateMinimap();
+      updateStats();
+    });
+  }
+  updateMinimap();
+  updateStats();
+}
 function groundHitFromEvent(event) {
   if (!mapRoot || !gatInfo || !mapInfo || mapInfo.mapId !== gatInfo.mapId) return null;
   const rect = renderer.domElement.getBoundingClientRect();
@@ -1713,6 +1871,7 @@ scaleInput.addEventListener('change', () => {
   }
   if (gatInfo && mapRoot && mapInfo && mapInfo.mapId === gatInfo.mapId) {
     if (currentCell) updatePlayerPosition();
+    updateRoExplorerMonsterPositions();
     makeGrid();
     if (movementPath) updateRouteLine();
     updateStats();
@@ -1720,6 +1879,7 @@ scaleInput.addEventListener('change', () => {
 });
 speedInput.addEventListener('input', () => { speedValue.textContent = speedInput.value; });
 showMinimapInput.addEventListener('change', updateMinimap);
+clearMonsterTargetButton.addEventListener('click', clearSelectedRoExplorerMonster);
 minimapCanvas.addEventListener('click', requestMinimapWalk);
 showCellsInput.addEventListener('change', () => {
   makeGrid();
@@ -1749,8 +1909,18 @@ renderer.domElement.addEventListener('click', event => {
   const wasDrag = pointerDragged;
   pointerOrigin = null;
   pointerDragged = false;
-  if (!wasDrag) requestWalk(event);
+  if (!wasDrag) {
+    const monster = monsterHitFromEvent(event);
+    if (monster) selectRoExplorerMonster(monster);
+    else requestWalk(event);
+  }
 });
+
+function refreshAnimatedMonsterTextures(now) {
+  if (now - lastMonsterTextureUploadAt < 110) return;
+  lastMonsterTextureUploadAt = now;
+  monsterTextureSet.forEach(texture => { texture.needsUpdate = true; });
+}
 
 const stopRenderLoop = createVisibilityAwareFrameLoop(
   document,
@@ -1761,6 +1931,7 @@ const stopRenderLoop = createVisibilityAwareFrameLoop(
     advanceNativeWater(now);
     advanceRsmAnimations(now);
     refreshAnimatedPlayerTexture(now);
+    refreshAnimatedMonsterTextures(now);
     controls.update();
     renderer.render(scene, camera);
   },

@@ -44,6 +44,8 @@ jobs:
           node --check tools/test_ro_explorer_sprites.mjs
           node --check tools/ro_explorer_minimap.mjs
           node --check tools/test_ro_explorer_minimap.mjs
+          node --check tools/ro_explorer_monsters.mjs
+          node --check tools/test_ro_explorer_monsters.mjs
           node --check tools/visibility_frame_loop.mjs
           node --check tools/test_visibility_frame_loop.mjs
           node --check js/ui.js
@@ -55,6 +57,8 @@ jobs:
         run: node tools/test_ro_explorer_bootstrap.mjs
       - name: Test native exploration minimap
         run: node tools/test_ro_explorer_minimap.mjs
+      - name: Test native exploration monster spawns
+        run: node tools/test_ro_explorer_monsters.mjs
       - name: Run complete regression suite
         run: node tools/test.js
       - name: Run full-game smoke test

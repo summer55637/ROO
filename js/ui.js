@@ -2036,9 +2036,25 @@ function renderMapYieldBox(mapObj) {
 function openRoExplorer() {
   if (!state) return;
   const url = new URL('tools/ro_explorer.html', window.location.href);
+  const mapId = String(state.mapId || 'prontera');
   url.searchParams.set('mode', 'native');
-  url.searchParams.set('map', String(state.mapId || 'prontera'));
+  url.searchParams.set('map', mapId);
   url.searchParams.set('sprite', getAnimKey());
+  // 直接沿用既有 MAPS／MONSTERS 資料。
+  const map = Array.isArray(MAPS) ? MAPS.find(item => item.id === mapId) : null;
+  const mobs = map && Array.isArray(map.monsters)
+    ? map.monsters.map(spawn => {
+      const monster = MONSTERS[spawn.id];
+      if (!monster || !Number.isInteger(monster.imgId)) return null;
+      return {
+        id: spawn.id, imageId: monster.imgId, name: monster.name, icon: monster.icon,
+        level: monster.level, hp: monster.hp, atk: monster.atk,
+        weight: Number.isFinite(Number(spawn.weight)) && Number(spawn.weight) > 0
+          ? Number(spawn.weight) : 1
+      };
+    }).filter(Boolean)
+    : [];
+  if (mobs.length) url.searchParams.set('mobs', JSON.stringify(mobs));
   window.open(url.toString(), '_blank', 'noopener,noreferrer');
 }
 
