@@ -6666,7 +6666,7 @@ function castRoExplorerSkill(sessionId, spawnKey, mapId, defId, skillId) {
 
   const sk = findSkillForUse(skillId);
   const lv = skillLv(skillId);
-  /* DOT／異常狀態的探索計時尚未接上，因此先只開放可即時結算的攻擊技能。 */
+  /* 先開放即時攻擊與已接通中毒計時的施毒；其他持續／異常技能待專項計時完成再開。 */
   const directAttackTypes = ['damage', 'magic', 'magic_aoe', 'damage_aoe',
     'damage_multihit', 'damage_multi', 'poison_proc'];
   if (!sk || !lv || !directAttackTypes.includes(sk.type)) {

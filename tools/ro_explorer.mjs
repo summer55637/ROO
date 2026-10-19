@@ -2080,10 +2080,14 @@ function handleRoExplorerCombatStorage(event) {
     + ' / ' + Math.floor(entry.maxHp).toLocaleString() + '。');
 }
 window.addEventListener('storage', handleRoExplorerCombatStorage);
-const statusTickTimer = window.setInterval(requestNextRoExplorerStatusTick, 100);
+let statusTickTimer = window.setInterval(requestNextRoExplorerStatusTick, 100);
 window.addEventListener('pagehide', () => {
-  window.clearInterval(statusTickTimer);
+  if (statusTickTimer !== null) window.clearInterval(statusTickTimer);
+  statusTickTimer = null;
   pendingStatusTickId = null;
+});
+window.addEventListener('pageshow', () => {
+  if (statusTickTimer === null) statusTickTimer = window.setInterval(requestNextRoExplorerStatusTick, 100);
 });
 attackMonsterButton.addEventListener('click', startRoExplorerCombat);
 stopMonsterAttackButton.addEventListener('click', () => stopRoExplorerCombat());
