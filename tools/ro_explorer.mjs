@@ -77,6 +77,9 @@ const combatResultKey = 'roo_explorer_combat_result_' + combatSessionId;
 let activeCombatTarget = null;
 let pendingCombatRequest = null;
 let combatRequestCounter = 0;
+let pendingStatusTickId = null;
+let statusTickCursor = 0;
+const timedStatusEntries = new Set();
 let nextCombatAt = 0;
 let combatAttackIntervalMs = 1000;
 const nativeMapInput = document.getElementById('native-map');
@@ -116,7 +119,7 @@ const monsterMapIdFromUrl = String(explorerParams.get('map') || '').trim().toLow
 const explorerMonsterCatalog = parseRoExplorerMonsterCatalog(explorerParams.get('mobs'));
 /* 目前只列出能在單次指令中完整結算的直接攻擊；持續傷害與異常計時待後續接入。 */
 const RO_EXPLORER_DIRECT_SKILL_TYPES = new Set([
-  'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi'
+  'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc'
 ]);
 function parseRoExplorerSkillCatalog(raw) {
   try {
@@ -1641,6 +1644,8 @@ function clearSelectedRoExplorerMonster() {
 
 function clearRoExplorerMonsters() {
   stopRoExplorerCombat(false);
+  timedStatusEntries.clear();
+  pendingStatusTickId = null;
   monsterGeneration++;
   selectedMonsterEntry = null;
   selectedMonsterRing.visible = false;
@@ -1693,9 +1698,11 @@ function renderSelectedRoExplorerMonster(entry, note) {
   const maxHp = Number.isFinite(entry.maxHp) ? entry.maxHp : entry.monster.hp;
   if (monsterTitle) monsterTitle.textContent = (entry.monster.icon ? entry.monster.icon + ' ' : '') + entry.monster.name
     + '　Lv.' + entry.monster.level + (entry.dead ? '（已擊敗）' : '');
+  const statusNote = entry.statusLabels && entry.statusLabels.length
+    ? '\n狀態：' + entry.statusLabels.join('、') : '';
   if (monsterDescription) monsterDescription.textContent = 'HP ' + Math.floor(hp).toLocaleString()
     + ' / ' + Math.floor(maxHp).toLocaleString() + '　ATK ' + Math.floor(entry.monster.atk).toLocaleString()
-    + (note ? '\n' + note : '\n可普攻，或選擇已學主動技能施放。');
+    + (note ? '\n' + note : '\n可普攻，或選擇已學主動技能施放。') + statusNote;
   if (monsterPanel) monsterPanel.hidden = false;
 }
 function selectRoExplorerMonster(entry) {
@@ -1918,11 +1925,85 @@ function requestRoExplorerCombatAttack(entry) {
     setStatus('未收到主遊戲回覆。請保持同源的主遊戲分頁開啟，再重新嘗試。', true);
   }, 5000);
 }
+function requestNextRoExplorerStatusTick() {
+  if (pendingStatusTickId || !mapInfo || !mapInfo.mapId) return;
+  const now = performance.now();
+  const entries = Array.from(timedStatusEntries).filter(entry =>
+    !entry.dead && monsterEntries.includes(entry) && Number(entry.nextStatusTickAt || 0) <= now
+  );
+  timedStatusEntries.forEach(entry => {
+    if (entry.dead || !monsterEntries.includes(entry)) timedStatusEntries.delete(entry);
+  });
+  if (!entries.length) return;
+  const entry = entries[statusTickCursor++ % entries.length];
+  const requestId = combatSessionId + '-tick-' + (++combatRequestCounter).toString(36);
+  pendingStatusTickId = requestId;
+  entry.nextStatusTickAt = now + 1500;
+  const command = {
+    type: 'status_tick', requestId, sessionId: combatSessionId, spawnKey: entry.spawnKey,
+    mapId: mapInfo.mapId, defId: entry.monster.id
+  };
+  try {
+    localStorage.setItem(RO_EXPLORER_COMBAT_COMMAND_KEY, JSON.stringify(command));
+  } catch (error) {
+    pendingStatusTickId = null;
+    entry.nextStatusTickAt = performance.now() + 1500;
+    return;
+  }
+  window.setTimeout(() => {
+    if (pendingStatusTickId !== requestId) return;
+    pendingStatusTickId = null;
+    entry.nextStatusTickAt = performance.now() + 1500;
+  }, 4000);
+}
 function handleRoExplorerCombatStorage(event) {
   if (!event || event.key !== combatResultKey || !event.newValue) return;
   let result;
   try { result = JSON.parse(event.newValue); } catch (error) { return; }
-  if (!pendingCombatRequest || !result || result.requestId !== pendingCombatRequest.requestId) return;
+  if (!result) return;
+  if (result.requestType === 'status_tick') {
+    if (result.requestId !== pendingStatusTickId) return;
+    pendingStatusTickId = null;
+    const entry = monsterEntries.find(item => item.spawnKey === result.spawnKey);
+    if (!entry) return;
+    entry.nextStatusTickAt = performance.now() + 900;
+    if (!result.ok) {
+      timedStatusEntries.delete(entry);
+      entry.statusLabels = [];
+      return;
+    }
+    if (Number.isFinite(result.hp)) entry.currentHp = Math.max(0, result.hp);
+    if (Number.isFinite(result.maxHp)) entry.maxHp = Math.max(1, result.maxHp);
+    if (result.killed || entry.currentHp <= 0) {
+      entry.dead = true;
+      entry.root.visible = false;
+      entry.sprite.raycast = () => {};
+      timedStatusEntries.delete(entry);
+      if (selectedMonsterEntry === entry) selectedMonsterRing.visible = false;
+      if (activeCombatTarget === entry) activeCombatTarget = null;
+      renderSelectedRoExplorerMonster(entry, '已擊敗；持續傷害與獎勵由主遊戲引擎結算。');
+      setStatus('持續傷害擊敗 ' + entry.monster.name + '！獎勵已交由主遊戲結算。');
+      updateRoExplorerCombatButtons();
+      updateMinimap();
+      updateStats();
+      return;
+    }
+    if (result.hasTimedStatus) {
+      entry.statusLabels = Array.isArray(result.statusLabels) ? result.statusLabels : [];
+      timedStatusEntries.add(entry);
+    } else {
+      entry.statusLabels = [];
+      timedStatusEntries.delete(entry);
+    }
+    if (result.damageDealt > 0 && selectedMonsterEntry === entry) {
+      renderSelectedRoExplorerMonster(entry, '持續狀態造成 ' + Math.floor(result.damageDealt).toLocaleString() + ' 傷害。');
+      setStatus(entry.monster.name + ' 受到持續傷害 ' + Math.floor(result.damageDealt).toLocaleString() + '。');
+    }
+    updateMinimap();
+    updateStats();
+    return;
+  }
+  if (!pendingCombatRequest || result.requestId !== pendingCombatRequest.requestId) return;
   const request = pendingCombatRequest;
   const entry = request.entry;
   pendingCombatRequest = null;
@@ -1930,6 +2011,7 @@ function handleRoExplorerCombatStorage(event) {
   if (Number.isFinite(result.hp)) entry.currentHp = Math.max(0, result.hp);
   if (Number.isFinite(result.maxHp)) entry.maxHp = Math.max(1, result.maxHp);
   if (result.killed || entry.currentHp <= 0) {
+    timedStatusEntries.delete(entry);
     entry.dead = true;
     entry.root.visible = false;
     entry.sprite.raycast = () => {};
@@ -1963,6 +2045,14 @@ function handleRoExplorerCombatStorage(event) {
     updateRoExplorerCombatButtons();
     return;
   }
+  if (result.hasTimedStatus) {
+    entry.statusLabels = Array.isArray(result.statusLabels) ? result.statusLabels : [];
+    entry.nextStatusTickAt = performance.now() + 100;
+    timedStatusEntries.add(entry);
+  } else {
+    entry.statusLabels = [];
+    timedStatusEntries.delete(entry);
+  }
   combatAttackIntervalMs = Math.max(150, Number(result.attackIntervalMs) || 1000);
   if (request.action === 'skill') {
     nextCombatAt = performance.now() + combatAttackIntervalMs;
@@ -1990,6 +2080,11 @@ function handleRoExplorerCombatStorage(event) {
     + ' / ' + Math.floor(entry.maxHp).toLocaleString() + '。');
 }
 window.addEventListener('storage', handleRoExplorerCombatStorage);
+const statusTickTimer = window.setInterval(requestNextRoExplorerStatusTick, 100);
+window.addEventListener('pagehide', () => {
+  window.clearInterval(statusTickTimer);
+  pendingStatusTickId = null;
+});
 attackMonsterButton.addEventListener('click', startRoExplorerCombat);
 stopMonsterAttackButton.addEventListener('click', () => stopRoExplorerCombat());
 if (monsterSkillInput) monsterSkillInput.addEventListener('change', updateRoExplorerCombatButtons);

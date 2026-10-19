@@ -6537,6 +6537,13 @@ function playerAttack() {
 }
 const RO_EXPLORER_COMBAT_TARGETS = new Map();
 let roExplorerCombatSequence = 0;
+function roExplorerTimedStatusState(target) {
+  const now = Date.now();
+  const labels = [];
+  if (target && target.poisonDotEnd > now) labels.push('中毒');
+  if (target && typeof ailActive === 'function' && ailActive(target, 'bleed')) labels.push('出血');
+  return { hasTimedStatus: labels.length > 0, statusLabels: labels };
+}
 
 /* 原生探索暫借引擎怪物陣列結算同一條戰鬥流程，完成後復原放置戰鬥場。 */
 function attackRoExplorerMonster(sessionId, spawnKey, mapId, defId) {
@@ -6632,6 +6639,7 @@ function attackRoExplorerMonster(sessionId, spawnKey, mapId, defId) {
     damageDealt: Math.max(0, hpBefore - Math.max(0, target.hp)),
     hp: Math.max(0, target.hp), maxHp: target.maxHp, attackIntervalMs,
     playerHp: state.hp, playerMaxHp: state.maxHp, playerSp: state.sp, playerMaxSp: state.maxSp,
+    ...roExplorerTimedStatusState(target),
   };
 }
 
@@ -6660,7 +6668,7 @@ function castRoExplorerSkill(sessionId, spawnKey, mapId, defId, skillId) {
   const lv = skillLv(skillId);
   /* DOT／異常狀態的探索計時尚未接上，因此先只開放可即時結算的攻擊技能。 */
   const directAttackTypes = ['damage', 'magic', 'magic_aoe', 'damage_aoe',
-    'damage_multihit', 'damage_multi'];
+    'damage_multihit', 'damage_multi', 'poison_proc'];
   if (!sk || !lv || !directAttackTypes.includes(sk.type)) {
     return reject('只能對怪物施放已學會的直接攻擊技能。');
   }
@@ -6751,6 +6759,69 @@ function castRoExplorerSkill(sessionId, spawnKey, mapId, defId, skillId) {
     damageDealt: Math.max(0, hpBefore - Math.max(0, target.hp)),
     hp: Math.max(0, target.hp), maxHp: target.maxHp, attackIntervalMs,
     playerHp: state.hp, playerMaxHp: state.maxHp, playerSp: state.sp, playerMaxSp: state.maxSp,
+    ...roExplorerTimedStatusState(target),
+  };
+}
+
+
+/* 探索目標沿用引擎的中毒／出血 tick，不另造傷害公式。 */
+function tickRoExplorerMonsterStatus(sessionId, spawnKey, mapId, defId) {
+  const reject = message => ({ ok: false, accepted: false, error: message });
+  if (typeof sessionId !== 'string' || !/^[a-z0-9_-]{4,80}$/i.test(sessionId)
+    || typeof spawnKey !== 'string' || !/^[a-z0-9_-]{1,32}$/i.test(spawnKey)) {
+    return reject('探索戰鬥識別碼無效。');
+  }
+  if (typeof mapId !== 'string' || !/^[a-z0-9_@-]{1,64}$/i.test(mapId)) return reject('地圖識別碼無效。');
+  if (!state || String(state.mapId || '') !== mapId) return reject('主遊戲目前不在這張地圖。');
+  const map = Array.isArray(MAPS) ? MAPS.find(item => item.id === mapId) : null;
+  if (!map || !Array.isArray(map.monsters) || !map.monsters.some(item => item && item.id === defId)) {
+    return reject('這隻怪物不屬於目前地圖。');
+  }
+  const key = sessionId + ':' + mapId + ':' + spawnKey;
+  const record = RO_EXPLORER_COMBAT_TARGETS.get(key);
+  if (!record || record.defId !== defId) return reject('找不到探索戰鬥目標。');
+  const target = record.monster;
+  const now = Date.now();
+  record.updatedAt = now;
+  if (record.killed || target.hp <= 0 || target._killed) {
+    record.killed = true;
+    return { ok: true, accepted: false, killed: true, hp: 0, maxHp: target.maxHp,
+      damageDealt: 0, ...roExplorerTimedStatusState(target) };
+  }
+  const minimumTickMs = 850;
+  if (record.lastStatusTickAt && now - record.lastStatusTickAt < minimumTickMs) {
+    return { ok: true, accepted: false, rateLimited: true,
+      retryAfterMs: Math.max(50, minimumTickMs - (now - record.lastStatusTickAt)),
+      hp: target.hp, maxHp: target.maxHp, damageDealt: 0, ...roExplorerTimedStatusState(target) };
+  }
+  record.lastStatusTickAt = now;
+  const previousMonsters = state.monsters;
+  const previousMonster = state.monster;
+  const hpBefore = target.hp;
+  try {
+    state.monsters = [target];
+    state.monster = target;
+    tickPoisonDot();
+    tickBleed();
+  } catch (error) {
+    return reject('持續狀態結算失敗：' + (error && error.message ? error.message : '未知錯誤'));
+  } finally {
+    if (state.hp <= 0 && Array.isArray(previousMonsters)) {
+      previousMonsters.length = 0;
+      state.monsters = previousMonsters;
+      state.monster = null;
+    } else {
+      state.monsters = previousMonsters;
+      state.monster = previousMonster;
+    }
+  }
+  record.killed = target.hp <= 0 || !!target._killed;
+  const damageDealt = Math.max(0, hpBefore - Math.max(0, target.hp));
+  if (damageDealt > 0 && typeof saveGameThrottled === 'function') saveGameThrottled();
+  return {
+    ok: true, accepted: true, statusTick: true, killed: record.killed, damageDealt,
+    hp: Math.max(0, target.hp), maxHp: target.maxHp,
+    ...roExplorerTimedStatusState(target),
   };
 }
 

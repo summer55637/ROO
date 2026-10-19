@@ -2039,14 +2039,18 @@ function handleRoExplorerCombatStorage(event) {
   if (!event || event.key !== RO_EXPLORER_COMBAT_COMMAND_KEY || !event.newValue) return;
   let command;
   try { command = JSON.parse(event.newValue); } catch (error) { return; }
-  if (!command || !['attack', 'skill'].includes(command.type)
+  if (!command || !['attack', 'skill', 'status_tick'].includes(command.type)
     || typeof command.sessionId !== 'string' || !/^[a-z0-9_-]{4,80}$/i.test(command.sessionId)
     || typeof command.requestId !== 'string' || !/^[a-z0-9_-]{1,100}$/i.test(command.requestId)) return;
   if (command.type === 'skill'
     && (typeof command.skillId !== 'string' || !/^[a-z0-9_]{1,48}$/i.test(command.skillId))) return;
   let result;
   try {
-    if (command.type === 'skill') {
+    if (command.type === 'status_tick') {
+      result = typeof tickRoExplorerMonsterStatus === 'function'
+        ? tickRoExplorerMonsterStatus(command.sessionId, command.spawnKey, command.mapId, command.defId)
+        : { ok: false, accepted: false, error: '主遊戲狀態計時尚未載入。' };
+    } else if (command.type === 'skill') {
       result = typeof castRoExplorerSkill === 'function'
         ? castRoExplorerSkill(command.sessionId, command.spawnKey, command.mapId, command.defId, command.skillId)
         : { ok: false, accepted: false, error: '主遊戲技能引擎尚未載入。' };
@@ -2058,7 +2062,9 @@ function handleRoExplorerCombatStorage(event) {
   } catch (error) { result = { ok: false, accepted: false, error: '主遊戲無法完成戰鬥結算。' }; }
   try {
     localStorage.setItem('roo_explorer_combat_result_' + command.sessionId,
-      JSON.stringify(Object.assign({ requestId: command.requestId }, result)));
+      JSON.stringify(Object.assign({
+        requestId: command.requestId, requestType: command.type, spawnKey: command.spawnKey
+      }, result)));
   } catch (error) { /* 儲存被停用時，探索端會顯示逾時訊息。 */ }
 }
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {

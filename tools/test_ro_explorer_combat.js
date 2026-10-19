@@ -6,7 +6,8 @@ const t = H.tester();
 const map = g.MAPS.find(item => Array.isArray(item.monsters) && item.monsters.length > 0
   && item.monsters.some(spawn => g.MONSTERS[spawn.id] && g.MONSTERS[spawn.id].hp >= 10000));
 if (!map) throw new Error('找不到可用於低傷害測試的野外地圖');
-const spawn = map.monsters.find(item => g.MONSTERS[item.id] && g.MONSTERS[item.id].hp >= 10000);
+const spawn = map.monsters.find(item => g.MONSTERS[item.id] && g.MONSTERS[item.id].hp >= 10000
+  && g.MONSTERS[item.id].element !== 'poison');
 const def = g.MONSTERS[spawn.id];
 
 g.createCharacter('探索普攻測試', { str: 1, agi: 1, vit: 1, int: 1, dex: 99, luk: 1 }, 'male');
@@ -60,4 +61,21 @@ const skillTooSoon = g.castRoExplorerSkill('ex-skill-session', 'm1', map.id, spa
 t.eq('技能冷卻中不能重複施放', skillTooSoon.accepted, false);
 const unlearnedSkill = g.castRoExplorerSkill('ex-skill-session', 'm2', map.id, spawn.id, 'heal');
 t.eq('未學會的技能不得從探索頁施放', unlearnedSkill.ok, false);
-process.exit(t.report('原生探索普攻與主動技能接回主引擎'));
+
+g.state.jobId = 'thief';
+g.state.learnedSkills.envenom = 10;
+g.state.sp = g.state.maxSp;
+g.state.cooldowns = {};
+const poisonSkill = g.castRoExplorerSkill('ex-status-session', 'm0', map.id, spawn.id, 'envenom');
+t.eq('探索允許施毒技能沿用主引擎施放', poisonSkill.accepted, true);
+t.eq('施毒命中後回報中毒狀態', poisonSkill.hasTimedStatus, true);
+const hpBeforeDot = poisonSkill.hp;
+const dotTick = g.tickRoExplorerMonsterStatus('ex-status-session', 'm0', map.id, spawn.id);
+t.eq('探索中毒跳傷成功結算', dotTick.accepted, true);
+t.ok('中毒跳傷會扣除怪物 HP', dotTick.hp < hpBeforeDot);
+t.ok('中毒跳傷回報實際傷害量', dotTick.damageDealt > 0);
+const dotTickTooSoon = g.tickRoExplorerMonsterStatus('ex-status-session', 'm0', map.id, spawn.id);
+t.eq('探索狀態計時有節流，不會重複連跳', dotTickTooSoon.rateLimited, true);
+t.eq('狀態跳傷後仍復原放置戰鬥怪物陣列', g.state.monsters, idleMonsters);
+t.eq('狀態跳傷不會污染放置怪物 HP', g.state.monsters[0].hp, 777);
+process.exit(t.report('原生探索普攻、技能與持續狀態接回主引擎'));
