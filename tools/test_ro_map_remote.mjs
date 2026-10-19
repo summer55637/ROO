@@ -17,6 +17,7 @@ import {
   transformRsm2Vertex,
   parseRswBuffer,
   resolveRagassetsMapUrls,
+  resolveWaterFramesForType,
 } from './ro_map_assets.mjs';
 
 async function fetchResponse(url, label) {
@@ -189,12 +190,21 @@ async function validateMap(mapId) {
     const typedPlaneCount = Object.keys(waterTypeCounts)
       .filter(type => typedFrameCount(type) > 0)
       .reduce((sum, type) => sum + waterTypeCounts[type], 0);
+    const frameSelections = waterMeshes.planes.map(plane => ({
+      type: plane.config.type,
+      selection: resolveWaterFramesForType(urls, plane.config.type),
+    }));
+    const frameBackedPlaneCount = frameSelections.filter(item => item.selection.frames.length > 0).length;
+    const fallbackPlaneCount = frameSelections.filter(item => item.selection.usedFallback).length;
+    assert.equal(frameBackedPlaneCount, waterMeshes.planes.length,
+      'every active icecastle water plane can display a real animation frame set or the documented fallback');
     console.log(
       mapId + ': ' + gnd.water.planes.length + ' declared GND water planes, '
         + waterMeshes.planes.length + ' with GAT water tiles, ' + waterMeshes.waterTileCount + ' tiles; '
         + 'GND water types ' + JSON.stringify(waterTypeCounts) + '; manifest type ' + urls.waterType
         + ' (' + urls.waterFrames.length + ' frames), type-specific matched planes '
-        + typedPlaneCount + '/' + gnd.water.planes.length
+        + typedPlaneCount + '/' + gnd.water.planes.length + '; frame-backed active planes '
+        + frameBackedPlaneCount + '/' + waterMeshes.planes.length + ', fallback ' + fallbackPlaneCount
     );
   }
   const heightAlignment = compareGndGatHeights(gnd, {
