@@ -38,6 +38,11 @@ import {
   roExplorerAnimationUrl,
   roExplorerDirectionFromDelta,
 } from './ro_explorer_sprites.mjs';
+import {
+  buildRoExplorerMinimapPixels,
+  getRoExplorerMinimapSize,
+  mapRoExplorerCellToMinimap,
+} from './ro_explorer_minimap.mjs';
 
 const stage = document.getElementById('stage');
 const status = document.getElementById('status');
@@ -48,6 +53,10 @@ const scaleInput = document.getElementById('world-scale');
 const speedInput = document.getElementById('move-speed');
 const speedValue = document.getElementById('speed-value');
 const showCellsInput = document.getElementById('show-cells');
+const showMinimapInput = document.getElementById('show-minimap');
+const minimapPanel = document.getElementById('minimap-panel');
+const minimapCanvas = document.getElementById('minimap');
+const minimapMapName = document.getElementById('minimap-map-name');
 const nativeMapInput = document.getElementById('native-map');
 const loadNativeMapButton = document.getElementById('load-native-map');
 
@@ -123,6 +132,10 @@ let movementPath = null;
 let pathIndex = 1;
 let lastFrame = 0;
 let worldScale = 0.2;
+let minimapGatInfo = null;
+let minimapBaseImage = null;
+let minimapBaseWidth = 0;
+let minimapBaseHeight = 0;
 
 const axes = new THREE.AxesHelper(10);
 axes.material.transparent = true;
@@ -265,6 +278,79 @@ function removeRoute() {
     routeLine = null;
   }
   targetRing.visible = false;
+  updateMinimap();
+}
+
+function updateMinimap() {
+  if (!minimapPanel || !minimapCanvas || !showMinimapInput) return;
+  const visible = showMinimapInput.checked && !!currentCell && !!gatInfo && !!mapRoot
+    && !!mapInfo && mapInfo.mapId === gatInfo.mapId;
+  minimapPanel.hidden = !visible;
+  if (!visible) return;
+
+  const size = getRoExplorerMinimapSize(gatInfo.width, gatInfo.height);
+  if (minimapGatInfo !== gatInfo || minimapBaseWidth !== size.width
+    || minimapBaseHeight !== size.height || !minimapBaseImage) {
+    minimapCanvas.width = size.width;
+    minimapCanvas.height = size.height;
+    const context = minimapCanvas.getContext('2d');
+    if (!context) return;
+    const pixels = buildRoExplorerMinimapPixels(gatInfo, size.width, size.height);
+    minimapBaseImage = context.createImageData(size.width, size.height);
+    minimapBaseImage.data.set(pixels);
+    minimapGatInfo = gatInfo;
+    minimapBaseWidth = size.width;
+    minimapBaseHeight = size.height;
+  }
+
+  const context = minimapCanvas.getContext('2d');
+  if (!context || !minimapBaseImage) return;
+  context.putImageData(minimapBaseImage, 0, 0);
+  context.imageSmoothingEnabled = false;
+
+  if (movementPath && movementPath.length > 1) {
+    const points = movementPath.slice(Math.max(0, pathIndex - 1))
+      .map(cell => mapRoExplorerCellToMinimap(
+        cell, gatInfo.width, gatInfo.height, size.width, size.height
+      ))
+      .filter(Boolean);
+    if (points.length > 1) {
+      context.beginPath();
+      context.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) context.lineTo(points[i].x, points[i].y);
+      context.strokeStyle = '#ffe18a';
+      context.lineWidth = Math.max(1.5, Math.min(size.width, size.height) / 140);
+      context.lineJoin = 'round';
+      context.lineCap = 'round';
+      context.stroke();
+    }
+    const target = mapRoExplorerCellToMinimap(
+      movementPath[movementPath.length - 1],
+      gatInfo.width, gatInfo.height, size.width, size.height
+    );
+    if (target) {
+      context.beginPath();
+      context.arc(target.x, target.y, 3.2, 0, Math.PI * 2);
+      context.strokeStyle = '#fff0a5';
+      context.lineWidth = 1.4;
+      context.stroke();
+    }
+  }
+
+  const player = mapRoExplorerCellToMinimap(
+    currentCell, gatInfo.width, gatInfo.height, size.width, size.height
+  );
+  if (player) {
+    context.beginPath();
+    context.arc(player.x, player.y, 3.3, 0, Math.PI * 2);
+    context.fillStyle = '#07111d';
+    context.fill();
+    context.beginPath();
+    context.arc(player.x, player.y, 1.8, 0, Math.PI * 2);
+    context.fillStyle = '#69edb3';
+    context.fill();
+  }
+  if (minimapMapName) minimapMapName.textContent = gatInfo.mapId;
 }
 
 function groundHeight(cell) {
@@ -494,6 +580,7 @@ function updateStats() {
   rows.push('世界比例：' + worldScale + '；GAT 格寬 ' + tileSize().toFixed(2));
   if (currentCell) rows.push('目前格：(' + currentCell.x + ', ' + currentCell.y + ')');
   stats.textContent = rows.length ? rows.join('\n') : '尚未載入地圖';
+  updateMinimap();
 }
 
 function fitCamera() {
@@ -1607,6 +1694,7 @@ scaleInput.addEventListener('change', () => {
   }
 });
 speedInput.addEventListener('input', () => { speedValue.textContent = speedInput.value; });
+showMinimapInput.addEventListener('change', updateMinimap);
 showCellsInput.addEventListener('change', () => {
   makeGrid();
   if (showCellsInput.checked) setStatus('顯示通行格：綠色可走、紅色阻擋、橘色懸崖、藍色水域。');

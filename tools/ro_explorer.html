@@ -35,6 +35,11 @@
     #status { position: absolute; top: 12px; left: 12px; z-index: 2; max-width: min(660px, calc(100% - 24px)); padding: 10px 12px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .9); color: #d9e7f8; font-size: 12px; line-height: 1.5; white-space: pre-line; pointer-events: none; }
     #status.error { color: #fecaca; border-color: #9f4141; }
     #stats { position: absolute; right: 12px; bottom: 12px; z-index: 2; max-width: min(360px, calc(100% - 24px)); padding: 9px 11px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .9); color: #cbd8e8; font-size: 12px; line-height: 1.6; white-space: pre-line; pointer-events: none; }
+    .minimap-panel { position: absolute; left: 12px; bottom: 12px; z-index: 2; width: max-content; max-width: min(232px, calc(100% - 24px)); padding: 7px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .9); color: #cbd8e8; pointer-events: none; }
+    .minimap-panel[hidden] { display: none; }
+    .minimap-heading { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 5px; font-size: 11px; line-height: 1.3; }
+    #minimap { display: block; max-width: min(196px, 34vw); max-height: min(196px, 27vh); width: auto; height: auto; border: 1px solid #516176; image-rendering: pixelated; }
+    .minimap-legend { max-width: 210px; margin-top: 5px; color: #aebfd3; font-size: 10px; line-height: 1.4; }
     footer { padding: 8px 16px; border-top: 1px solid #273549; }
     a { color: #8cc8ff; }
     @media (max-width: 700px) {
@@ -43,6 +48,11 @@
       input[type="file"] { width: 145px; max-width: 44vw; }
       #public-map { height: 68vh; min-height: 420px; }
       #stage { height: 68vh; min-height: 360px; }
+      .minimap-panel { width: calc(50% - 18px); max-width: calc(50% - 18px); padding: 5px; }
+      #minimap { max-width: 100%; max-height: 18vh; }
+      .minimap-heading { font-size: 10px; }
+      .minimap-legend { font-size: 9px; }
+      #stats { max-width: calc(50% - 18px); padding: 6px 7px; font-size: 10px; line-height: 1.4; }
     }
   </style>
   <script type="importmap">
@@ -92,6 +102,7 @@
       <label>世界比例 <input id="world-scale" type="number" min="0.01" max="10" step="0.01" value="0.2" inputmode="decimal"></label>
       <label>速度 <input id="move-speed" type="range" min="1" max="8" value="4"><span id="speed-value">4</span></label>
       <label><input id="show-cells" type="checkbox">顯示通行格</label>
+      <label><input id="show-minimap" type="checkbox" checked>小地圖</label>
       <button id="recenter" type="button">重置視角</button>
     </div>
     <div id="stage">
@@ -99,6 +110,11 @@
 ragx maps prontera --client "C:/Gravity/Ragnarok" --format glb --world-scale 0.2 --out ./tmp/roo-map<br>
 先選 GLB，再選相同地圖的原始 GAT。點擊地面行走；拖曳旋轉視角、滾輪縮放。</div>
       <div id="stats">尚未載入地圖</div>
+      <section id="minimap-panel" class="minimap-panel" hidden aria-label="地圖小地圖">
+        <div class="minimap-heading"><strong id="minimap-map-name">RO 地圖</strong><span>北 ↑</span></div>
+        <canvas id="minimap" width="1" height="1" role="img" aria-label="GAT 通行狀態小地圖"></canvas>
+        <div class="minimap-legend">綠：可走　藍：水域<br>橘：懸崖　紅：障礙<br>綠點：角色　黃線：路徑／目的地</div>
+      </section>
     </div>
   </main>
 
