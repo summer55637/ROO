@@ -37,6 +37,8 @@ jobs:
           node --check tools/ro_map_assets.mjs
           node --check tools/test_ro_map_assets.mjs
           node --check tools/ro_explorer.mjs
+          node --check tools/latest_request_gate.mjs
+          node --check tools/test_latest_request_gate.mjs
           node --check tools/ro_explorer_bootstrap.js
           node --check tools/test_ro_explorer_bootstrap.mjs
           node --check js/ui.js

@@ -58,6 +58,7 @@ const SUITES = [
   'test_exploration.js', // RO 格線探索移動、邊界與尋路
   'test_exploration_offset.js', // 探索位置存檔遷移
   'test_map_pathfinding.js', // GAT 通行格、A* 繞路與地圖座標轉換
+  'test_latest_request_gate.mjs', // 非同步地圖載入只允許最新請求更新場景
   'test_ro_map_assets.mjs', // GND 地表解析、幾何與公開素材 URL 驗證
 ];
 

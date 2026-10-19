@@ -29,6 +29,7 @@ import {
   fillRoWaterWaveOffsets,
   sampleRoWaterWaveOffset,
 } from './ro_map_assets.mjs';
+import { createLatestRequestGate } from './latest_request_gate.mjs';
 
 const stage = document.getElementById('stage');
 const status = document.getElementById('status');
@@ -80,6 +81,7 @@ let rswInfo = null;
 let nativeRenderStats = null;
 let nativeWaterAnimations = [];
 let activeRsmAnimations = [];
+const nativeMapLoadGate = createLatestRequestGate();
 let gridMesh = null;
 const modelTextureCache = new Map();
 const MAX_NATIVE_MODEL_ASSETS = 100;
@@ -456,12 +458,11 @@ function fitCamera() {
   controls.update();
 }
 
-function clearNativeWaterAnimation() {
-  if (!nativeWaterAnimations.length) return;
+function disposeNativeWaterAnimationTextures(animations) {
   const activeTextures = new Set();
   const ownedTextures = new Set();
-  for (const animation of nativeWaterAnimations) {
-    for (const texture of animation.textures) ownedTextures.add(texture);
+  for (const animation of animations || []) {
+    for (const texture of animation.textures || []) ownedTextures.add(texture);
     const activeTexture = animation.mesh && animation.mesh.material
       ? animation.mesh.material.map : null;
     if (activeTexture) activeTextures.add(activeTexture);
@@ -469,6 +470,10 @@ function clearNativeWaterAnimation() {
   for (const texture of ownedTextures) {
     if (texture && !activeTextures.has(texture)) texture.dispose();
   }
+}
+
+function clearNativeWaterAnimation() {
+  disposeNativeWaterAnimationTextures(nativeWaterAnimations);
   nativeWaterAnimations = [];
 }
 
@@ -813,7 +818,7 @@ function makeRswInstanceTransform(instance, scale) {
   return group;
 }
 
-async function loadAndPlaceRswModels(rsw, urls, mapRoot, scale) {
+async function loadAndPlaceRswModels(rsw, urls, mapRoot, scale, isCurrentRequest) {
   const placements = rsw.models.slice(0, MAX_NATIVE_MODEL_PLACEMENTS);
   const availableByUrl = new Map();
   let unresolvedNames = 0;
@@ -850,8 +855,10 @@ async function loadAndPlaceRswModels(rsw, urls, mapRoot, scale) {
       if (item.template) templates.set(item.assetUrl, item.template);
       else failedOrUnsupported++;
     }
-    setStatus('已解析 ' + Math.min(start + batch.length, selectedUrls.length) + '/'
-      + selectedUrls.length + ' 個地圖模型資源…');
+    if (isCurrentRequest()) {
+      setStatus('已解析 ' + Math.min(start + batch.length, selectedUrls.length) + '/'
+        + selectedUrls.length + ' 個地圖模型資源…');
+    }
   }
 
   let renderedPlacements = 0;
@@ -1059,6 +1066,10 @@ async function addNativeWater(root, gat, waterConfig, urls, scale) {
 }
 
 async function loadRagassetsMap(mapName) {
+  const loadToken = nativeMapLoadGate.begin();
+  const isCurrentRequest = () => nativeMapLoadGate.isCurrent(loadToken);
+  let stagedRoot = null;
+  let stagedWaterStats = null;
   const mapId = String(mapName || '').trim().toLowerCase();
   if (!/^[a-z0-9_@-]{1,64}$/.test(mapId)) {
     setStatus('地圖 ID 格式無效。', true);
@@ -1069,19 +1080,23 @@ async function loadRagassetsMap(mapName) {
   try {
     const manifestUrl = new URL('/maps/' + mapId + '/manifest.json', RAGASSETS_BASE_URL);
     const manifestResponse = await fetch(manifestUrl.href, { mode: 'cors' });
+    if (!isCurrentRequest()) return;
     if (!manifestResponse.ok) throw new Error('manifest HTTP ' + manifestResponse.status);
     const manifest = await manifestResponse.json();
+    if (!isCurrentRequest()) return;
     const urls = resolveRagassetsMapUrls(mapId, manifest);
     const responses = await Promise.all([
       fetch(urls.gnd, { mode: 'cors' }),
       fetch(urls.gat, { mode: 'cors' }),
       fetch(urls.rsw, { mode: 'cors' }),
     ]);
+    if (!isCurrentRequest()) return;
     const labels = ['GND 地表', 'GAT 通行格', 'RSW 場景設定'];
     for (let i = 0; i < responses.length; i++) {
       if (!responses[i].ok) throw new Error(labels[i] + ' HTTP ' + responses[i].status);
     }
     const buffers = await Promise.all(responses.map(response => response.arrayBuffer()));
+    if (!isCurrentRequest()) return;
     const parsedGnd = parseGndBuffer(buffers[0]);
     const parsedGat = parseGatBuffer(buffers[1], mapId + '.gat');
     const parsedRsw = parseRswBuffer(buffers[2]);
@@ -1101,8 +1116,8 @@ async function loadRagassetsMap(mapName) {
     const aoTexture = lightmapAtlas
       ? createLightmapDataTexture(lightmapAtlas.aoMapPixels, lightmapAtlas.width, lightmapAtlas.height)
       : null;
-    const nextRoot = new THREE.Group();
-    nextRoot.name = 'roo-native-map-' + mapId;
+    stagedRoot = new THREE.Group();
+    stagedRoot.name = 'roo-native-map-' + mapId;
 
     for (const bucket of meshData.buckets) {
       if (!bucket.indices.length) continue;
@@ -1160,18 +1175,31 @@ async function loadRagassetsMap(mapName) {
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = 'terrain-texture-' + bucket.textureIndex;
       mesh.userData.rooTerrainSurface = true;
-      nextRoot.add(mesh);
+      stagedRoot.add(mesh);
     }
 
     setStatus('地表已建立，正在載入 RSW 模型資源…');
     modelTextureCache.clear();
-    const nextRenderStats = await loadAndPlaceRswModels(parsedRsw, urls, nextRoot, worldScale);
+    const nextRenderStats = await loadAndPlaceRswModels(parsedRsw, urls, stagedRoot, worldScale, isCurrentRequest);
+    if (!isCurrentRequest()) {
+      disposeObject(stagedRoot);
+      stagedRoot = null;
+      return;
+    }
     const { animations: nextRsmAnimations, ...modelRenderStats } = nextRenderStats;
     const waterConfig = parsedGnd.water || parsedRsw.water;
     setStatus('模型已載入，正在建立水域…');
-    const nextWaterStats = await addNativeWater(nextRoot, parsedGat, waterConfig, urls, worldScale);
+    stagedWaterStats = await addNativeWater(stagedRoot, parsedGat, waterConfig, urls, worldScale);
+    if (!isCurrentRequest()) {
+      disposeNativeWaterAnimationTextures(stagedWaterStats.animations);
+      disposeObject(stagedRoot);
+      stagedWaterStats = null;
+      stagedRoot = null;
+      return;
+    }
+    const nextWaterStats = stagedWaterStats;
 
-    const bounds = new THREE.Box3().setFromObject(nextRoot);
+    const bounds = new THREE.Box3().setFromObject(stagedRoot);
     if (bounds.isEmpty()) throw new Error('GND 沒有可顯示的地表；無法建立原生地圖。');
     clearNativeWaterAnimation();
     if (mapRoot) {
@@ -1179,7 +1207,9 @@ async function loadRagassetsMap(mapName) {
       disposeObject(mapRoot);
     }
     nativeWaterAnimations = nextWaterStats.animations;
-    mapRoot = nextRoot;
+    mapRoot = stagedRoot;
+    stagedRoot = null;
+    stagedWaterStats = null;
     activeRsmAnimations = nextRsmAnimations;
     scene.add(mapRoot);
     mapRoot.updateMatrixWorld(true);
@@ -1216,6 +1246,9 @@ async function loadRagassetsMap(mapName) {
       + ' 格、動畫影格 ' + nextWaterStats.waterFrameCount + ' 張。GND lightmap/AO 與頂點水波已啟用，實際畫面仍待校驗。');
     updateStats();
   } catch (error) {
+    if (stagedWaterStats) disposeNativeWaterAnimationTextures(stagedWaterStats.animations);
+    if (stagedRoot) disposeObject(stagedRoot);
+    if (!isCurrentRequest()) return;
     setStatus('公開原生地圖載入失敗：' + error.message
       + '。公開素材服務可能暫時離線；可切回公開地圖預覽或改用本機 GLB/GAT。', true);
     console.error(error);
@@ -1223,6 +1256,7 @@ async function loadRagassetsMap(mapName) {
 }
 
 async function loadMapFile(file) {
+  nativeMapLoadGate.begin();
   setStatus('正在載入 ' + file.name + '…');
   try {
     const buffer = await file.arrayBuffer();
@@ -1255,6 +1289,7 @@ async function loadMapFile(file) {
 }
 
 async function loadGatFile(file) {
+  nativeMapLoadGate.begin();
   setStatus('正在解析 ' + file.name + '…');
   try {
     gatInfo = parseGatBuffer(await file.arrayBuffer(), file.name);
