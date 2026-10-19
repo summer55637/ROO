@@ -127,8 +127,17 @@ const LK = { path: ['swordsman', 'knight'], rebirth: true, job: 'lordknight' };
   t.ok('未學時回復固定', H.rate(200, () => tick() !== base) === 0);
   H.learn(g, 'lk_tensionrelax');
   t.eq('機率設定 30%', g.state.regenDoubleChance, 30);
-  const doubled = H.rate(2000, () => tick() > base);
-  t.near('加倍觸發率 30%', doubled / 2000 * 100, 30, 3);
+  // 使用確定性 100 值循環，每 100 次剛好 30 次低於 30%，避免隨機抽樣讓 CI 偶發失敗。
+  const originalRandom = g.Math.random;
+  let randomIndex = 0;
+  let doubled;
+  try {
+    g.Math.random = () => ((randomIndex++ % 100) + 0.5) / 100;
+    doubled = H.rate(2000, () => tick() > base);
+  } finally {
+    g.Math.random = originalRandom;
+  }
+  t.eq('加倍觸發率 30%（確定性樣本）', doubled, 600);
 }
 
 /* ---------- 5. 傷害增壓 / 巧打（被動，普攻追擊）---------- */
