@@ -25,6 +25,7 @@ import {
   sampleRsmAnimationPose,
   sampleRsmTextureAnimation,
   sampleRoWaterTextureIntervalMs,
+  fillRoWaterWaveOffsets,
   sampleRoWaterWaveOffset,
 } from './ro_map_assets.mjs';
 
@@ -476,15 +477,16 @@ function advanceNativeWater(now) {
       const elapsedSeconds = Math.max(0, (now - animation.waveStartedAt) / 1000);
       const positionAttribute = animation.mesh.geometry.getAttribute('position');
       const positions = positionAttribute.array;
-      const diagonalCount = animation.mapWidth + animation.mapHeight + 1;
-      const waveOffsets = new Float32Array(diagonalCount);
-
-      // Reuse one sampled height per map diagonal so adjacent vertices stay aligned.
-      for (let diagonal = 0; diagonal < diagonalCount; diagonal++) {
-        waveOffsets[diagonal] = sampleRoWaterWaveOffset(
-          animation.waterConfig, diagonal, 0, elapsedSeconds, animation.worldScale
-        );
-      }
+      // Reuse a map-wide scratch buffer; planes are advanced sequentially.
+      const waveOffsets = animation.waveOffsets;
+      fillRoWaterWaveOffsets(
+        animation.waterConfig,
+        animation.mapWidth,
+        animation.mapHeight,
+        elapsedSeconds,
+        waveOffsets,
+        animation.worldScale
+      );
       for (let tile = 0; tile < animation.tileCoordinates.length / 2; tile++) {
         const x = animation.tileCoordinates[tile * 2];
         const z = animation.tileCoordinates[tile * 2 + 1];
@@ -990,6 +992,7 @@ async function addNativeWater(root, gat, waterConfig, urls, scale) {
 
   const animations = [];
   let maxFrameCount = 0;
+  let sharedWaveOffsets = null;
   for (const plane of waterData.planes) {
     const config = plane.config;
     const typedFrames = urls.waterFramesByType
@@ -1027,6 +1030,9 @@ async function addNativeWater(root, gat, waterConfig, urls, scale) {
     const waveEnabled = Number.isFinite(config.waveHeight) && Math.abs(config.waveHeight) > 1e-8;
     const textureCyclingEnabled = textures.length > 1;
     if (waveEnabled || textureCyclingEnabled) {
+      if (waveEnabled && !sharedWaveOffsets) {
+        sharedWaveOffsets = new Float32Array(gat.width + gat.height + 1);
+      }
       animations.push({
         mesh,
         textures,
@@ -1035,6 +1041,7 @@ async function addNativeWater(root, gat, waterConfig, urls, scale) {
         intervalMs: sampleRoWaterTextureIntervalMs(interval),
         waveEnabled,
         waterConfig: config,
+        waveOffsets: waveEnabled ? sharedWaveOffsets : null,
         worldScale: scale,
         mapWidth: gat.width,
         mapHeight: gat.height,
