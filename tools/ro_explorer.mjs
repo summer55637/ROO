@@ -49,6 +49,11 @@ import {
   parseRoExplorerMonsterCatalog,
   roExplorerMonsterAnimationUrl,
 } from './ro_explorer_monsters.mjs';
+import {
+  findRoExplorerMonsterRespawnCell,
+  reviveRoExplorerMonster,
+  scheduleRoExplorerMonsterRespawn,
+} from './ro_explorer_lifecycle.mjs';
 
 const stage = document.getElementById('stage');
 const status = document.getElementById('status');
@@ -117,7 +122,7 @@ const explorerParams = new URLSearchParams(window.location.search);
 const explorerSpriteKey = resolveRoExplorerSpriteKey(explorerParams.get('sprite'));
 const monsterMapIdFromUrl = String(explorerParams.get('map') || '').trim().toLowerCase();
 const explorerMonsterCatalog = parseRoExplorerMonsterCatalog(explorerParams.get('mobs'));
-/* 目前只列出能在單次指令中完整結算的直接攻擊；持續傷害與異常計時待後續接入。 */
+/* 只列出目前已接通結算／計時的技能；其他持續或異常技能待整合。 */
 const RO_EXPLORER_DIRECT_SKILL_TYPES = new Set([
   'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc'
 ]);
@@ -1747,7 +1752,8 @@ function syncRoExplorerMonsters() {
       color: 0xffffff, transparent: true, depthTest: true, depthWrite: false,
     }));
     sprite.visible = false;
-    const entry = { ...spawn, spawnKey: 'm' + spawnIndex, root, sprite, texture: null, metrics: null, dead: false };
+    const spawnBaseKey = 'm' + spawnIndex;
+    const entry = { ...spawn, spawnKey: spawnBaseKey, spawnBaseKey, respawnCount: 0, respawnAt: 0, root, sprite, texture: null, metrics: null, dead: false };
     sprite.userData.rooMonsterEntry = entry;
     root.add(sprite);
     monsterSpritesRoot.add(root);
@@ -1925,7 +1931,41 @@ function requestRoExplorerCombatAttack(entry) {
     setStatus('未收到主遊戲回覆。請保持同源的主遊戲分頁開啟，再重新嘗試。', true);
   }, 5000);
 }
+function processRoExplorerMonsterRespawns(now) {
+  let respawned = 0;
+  for (const entry of monsterEntries) {
+    if (!entry.dead || !Number.isFinite(entry.respawnAt) || now < entry.respawnAt) continue;
+    const occupiedCells = monsterEntries
+      .filter(other => other !== entry && !other.dead)
+      .map(other => other.cell);
+    const cell = findRoExplorerMonsterRespawnCell(
+      gatInfo, currentCell, entry.cell, occupiedCells, 12
+    );
+    if (!cell) {
+      entry.respawnAt = now + 1000;
+      continue;
+    }
+    entry.cell = cell;
+    if (!reviveRoExplorerMonster(entry, now)) continue;
+    entry.root.visible = true;
+    entry.sprite.visible = !!entry.texture;
+    delete entry.sprite.raycast;
+    updateRoExplorerMonsterPosition(entry);
+    if (selectedMonsterEntry === entry) {
+      selectedMonsterRing.position.copy(cellWorldPosition(entry.cell, 0.12));
+      selectedMonsterRing.visible = true;
+      renderSelectedRoExplorerMonster(entry, '已重新出現，可再次選取或攻擊。');
+    }
+    respawned++;
+  }
+  if (!respawned) return;
+  updateRoExplorerCombatButtons();
+  updateMinimap();
+  updateStats();
+  setStatus(respawned === 1 ? '一隻怪物已重新出現。' : respawned + ' 隻怪物已重新出現。');
+}
 function requestNextRoExplorerStatusTick() {
+  processRoExplorerMonsterRespawns(performance.now());
   if (pendingStatusTickId || !mapInfo || !mapInfo.mapId) return;
   const now = performance.now();
   const entries = Array.from(timedStatusEntries).filter(entry =>
@@ -1975,7 +2015,7 @@ function handleRoExplorerCombatStorage(event) {
     if (Number.isFinite(result.hp)) entry.currentHp = Math.max(0, result.hp);
     if (Number.isFinite(result.maxHp)) entry.maxHp = Math.max(1, result.maxHp);
     if (result.killed || entry.currentHp <= 0) {
-      entry.dead = true;
+      scheduleRoExplorerMonsterRespawn(entry, performance.now());
       entry.root.visible = false;
       entry.sprite.raycast = () => {};
       timedStatusEntries.delete(entry);
@@ -2012,7 +2052,7 @@ function handleRoExplorerCombatStorage(event) {
   if (Number.isFinite(result.maxHp)) entry.maxHp = Math.max(1, result.maxHp);
   if (result.killed || entry.currentHp <= 0) {
     timedStatusEntries.delete(entry);
-    entry.dead = true;
+    scheduleRoExplorerMonsterRespawn(entry, performance.now());
     entry.root.visible = false;
     entry.sprite.raycast = () => {};
     if (selectedMonsterEntry === entry) selectedMonsterRing.visible = false;

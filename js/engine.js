@@ -6545,6 +6545,20 @@ function roExplorerTimedStatusState(target) {
   return { hasTimedStatus: labels.length > 0, statusLabels: labels };
 }
 
+function pruneRoExplorerCombatTargets(now = Date.now()) {
+  const expireBefore = now - 30 * 60 * 1000;
+  for (const [key, record] of RO_EXPLORER_COMBAT_TARGETS.entries()) {
+    if (!record || !Number.isFinite(record.updatedAt) || record.updatedAt < expireBefore) {
+      RO_EXPLORER_COMBAT_TARGETS.delete(key);
+    }
+  }
+  while (RO_EXPLORER_COMBAT_TARGETS.size >= 2048) {
+    const oldestKey = RO_EXPLORER_COMBAT_TARGETS.keys().next().value;
+    if (oldestKey === undefined) break;
+    RO_EXPLORER_COMBAT_TARGETS.delete(oldestKey);
+  }
+}
+
 /* 原生探索暫借引擎怪物陣列結算同一條戰鬥流程，完成後復原放置戰鬥場。 */
 function attackRoExplorerMonster(sessionId, spawnKey, mapId, defId) {
   const reject = message => ({ ok: false, accepted: false, error: message });
@@ -6566,6 +6580,7 @@ function attackRoExplorerMonster(sessionId, spawnKey, mapId, defId) {
   let record = RO_EXPLORER_COMBAT_TARGETS.get(key);
   if (record && record.defId !== defId) return reject('怪物位置資料已變更，請重新選取目標。');
   if (!record) {
+    pruneRoExplorerCombatTargets();
     const maxHp = Math.max(1, Math.round(def.hp * farmMult('hp')));
     roExplorerCombatSequence = (roExplorerCombatSequence + 1) % 1000000000;
     const monster = {
@@ -6686,6 +6701,7 @@ function castRoExplorerSkill(sessionId, spawnKey, mapId, defId, skillId) {
   let record = RO_EXPLORER_COMBAT_TARGETS.get(key);
   if (record && record.defId !== defId) return reject('怪物位置資料已變更，請重新選取目標。');
   if (!record) {
+    pruneRoExplorerCombatTargets();
     const maxHp = Math.max(1, Math.round(def.hp * farmMult('hp')));
     roExplorerCombatSequence = (roExplorerCombatSequence + 1) % 1000000000;
     const monster = {
