@@ -195,16 +195,25 @@ async function validateMap(mapId) {
       selection: resolveWaterFramesForType(urls, plane.config.type),
     }));
     const frameBackedPlaneCount = frameSelections.filter(item => item.selection.frames.length > 0).length;
+    const exactTypePlaneCount = frameSelections.filter(item => item.selection.exactTypeMatch).length;
     const fallbackPlaneCount = frameSelections.filter(item => item.selection.usedFallback).length;
+    const type10Selections = frameSelections.filter(item => Number(item.type) === 10);
     assert.equal(frameBackedPlaneCount, waterMeshes.planes.length,
-      'every active icecastle water plane can display a real animation frame set or the documented fallback');
+      'every active icecastle water plane can display an animation frame set');
+    assert.equal(exactTypePlaneCount, waterMeshes.planes.length,
+      'every active icecastle water plane has an exact-type animation frame set');
+    assert.equal(type10Selections.length, waterMeshes.planes.length,
+      'every active icecastle plane uses the GND-declared type 10');
+    assert.ok(type10Selections.every(item => item.selection.frames.length === 32),
+      'every active type-10 plane has the complete 32-frame sequence');
+    assert.equal(fallbackPlaneCount, 0, 'bundled type-10 textures avoid the legacy water-type fallback');
     console.log(
       mapId + ': ' + gnd.water.planes.length + ' declared GND water planes, '
         + waterMeshes.planes.length + ' with GAT water tiles, ' + waterMeshes.waterTileCount + ' tiles; '
         + 'GND water types ' + JSON.stringify(waterTypeCounts) + '; manifest type ' + urls.waterType
-        + ' (' + urls.waterFrames.length + ' frames), type-specific matched planes '
-        + typedPlaneCount + '/' + gnd.water.planes.length + '; frame-backed active planes '
-        + frameBackedPlaneCount + '/' + waterMeshes.planes.length + ', fallback ' + fallbackPlaneCount
+        + ' (' + urls.waterFrames.length + ' legacy frames), exact-type active planes '
+        + exactTypePlaneCount + '/' + waterMeshes.planes.length + '; 32-frame type-10 sequence '
+        + type10Selections.length + '/' + waterMeshes.planes.length + ', fallback ' + fallbackPlaneCount
     );
   }
   const heightAlignment = compareGndGatHeights(gnd, {

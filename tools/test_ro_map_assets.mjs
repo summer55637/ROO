@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   RAGASSETS_BASE_URL,
   buildGndLightmapAtlasData,
@@ -730,6 +731,19 @@ assert.deepEqual(urls.waterFrames, [RAGASSETS_BASE_URL + '/maps/_w/0123456789abc
 assert.equal(urls.waterType, 3);
 assert.deepEqual(urls.waterFramesByType['3'], [RAGASSETS_BASE_URL + '/maps/_w/0123456789abcdef.jpg']);
 assert.deepEqual(urls.waterFramesByType['5'], [RAGASSETS_BASE_URL + '/maps/_w/fedcba9876543210.jpg']);
+const bundledType10Frames = Array.from({ length: 32 }, (_, frameIndex) => (
+  new URL(
+    '../assets/ro_water/type10/WATER10' + String(frameIndex).padStart(2, '0') + '.jpg',
+    import.meta.url
+  ).href
+));
+assert.deepEqual(urls.waterFramesByType['10'], bundledType10Frames);
+for (const [frameIndex, frameUrl] of bundledType10Frames.entries()) {
+  const bytes = readFileSync(new URL(frameUrl));
+  assert.ok(bytes.length > 20000, 'bundled type-10 water frame ' + frameIndex + ' is non-empty JPEG data');
+  assert.equal(bytes[0], 0xff, 'bundled type-10 water frame ' + frameIndex + ' has JPEG SOI marker');
+  assert.equal(bytes[1], 0xd8, 'bundled type-10 water frame ' + frameIndex + ' has JPEG SOI marker');
+}
 
 assert.deepEqual(resolveWaterFramesForType(urls, 3), {
   frames: [RAGASSETS_BASE_URL + '/maps/_w/0123456789abcdef.jpg'],
@@ -744,10 +758,10 @@ assert.deepEqual(resolveWaterFramesForType(urls, 5), {
   usedFallback: false,
 });
 assert.deepEqual(resolveWaterFramesForType(urls, 10), {
-  frames: [RAGASSETS_BASE_URL + '/maps/_w/0123456789abcdef.jpg'],
-  sourceType: 3,
-  exactTypeMatch: false,
-  usedFallback: true,
+  frames: bundledType10Frames,
+  sourceType: 10,
+  exactTypeMatch: true,
+  usedFallback: false,
 });
 assert.deepEqual(resolveWaterFramesForType({
   waterFrames: [], waterFramesByType: {}, waterType: null,

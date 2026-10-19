@@ -2002,6 +2002,21 @@ export function resolveRagassetsMapUrls(mapId, manifest, baseUrl = RAGASSETS_BAS
       defaultWaterSetFound = true;
     }
   }
+
+  // GND 1.9 can assign a water type per plane. Bundle the known type-10
+  // client texture sequence locally because the public map manifests expose
+  // only the legacy RSW water set, and the source gallery does not send CORS
+  // headers usable by a GitHub Pages WebGL texture loader.
+  const bundledType10Frames = Array.from({ length: 32 }, (_, frameIndex) => (
+    new URL(
+      '../assets/ro_water/type10/WATER10' + String(frameIndex).padStart(2, '0') + '.jpg',
+      import.meta.url
+    ).href
+  ));
+  const existingType10Frames = urls.waterFramesByType['10'];
+  if (!Array.isArray(existingType10Frames) || existingType10Frames.length < bundledType10Frames.length) {
+    urls.waterFramesByType['10'] = bundledType10Frames;
+  }
   return urls;
 }
 

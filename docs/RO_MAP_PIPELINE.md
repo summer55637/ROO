@@ -175,4 +175,12 @@ GND lightmap／AO 已完成第一階段 atlas 與地表材質乘算；水面貼�
 
 - 按公開素材索引列出的 965 個地圖 ID，逐一檢查其 `manifest.json`；沒有任何 manifest 同時具有 `water.type = 10` 和非空 `water.frames`。其中 `icecastle` 的 manifest 仍只提供 type 0 的 32 張影格。
 - 素材管線原始碼 [ragassets/extract-grf.mjs](https://github.com/adsonpleal/ragassets/blob/0df6c3744b895ed78acbbc68396878ab060d4980/extract-grf.mjs) 只從舊式 RSW 讀取地圖級 `waterType`，再按 `water{type}{frame}.jpg` 匯出；沒有讀取 GND 1.9 每個 plane 的類型。故目前公開素材索引中無法找到 type 10 的正式影格，靠切換其他地圖 manifest 不會解決。
-- 正確解法是由獲授權的客戶端素材重新擷取 GND 分區所需水面類型影格，並將結果加入可由前端讀取的 manifest／素材包；ROO 不會把 type 0 備援偽裝成 type 10 的正式素材。
+- 後續補上的實作已把與 GND 分區 type 10 命名對應的完整影格序列放入 ROO 本地素材目錄（來源與驗證資訊見 `assets/ro_water/README.md`），不再需要使用 type 0 影格假扮 type 10。
+
+
+### GND 1.9 type 10 本地影格接入（2026-10-19）
+
+- 在 Divine-Pride 的 iRO 2025-07-08 公開圖庫中找到 `data/texture/워터/WATER1000.jpg` 至 `WATER1031.jpg` 共 32 張影格。每張均可取得，HTTP 回應為 JPEG，尺寸 128×128，合計 855,077 bytes；檔名序列與水面 type 10 的編號方式一致。
+- 將影格打包至 `assets/ro_water/type10/`，由 `ro_map_assets.mjs` 以相對模組 URL 載入。圖庫回應沒有提供 `Access-Control-Allow-Origin` 標頭，因此不把第三方網址直接當作 WebGL 貼圖來源，避免瀏覽器跨來源限制與圖庫停機造成水面失效。
+- 公開的地圖 manifest 仍只有 type 0 的既有影格；當 GND 平面宣告 type 10 時，ROO 優先採用倉庫內完整的 32 張 type 10 素材，其他水面類型仍沿用其可用的精確類型影格或既有有標示的備援。
+- 回歸測試逐張確認 32 個本地檔案存在、含 JPEG 標記，並確認 `icecastle` 的每一個有水格平面都解析到精確 type 10、32 幀序列。這證明素材供應與程式選擇已接通；瀏覽器實際播放與外觀仍需目視驗收，不宣稱像素級一致。
