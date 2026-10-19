@@ -35,6 +35,8 @@ import {
   buildRoExplorerSpriteLayout,
   resolveRoExplorerSpriteKey,
   roExplorerSpriteFramePath,
+  roExplorerAnimationUrl,
+  roExplorerDirectionFromDelta,
 } from './ro_explorer_sprites.mjs';
 
 const stage = document.getElementById('stage');
@@ -104,6 +106,16 @@ let fallbackPlayer = null;
 let playerSpriteFrames = [];
 let playerSpriteFrameLayout = null;
 let playerSpriteFrameMetrics = null;
+let localIdleTexture = null;
+let localIdleMetrics = null;
+let placeholderSpriteTexture = null;
+const playerMotionTextureCache = new Map();
+let desiredPlayerMotionKey = '';
+let activePlayerMotionKey = '';
+let activePlayerMotionTexture = null;
+let currentMotionType = 'idle';
+let currentFacing = 0;
+let lastMotionTextureUploadAt = 0;
 const playerRoot = new THREE.Group();
 let currentCell = null;
 let movementPath = null;
@@ -475,7 +487,9 @@ function updateStats() {
         + '；越界最大距離 ' + placement.maximumOutsideDistance.toFixed(2));
     }
   }
-  rows.push('角色素材：' + explorerSpriteKey + (playerSpriteFrames.length ? '（職業影格已載入）' : '（待機備援圖）'));
+  rows.push('角色素材：' + explorerSpriteKey + (activePlayerMotionTexture
+    ? '（RO ' + (currentMotionType === 'walk' ? '行走' : '站立') + '／方向 ' + currentFacing + '）'
+    : (playerSpriteFrames.length ? '（本機立繪備援）' : '（通用備援圖）')));
   rows.push('世界比例：' + worldScale + '；GAT 格寬 ' + tileSize().toFixed(2));
   if (currentCell) rows.push('目前格：(' + currentCell.x + ', ' + currentCell.y + ')');
   stats.textContent = rows.length ? rows.join('\n') : '尚未載入地圖';
@@ -1462,6 +1476,7 @@ function requestWalk(event) {
 
   let target = roMapCellFromWorldPoint(gatInfo, hit.point.x, hit.point.z, worldScale);
   if (!target) {
+    setPlayerMotion('idle', currentFacing);
     setStatus('點擊位置在 GAT 地圖範圍之外。');
     return;
   }
@@ -1469,6 +1484,7 @@ function requestWalk(event) {
   if (!isRoMapCellWalkable(gatInfo, target.x, target.y)) {
     target = findNearestRoWalkableCell(gatInfo, target.x, target.y, 12);
     if (!target) {
+      setPlayerMotion('idle', currentFacing);
       setStatus('附近 12 格內找不到可走地面。', true);
       return;
     }
@@ -1477,6 +1493,7 @@ function requestWalk(event) {
 
   const path = findRoPath(gatInfo, currentCell, target);
   if (!path) {
+    setPlayerMotion('idle', currentFacing);
     setStatus('目的地與目前位置不相通；角色不會穿過障礙。', true);
     return;
   }
@@ -1488,6 +1505,7 @@ function requestWalk(event) {
     updatePlayerPosition();
     savePosition();
     removeRoute();
+    setPlayerMotion('idle', currentFacing);
     setStatus('已到達目的地。');
   } else {
     updateRouteLine();
@@ -1503,6 +1521,13 @@ function advanceMovement(deltaSeconds) {
   let changedCell = false;
   while (budget > 0 && movementPath && pathIndex < movementPath.length) {
     const nextCell = movementPath[pathIndex];
+    const direction = roExplorerDirectionFromDelta(
+      nextCell.x - currentCell.x,
+      nextCell.y - currentCell.y
+    );
+    if (direction !== null && (currentMotionType !== 'walk' || currentFacing !== direction)) {
+      setPlayerMotion('walk', direction);
+    }
     const destination = cellWorldPosition(nextCell);
     const distance = playerRoot.position.distanceTo(destination);
     if (distance <= budget || distance < 0.0001) {
@@ -1515,6 +1540,7 @@ function advanceMovement(deltaSeconds) {
         movementPath = null;
         pathIndex = 1;
         removeRoute();
+        setPlayerMotion('idle', currentFacing);
         setStatus('已到達目的地。');
       }
     } else {
@@ -1619,6 +1645,7 @@ const stopRenderLoop = createVisibilityAwareFrameLoop(
     advanceMovement(delta);
     advanceNativeWater(now);
     advanceRsmAnimations(now);
+    refreshAnimatedPlayerTexture(now);
     controls.update();
     renderer.render(scene, camera);
   },
@@ -1684,6 +1711,96 @@ function measureSpriteAlphaBounds(image) {
   return { left, top, right: right + 1, bottom: bottom + 1 };
 }
 
+function spriteMetricsForTexture(texture) {
+  const image = texture && texture.image;
+  const width = image && (image.naturalWidth || image.width);
+  const height = image && (image.naturalHeight || image.height);
+  const bounds = measureSpriteAlphaBounds(image);
+  if (!Number.isInteger(width) || !Number.isInteger(height)) {
+    throw new Error('RO 動畫影格尺寸無效。');
+  }
+  return { width, height, bounds };
+}
+
+function applyPlayerSpriteTexture(texture, metrics, motionKey = '') {
+  if (!texture || !metrics) return false;
+  playerMaterial.map = texture;
+  playerMaterial.needsUpdate = true;
+  playerSpriteFrameMetrics = metrics;
+  playerSpriteFrameLayout = buildRoExplorerSpriteLayout(
+    metrics.width, metrics.height, metrics.bounds, tileSize()
+  );
+  activePlayerMotionTexture = motionKey ? texture : null;
+  activePlayerMotionKey = motionKey;
+  lastMotionTextureUploadAt = 0;
+  fallbackPlayer.visible = false;
+  if (currentCell) {
+    playerSprite.visible = true;
+    updatePlayerPosition();
+  }
+  updateStats();
+  return true;
+}
+
+function useLocalIdleSprite() {
+  activePlayerMotionTexture = null;
+  activePlayerMotionKey = '';
+  if (localIdleTexture && localIdleMetrics) {
+    applyPlayerSpriteTexture(localIdleTexture, localIdleMetrics);
+    return true;
+  }
+  return false;
+}
+
+function setPlayerMotion(motion, direction) {
+  currentMotionType = motion;
+  currentFacing = direction;
+  const key = motion + ':' + direction;
+  if (desiredPlayerMotionKey === key) return;
+  desiredPlayerMotionKey = key;
+
+  const url = roExplorerAnimationUrl(explorerSpriteKey, motion, direction);
+  if (!url) {
+    useLocalIdleSprite();
+    return;
+  }
+
+  let pending = playerMotionTextureCache.get(key);
+  if (!pending) {
+    pending = textureLoader.loadAsync(url).then(texture => {
+      try {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        const metrics = spriteMetricsForTexture(texture);
+        return { texture, metrics };
+      } catch (error) {
+        texture.dispose();
+        return null;
+      }
+    }).catch(() => null);
+    playerMotionTextureCache.set(key, pending);
+  }
+
+  pending.then(entry => {
+    // Direction can change while the public renderer is still responding.
+    if (desiredPlayerMotionKey !== key) return;
+    if (!entry) {
+      useLocalIdleSprite();
+      return;
+    }
+    applyPlayerSpriteTexture(entry.texture, entry.metrics, key);
+  });
+}
+
+function refreshAnimatedPlayerTexture(now) {
+  if (!activePlayerMotionTexture || playerMaterial.map !== activePlayerMotionTexture) return;
+  const interval = currentMotionType === 'walk' ? 75 : 110;
+  if (now - lastMotionTextureUploadAt < interval) return;
+  // The public endpoint returns APNG. Re-upload its animated HTMLImageElement so
+  // WebGL samples the browser's current APNG frame instead of freezing frame zero.
+  activePlayerMotionTexture.needsUpdate = true;
+  lastMotionTextureUploadAt = now;
+}
+
 async function loadExplorerSpriteFrames() {
   // The current native scene uses the idle pose only; avoid downloading attack frames
   // until directional movement animation is implemented.
@@ -1695,26 +1812,17 @@ async function loadExplorerSpriteFrames() {
     return false;
   }
 
-  const image = texture.image;
-  const width = image && (image.naturalWidth || image.width);
-  const height = image && (image.naturalHeight || image.height);
-  const bounds = measureSpriteAlphaBounds(image);
-  const layout = buildRoExplorerSpriteLayout(width, height, bounds, tileSize());
+  const metrics = spriteMetricsForTexture(texture);
   texture.colorSpace = THREE.SRGBColorSpace;
   playerSpriteFrames = [texture];
-  playerSpriteFrameMetrics = { width, height, bounds };
-  playerSpriteFrameLayout = layout;
-
+  localIdleTexture = texture;
+  localIdleMetrics = metrics;
   const previousTexture = playerMaterial.map;
-  playerMaterial.map = texture;
-  playerMaterial.needsUpdate = true;
-  if (previousTexture && previousTexture !== texture) previousTexture.dispose();
-  fallbackPlayer.visible = false;
-  if (currentCell) {
-    playerSprite.visible = true;
-    updatePlayerPosition();
+  applyPlayerSpriteTexture(texture, metrics);
+  if (previousTexture && previousTexture !== texture && previousTexture === placeholderSpriteTexture) {
+    previousTexture.dispose();
+    placeholderSpriteTexture = null;
   }
-  updateStats();
   return true;
 }
 
@@ -1725,6 +1833,7 @@ try {
       texture.dispose();
       return;
     }
+    placeholderSpriteTexture = texture;
     playerMaterial.map = texture;
     playerMaterial.needsUpdate = true;
     fallbackPlayer.visible = false;

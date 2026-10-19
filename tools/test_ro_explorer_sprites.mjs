@@ -4,6 +4,9 @@ import {
   resolveRoExplorerSpriteKey,
   roExplorerSpriteFramePath,
   buildRoExplorerSpriteLayout,
+  resolveRoExplorerJob,
+  roExplorerAnimationUrl,
+  roExplorerDirectionFromDelta,
 } from './ro_explorer_sprites.mjs';
 
 assert.equal(DEFAULT_RO_EXPLORER_SPRITE, 'swordsman_male');
@@ -47,3 +50,33 @@ assert.throws(() => buildRoExplorerSpriteLayout(100, 100, {
 }, 0), /比例/);
 
 console.log('RO 原生探索角色素材路徑與定位驗證通過');
+
+assert.deepEqual(resolveRoExplorerJob('swordsman_male'), {
+  jobId: 1, gender: 'male', mounted: false,
+});
+assert.deepEqual(resolveRoExplorerJob('lordknight_female'), {
+  jobId: 4008, gender: 'female', mounted: false,
+});
+assert.deepEqual(resolveRoExplorerJob('lordknight_male_mount'), {
+  jobId: 4014, gender: 'male', mounted: true,
+});
+assert.equal(resolveRoExplorerJob('runeknight_male_mount'), null,
+  '未映射騎乘造型應保留本機備援');
+assert.equal(roExplorerAnimationUrl('swordsman_male', 'walk', 0),
+  'https://assets.latam-tools.com.br/image?job=1&gender=male&action=8');
+assert.equal(roExplorerAnimationUrl('swordsman_female', 'idle', 4),
+  'https://assets.latam-tools.com.br/image?job=1&gender=female&action=4');
+assert.equal(roExplorerAnimationUrl('lordknight_male_mount', 'walk', 6),
+  'https://assets.latam-tools.com.br/image?job=4014&gender=male&action=14');
+assert.equal(roExplorerAnimationUrl('runeknight_male_mount', 'walk', 0), null);
+assert.throws(() => roExplorerAnimationUrl('swordsman_male', 'attack', 0), /動作/);
+assert.throws(() => roExplorerAnimationUrl('swordsman_male', 'walk', 8), /方向/);
+assert.deepEqual(
+  [[0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1], [1, 0], [1, 1]]
+    .map(([dx, dy]) => roExplorerDirectionFromDelta(dx, dy)),
+  [0, 1, 2, 3, 4, 5, 6, 7]
+);
+assert.equal(roExplorerDirectionFromDelta(0, 0), null);
+assert.throws(() => roExplorerDirectionFromDelta(Infinity, 1), /有限/);
+
+console.log('RO 原生八方向動畫與職業映射驗證通過');
