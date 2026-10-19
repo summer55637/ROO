@@ -169,3 +169,10 @@ GND lightmap／AO 已完成第一階段 atlas 與地表材質乘算；水面貼�
 - ROO 目前水面網格以 GAT 格細分，因此沿對角線每個 GAT 格採用半個 GND pitch；相位會以 180° 為界循環，並保留來源座標到 Three.js Y 軸的方向轉換。
 - 新增單元測試，覆蓋速度與時間關係、角度回繞、空間 pitch，以及批次頂點緩衝區與單點取樣一致性。
 - 這是根據公開 RO 格式描述及開源 renderer 的行為改善，不表示已逐像素重現官方客戶端。下一步仍需在瀏覽器中比對多張真實地圖，並確認不同 GND 版本／地圖的波幅與透視表現。
+
+
+### 公開素材服務的 type 10 影格盤點（2026-10-19）
+
+- 按公開素材索引列出的 965 個地圖 ID，逐一檢查其 `manifest.json`；沒有任何 manifest 同時具有 `water.type = 10` 和非空 `water.frames`。其中 `icecastle` 的 manifest 仍只提供 type 0 的 32 張影格。
+- 素材管線原始碼 [ragassets/extract-grf.mjs](https://github.com/adsonpleal/ragassets/blob/0df6c3744b895ed78acbbc68396878ab060d4980/extract-grf.mjs) 只從舊式 RSW 讀取地圖級 `waterType`，再按 `water{type}{frame}.jpg` 匯出；沒有讀取 GND 1.9 每個 plane 的類型。故目前公開素材索引中無法找到 type 10 的正式影格，靠切換其他地圖 manifest 不會解決。
+- 正確解法是由獲授權的客戶端素材重新擷取 GND 分區所需水面類型影格，並將結果加入可由前端讀取的 manifest／素材包；ROO 不會把 type 0 備援偽裝成 type 10 的正式素材。
