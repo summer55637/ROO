@@ -1685,28 +1685,30 @@ function measureSpriteAlphaBounds(image) {
 }
 
 async function loadExplorerSpriteFrames() {
-  const urls = Array.from({ length: 20 }, (_, index) => (
-    new URL(roExplorerSpriteFramePath(explorerSpriteKey, index), import.meta.url).href
-  ));
-  const loaded = await Promise.all(urls.map(url => (
-    textureLoader.loadAsync(url).catch(() => null)
-  )));
-  const frames = loaded.filter(Boolean);
-  if (!frames.length) return false;
+  // The current native scene uses the idle pose only; avoid downloading attack frames
+  // until directional movement animation is implemented.
+  const url = new URL(roExplorerSpriteFramePath(explorerSpriteKey, 0), import.meta.url).href;
+  let texture;
+  try {
+    texture = await textureLoader.loadAsync(url);
+  } catch (error) {
+    return false;
+  }
 
-  const firstImage = frames[0].image;
-  const width = firstImage && (firstImage.naturalWidth || firstImage.width);
-  const height = firstImage && (firstImage.naturalHeight || firstImage.height);
-  const bounds = measureSpriteAlphaBounds(firstImage);
-  frames.forEach(texture => { texture.colorSpace = THREE.SRGBColorSpace; });
-  playerSpriteFrames = frames;
+  const image = texture.image;
+  const width = image && (image.naturalWidth || image.width);
+  const height = image && (image.naturalHeight || image.height);
+  const bounds = measureSpriteAlphaBounds(image);
+  const layout = buildRoExplorerSpriteLayout(width, height, bounds, tileSize());
+  texture.colorSpace = THREE.SRGBColorSpace;
+  playerSpriteFrames = [texture];
   playerSpriteFrameMetrics = { width, height, bounds };
-  playerSpriteFrameLayout = buildRoExplorerSpriteLayout(width, height, bounds, tileSize());
+  playerSpriteFrameLayout = layout;
 
   const previousTexture = playerMaterial.map;
-  playerMaterial.map = frames[0];
+  playerMaterial.map = texture;
   playerMaterial.needsUpdate = true;
-  if (previousTexture && previousTexture !== frames[0]) previousTexture.dispose();
+  if (previousTexture && previousTexture !== texture) previousTexture.dispose();
   fallbackPlayer.visible = false;
   if (currentCell) {
     playerSprite.visible = true;
