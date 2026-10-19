@@ -2009,7 +2009,8 @@ export function resolveWaterFramesForType(urls, waterType) {
   }
 
   const frames = Array.isArray(urls.waterFrames) ? urls.waterFrames : [];
-  const sourceType = Number.isInteger(Number(urls.waterType)) ? Number(urls.waterType) : null;
+  const sourceType = urls.waterType !== null && urls.waterType !== undefined
+    && Number.isInteger(Number(urls.waterType)) ? Number(urls.waterType) : null;
   if (!frames.length) {
     return { frames: [], sourceType: null, exactTypeMatch: false, usedFallback: false };
   }
