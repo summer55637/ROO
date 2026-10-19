@@ -28,9 +28,11 @@ jobs:
           node --check js/ui.js
           node --check js/ro_map.js
           node --check js/ro_water.js
+          node --check js/ro_prontera_3d.js
           node --check js/exploration.js
           node --check tools/test.js
           node --check tools/test_ro_map.js
+          node --check tools/test_ro_prontera.js
           node --check tools/test_ro_water.js
           node --check tools/test_exploration.js
 
