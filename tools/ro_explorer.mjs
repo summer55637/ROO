@@ -1107,9 +1107,8 @@ async function loadRagassetsMap(mapName) {
 
     const nextScale = safeScale();
     if (!nextScale) throw new Error('世界比例必須大於 0，且不可大於 10。');
-    worldScale = nextScale;
     const lightmapAtlas = buildGndLightmapAtlasData(parsedGnd);
-    const meshData = buildGndMeshData(parsedGnd, worldScale, lightmapAtlas);
+    const meshData = buildGndMeshData(parsedGnd, nextScale, lightmapAtlas);
     const lightmapTexture = lightmapAtlas
       ? createLightmapDataTexture(lightmapAtlas.lightMapPixels, lightmapAtlas.width, lightmapAtlas.height)
       : null;
@@ -1179,7 +1178,7 @@ async function loadRagassetsMap(mapName) {
     }
 
     setStatus('地表已建立，正在載入 RSW 模型資源…');
-    const nextRenderStats = await loadAndPlaceRswModels(parsedRsw, urls, stagedRoot, worldScale, isCurrentRequest);
+    const nextRenderStats = await loadAndPlaceRswModels(parsedRsw, urls, stagedRoot, nextScale, isCurrentRequest);
     if (!isCurrentRequest()) {
       disposeObject(stagedRoot);
       stagedRoot = null;
@@ -1188,7 +1187,7 @@ async function loadRagassetsMap(mapName) {
     const { animations: nextRsmAnimations, ...modelRenderStats } = nextRenderStats;
     const waterConfig = parsedGnd.water || parsedRsw.water;
     setStatus('模型已載入，正在建立水域…');
-    stagedWaterStats = await addNativeWater(stagedRoot, parsedGat, waterConfig, urls, worldScale);
+    stagedWaterStats = await addNativeWater(stagedRoot, parsedGat, waterConfig, urls, nextScale);
     if (!isCurrentRequest()) {
       disposeNativeWaterAnimationTextures(stagedWaterStats.animations);
       disposeObject(stagedRoot);
@@ -1200,6 +1199,7 @@ async function loadRagassetsMap(mapName) {
 
     const bounds = new THREE.Box3().setFromObject(stagedRoot);
     if (bounds.isEmpty()) throw new Error('GND 沒有可顯示的地表；無法建立原生地圖。');
+    worldScale = nextScale;
     clearNativeWaterAnimation();
     if (mapRoot) {
       scene.remove(mapRoot);
@@ -1234,8 +1234,8 @@ async function loadRagassetsMap(mapName) {
       lightmapSlices: parsedGnd.lightmapCount,
       lightmapLayout: parsedGnd.lightmapLayout,
       lightmapAtlas: !!lightmapAtlas,
-      heightAlignment: compareGndGatHeights(parsedGnd, parsedGat, worldScale),
-      placementBounds: analyzeRswPlacementBounds(parsedGnd, parsedRsw, worldScale),
+      heightAlignment: compareGndGatHeights(parsedGnd, parsedGat, nextScale),
+      placementBounds: analyzeRswPlacementBounds(parsedGnd, parsedRsw, nextScale),
     };
     applyRswLighting(parsedRsw, mapInfo.size);
     fitCamera();
