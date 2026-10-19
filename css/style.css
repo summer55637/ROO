@@ -195,6 +195,91 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg-deep); co
 }
 .map-bg-layer { position: absolute; inset: 0; z-index: 0; }
 .map-bg-layer img { width: 100%; height: 100%; object-fit: cover; opacity: 0.4; filter: saturate(0.8) brightness(0.75); }
+.battle-panel.has-prontera-map .map-bg-layer img {
+  opacity: 0.86;
+  filter: saturate(0.95) brightness(0.9);
+  object-fit: fill;
+}
+
+/* ---------------- RO 水面：港口／島嶼／水域場景 ----------------
+   水層只疊在地圖背景上、角色與怪物下方；一般地圖不會被染成水面。
+   使用多層流線與反光，不依賴外部函式庫或網路素材。 */
+.map-bg-layer .water-surface {
+  position: absolute;
+  z-index: 1;
+  left: -7%;
+  right: -7%;
+  bottom: -4%;
+  height: 52%;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.92;
+  clip-path: polygon(0 27%, 8% 22%, 17% 29%, 27% 13%, 36% 20%, 46% 8%, 56% 17%, 67% 10%, 78% 21%, 89% 14%, 100% 25%, 100% 100%, 0 100%);
+  background:
+    radial-gradient(ellipse at 19% 18%, rgba(177, 239, 250, 0.32), transparent 27%),
+    linear-gradient(180deg, rgba(73, 177, 207, 0.72) 0%, rgba(24, 119, 167, 0.9) 38%, rgba(7, 68, 117, 0.96) 100%);
+  box-shadow: 0 -8px 20px rgba(91, 201, 225, 0.2);
+  transform: translateZ(0);
+}
+.map-bg-layer .water-surface::before {
+  content: '';
+  position: absolute;
+  inset: -38% -30%;
+  background:
+    repeating-linear-gradient(166deg,
+      transparent 0 17px,
+      rgba(206, 246, 255, 0.05) 18px 20px,
+      rgba(165, 230, 246, 0.32) 21px 23px,
+      rgba(8, 91, 145, 0.12) 24px 28px,
+      transparent 29px 47px);
+  animation: roWaterFlow 11s linear infinite;
+  will-change: transform;
+}
+.map-bg-layer .water-surface::after {
+  content: '';
+  position: absolute;
+  top: 12%;
+  left: -35%;
+  width: 170%;
+  height: 17%;
+  border-radius: 50%;
+  border-top: 2px solid rgba(214, 249, 255, 0.58);
+  box-shadow: 0 -3px 11px rgba(143, 229, 245, 0.24);
+  transform: rotate(-3deg);
+  animation: roWaterGlint 6.5s ease-in-out infinite alternate;
+}
+.battle-panel.is-underwater .map-bg-layer .water-surface {
+  inset: 0;
+  width: auto;
+  height: auto;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  clip-path: none;
+  opacity: 0.56;
+  background:
+    radial-gradient(ellipse at 55% 35%, rgba(82, 197, 218, 0.24), transparent 55%),
+    linear-gradient(180deg, rgba(12, 93, 145, 0.24), rgba(2, 42, 82, 0.86));
+  box-shadow: inset 0 0 75px rgba(8, 36, 74, 0.42);
+}
+.battle-panel.is-underwater .map-bg-layer .water-surface::after {
+  top: 10%;
+  border-top-color: rgba(167, 234, 248, 0.2);
+}
+@keyframes roWaterFlow {
+  from { transform: translate3d(-5%, -2%, 0); }
+  to { transform: translate3d(5%, 4%, 0); }
+}
+@keyframes roWaterGlint {
+  from { transform: translate3d(-4%, 0, 0) rotate(-3deg); opacity: 0.42; }
+  to { transform: translate3d(13%, 4px, 0) rotate(-1deg); opacity: 0.9; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-bg-layer .water-surface::before,
+  .map-bg-layer .water-surface::after {
+    animation: none;
+  }
+}
 .battle-panel > .monster-area, .battle-panel > .combat-log { position: relative; z-index: 1; }
 .btn-mute {
   position: absolute; top: 10px; right: 12px; z-index: 2;
@@ -1946,11 +2031,143 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg-deep); co
 .codex-cat-n { font-size: 10px; opacity: 0.7; margin-left: 2px; font-variant-numeric: tabular-nums; }
 
 
-/* ---------------- 點擊移動（第一階段）---------------- */
-.player-area {
-  transition: transform 220ms ease-out;
-  will-change: transform;
+/* ---------------- 角色探索移動 ---------------- */
+.battle-scene.ro-exploration-active .player-area {
+  position: absolute;
+  z-index: 4;
+  flex: none;
+  width: 120px;
+  height: 160px;
+  justify-content: center;
+  align-items: center;
+  transform: translate(-50%, -50%);
+  transition: none;
+  pointer-events: none;
+}
+.battle-scene.ro-exploration-active .player-area .player-sprite,
+.battle-scene.ro-exploration-active .player-area .ally-sprite {
+  pointer-events: auto;
+}
+.battle-scene.ro-exploration-active .player-area[data-facing="left"] #player-img {
+  transform: scaleX(-1);
+  transform-origin: center bottom;
+}
+.battle-scene.ro-exploration-moving #player-img {
+  animation: roExplorationWalkBob 140ms ease-in-out infinite alternate;
+}
+@keyframes roExplorationWalkBob {
+  from { translate: 0 0; }
+  to { translate: 0 -3px; }
+}
+.exploration-hint {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  z-index: 15;
+  padding: 5px 9px;
+  border: 1px solid rgba(212, 175, 55, 0.65);
+  border-radius: 14px;
+  color: var(--gold-soft);
+  background: rgba(12, 16, 28, 0.78);
+  font-size: 11px;
+  line-height: 1.35;
+  pointer-events: none;
+  text-shadow: 0 1px 2px #000;
+}
+.exploration-controls { display: none; }
+.exploration-target-marker {
+  position: absolute;
+  z-index: 18;
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(232, 201, 106, 0.95);
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.17), 0 0 14px rgba(143, 229, 245, 0.55);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  animation: explorationTargetPulse 0.8s ease-in-out infinite alternate;
+}
+.exploration-target-marker::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  background: var(--gold-soft);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+@keyframes explorationTargetPulse {
+  from { opacity: 0.62; scale: 0.82; }
+  to { opacity: 1; scale: 1.08; }
+}
+@media (pointer: coarse), (max-width: 760px) {
+  .exploration-hint { display: none; }
+  .exploration-controls {
+    position: absolute;
+    left: 8px;
+    bottom: 8px;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 5px;
+    border: 1px solid rgba(212, 175, 55, 0.62);
+    border-radius: 9px;
+    background: rgba(12, 16, 28, 0.62);
+    touch-action: manipulation;
+  }
+  .exploration-controls button {
+    width: 32px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid rgba(232, 201, 106, 0.6);
+    border-radius: 5px;
+    color: var(--gold-soft);
+    background: rgba(35, 40, 66, 0.94);
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .exploration-controls button:active { background: rgba(92, 179, 173, 0.55); }
+  .exploration-controls-row { display: flex; gap: 3px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .player-area { transition: none; }
+  .battle-scene.ro-exploration-active .player-area { transition: none; }
+  .battle-scene.ro-exploration-moving #player-img { animation: none; }
+}
+
+
+/* ---------------- 普隆德拉 3D 場景 ---------------- */
+.battle-panel.has-prontera-3d .map-bg-layer img {
+  visibility: hidden;
+  opacity: 0;
+}
+.battle-scene.ro-prontera-3d {
+  isolation: isolate;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 48%, #343c44 0%, #202732 65%, #10151e 100%);
+}
+.battle-scene.ro-prontera-3d .ro-prontera-3d-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.battle-scene.ro-prontera-3d .player-area {
+  width: 88px;
+  height: 112px;
+}
+.battle-scene.ro-prontera-3d .player-area .player-sprite {
+  width: 84px;
+  height: 112px;
+}
+.battle-scene.ro-prontera-3d .monster-area-right {
+  z-index: 2;
 }

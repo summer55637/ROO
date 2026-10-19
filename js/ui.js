@@ -13,56 +13,13 @@ let creationAlloc = { str: 0, agi: 0, vit: 0, int: 0, dex: 0, luk: 0 };
 let creationBudget = 15;
 let selectedGender = 'male';
 let activeTab = 'map';
-let sceneClickMovementBound = false;
-
-function explorationInputAllowed() {
-  const screen = document.getElementById('screen-game');
-  return !!(state && screen && screen.classList.contains('active')
-    && !document.querySelector('.modal-overlay:not(.hidden)'));
-}
-
-function applyExploreMovement() {
-  const scene = document.getElementById('battle-scene');
-  const playerArea = scene && scene.querySelector('.player-area');
-  if (!scene || !playerArea || !scene.clientWidth || !scene.clientHeight || !state) return;
-  const pos = normalizeExploreOffset(state.exploreOffset);
-  state.exploreOffset = pos;
-  const x = Math.round(pos.x * scene.clientWidth);
-  const y = Math.round(pos.y * scene.clientHeight);
-  playerArea.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-}
-
-function bindSceneClickMovement() {
-  if (sceneClickMovementBound) return;
-  sceneClickMovementBound = true;
-
-  window.addEventListener('resize', applyExploreMovement);
-  const scene = document.getElementById('battle-scene');
-  if (!scene) return;
-  scene.addEventListener('click', ev => {
-    if (!explorationInputAllowed()) return;
-    const target = ev.target;
-    if (target && target.closest && target.closest(
-      '.monster-slot, .damage-container, .btn-mute, .btn-ally, .gm-panel, .idle-report-panel, .ally-panel'
-    )) return;
-    const rect = scene.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-
-    // PC 滑鼠點擊與手機手指點觸共用同一套目的地操作。
-    state.exploreOffset = normalizeExploreOffset({
-      x: (ev.clientX - rect.left) / rect.width - (1 / 6),
-      y: (ev.clientY - rect.top) / rect.height - 0.5,
-    });
-    applyExploreMovement();
-    saveGameThrottled();
-  });
-}
+let roPronteraLoadToken = 0;
+let roPronteraReadyToastShown = false;
 
 /* ---------------- 初始畫面切換 ---------------- */
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
   document.getElementById(id).classList.add('active');
-  if (id === 'screen-game') applyExploreMovement();
 }
 
 let slotPage = 0;
@@ -71,7 +28,6 @@ const SLOTS_PER_PAGE = 3;
 function initApp() {
   renderCreationStats();
   bindSearchComposition();
-  bindSceneClickMovement();
   renderDisclaimers();          // 免責聲明（#118）：四個位置一次填好
   showScreen('screen-title');
   maybeShowConsent();           // 首次開啟才出現的一次性確認（#121）
@@ -446,6 +402,7 @@ function enterGame() {
   refreshIdleReportBtn();
   playMapMusic();
   showScreen('screen-game');
+  initRoExploration();
 }
 
 /* ---------------- 主畫面渲染 ---------------- */
@@ -464,7 +421,6 @@ function onTickUI() {
     }
     updateSkillAura();
     updatePlayerSprite();   // 換武器要即時換騎乘圖；key 沒變時這個函式會直接 return
-    applyExploreMovement();
     renderGmPanel();
     applyFarmModeTheme();     // 打寶模式的介面染色（#111）
     syncForgeTabBtn();        // 轉職／學會鍛造技能後，分頁列上的「🔨 鍛造」要自己出現
@@ -877,7 +833,6 @@ function updateBuffCountdown() {
 }
 
 function renderAll() {
-  applyExploreMovement();
   renderTopBar();
   renderMonster();
   switchTab(activeTab);
@@ -2135,22 +2090,22 @@ function renderMapTab() {
         title="回到本區的安全區；這一區沒有的話回普隆德拉">🏠 回安全區</button>
     </h3>
     <div class="map-select-group">
-      <label class="map-select-label">王國/大陸</label>
-      <select class="map-select" onchange="onKingdomSelectChange(this.value)">${kingdomOptions}</select>
+      <label class="map-select-label" for="map-select-kingdom">王國/大陸</label>
+      <select id="map-select-kingdom" class="map-select" onchange="onKingdomSelectChange(this.value)">${kingdomOptions}</select>
     </div>
     <div class="map-select-group">
-      <label class="map-select-label">地區</label>
-      <select class="map-select" onchange="onRegionSelectChange(this.value)">${regionOptions}</select>
+      <label class="map-select-label" for="map-select-region">地區</label>
+      <select id="map-select-region" class="map-select" onchange="onRegionSelectChange(this.value)">${regionOptions}</select>
     </div>
     <div class="map-select-group">
-      <label class="map-select-label">地點</label>
-      <select class="map-select" onchange="selectMap(this.value)">${mapOptions}</select>
+      <label class="map-select-label" for="map-select-place">地點</label>
+      <select id="map-select-place" class="map-select" onchange="selectMap(this.value)">${mapOptions}</select>
     </div>
     <div class="region-subtitle-detail">${region.subtitle}</div>
     <div class="map-preview-box">
       <div class="map-preview-title">🧭 真實 RO 地圖探索</div>
-      <div class="map-preview-body">先用公開的 RO 地圖模擬器查看真實 3D 地圖，不需要下載素材；也保留本機 GLB／GAT 尋路模式。</div>
-      <button class="btn-small" onclick="openRoExplorer()">開啟 3D 地圖探索（免下載）</button>
+      <div class="map-preview-body">從目前地圖開啟原生 3D 探索預覽；地表、模型、光照與水面依地圖素材支援情況呈現。</div>
+      <button class="btn-small" type="button" onclick="openRoExplorer()">開啟原生 3D 地圖探索</button>
     </div>
     <div class="map-preview-box">
       <div class="map-preview-title">${isCity ? '🏠 安全區' : '⚔️ 遇怪列表'}</div>
@@ -2192,12 +2147,31 @@ function onKingdomSelectChange(kingdomId) {
 }
 
 function onRegionSelectChange(regionId) {
-  selectedRegionId = regionId;
-  // 自動更新所屬王國
-  const k = KINGDOMS.find(k => k.regions.includes(regionId));
-  if (k) selectedKingdomId = k.id;
   const region = REGIONS.find(r => r.id === regionId);
-  selectMap(region.maps[0]); // 切換地區時，預設進入該地區的第一張地圖（城鎮）
+  const nextMapId = typeof getRegionDefaultMapId === 'function'
+    ? getRegionDefaultMapId(regionId)
+    : region && (region.maps || []).find(id => MAPS.some(map => map.id === id));
+  if (!region || !nextMapId) {
+    if (typeof showToast === 'function') showToast('這個地區目前沒有可用地圖。');
+    renderMapTab();
+    return;
+  }
+
+  const previousRegionId = selectedRegionId;
+  const previousKingdomId = selectedKingdomId;
+  selectedRegionId = region.id;
+  // 自動更新所屬王國。
+  const kingdom = KINGDOMS.find(k => k.regions.includes(region.id));
+  if (kingdom) selectedKingdomId = kingdom.id;
+
+  selectMap(nextMapId); // 優先進安全城鎮，沒城鎮時才進第一張有效地圖。
+  if (state.mapId !== nextMapId) {
+    // 防止地圖資料不完整時，選單顯示的地區與角色實際位置不一致。
+    selectedRegionId = previousRegionId;
+    selectedKingdomId = previousKingdomId;
+    if (typeof showToast === 'function') showToast('切換地區失敗，請再試一次。');
+    renderMapTab();
+  }
 }
 
 /* 打寶模式（#110）。放在自動戰鬥分頁而不是地圖分頁——它是全域的模式，
@@ -5295,7 +5269,61 @@ function confirmRebirth() {
 function renderMapBackground() {
   const img = document.getElementById('map-bg-img');
   if (!img) return;
-  img.src = mapImgSrc(state.mapId);
+
+  const map = Array.isArray(MAPS) ? MAPS.find(m => m.id === state.mapId) : null;
+  const mapId = String((map && map.id) || state.mapId || '').toLowerCase();
+  const mapName = String((map && map.name) || '');
+  // 港口、島嶼、海洞與池塘使用動態水面；一般草原／沙漠不覆蓋水層。
+  const isUnderwater = /^(?:undersea|abyss_\d+|iz_dun)/.test(mapId)
+    || /海底|水洞|深淵湖水/.test(mapName);
+  const isWaterMap = isUnderwater
+    || /^(?:izlude|alberta|alb_ship|comodo|byalan_island|cmd_fild0[1-8]|malaya|malangdo|dewata|prt_chiyu|beach_dun\d*)/.test(mapId)
+    || /港口|海島|海洞|海邊|海岸|海灘|水池|海底|水洞|深淵湖水|貓咪島|蜜月島|克魔島|依斯魯德|艾爾貝塔|馬來港/.test(mapName);
+
+  const layer = img.closest('.map-bg-layer');
+  const panel = img.closest('.battle-panel');
+  const hasPronteraMap = mapId === 'prontera';
+  if (panel) {
+    panel.classList.toggle('has-prontera-map', hasPronteraMap);
+    panel.classList.toggle('has-water-surface', isWaterMap);
+    panel.classList.toggle('is-underwater', isUnderwater);
+  }
+  if (layer) {
+    let surface = layer.querySelector('.water-surface');
+    if (isWaterMap && !surface) {
+      surface = document.createElement('div');
+      surface.className = 'water-surface';
+      surface.setAttribute('aria-hidden', 'true');
+      layer.appendChild(surface);
+    } else if (!isWaterMap && surface) {
+      surface.remove();
+    }
+  }
+
+  // 普隆德拉使用本機地圖預覽及 GAT 衍生碰撞格；其他地圖仍沿用原背景。
+  img.src = hasPronteraMap
+    ? 'images/maps/prontera-minimap.webp'
+    : mapImgSrc(state.mapId);
+
+  if (hasPronteraMap && typeof ROPronteraMap !== 'undefined') {
+    const token = ++roPronteraLoadToken;
+    ROPronteraMap.load().then(mapData => {
+      if (token !== roPronteraLoadToken || !state
+        || String(state.mapId || '').toLowerCase() !== 'prontera') return;
+      if (typeof setRoExplorationGatMap === 'function') setRoExplorationGatMap(mapData);
+      if (!roPronteraReadyToastShown && typeof showToast === 'function') {
+        showToast('普隆德拉尋路已啟用，可點地面繞過建築。');
+        roPronteraReadyToastShown = true;
+      }
+    }).catch(() => {
+      if (token !== roPronteraLoadToken) return;
+      if (typeof setRoExplorationGatMap === 'function') setRoExplorationGatMap(null);
+      if (typeof showToast === 'function') showToast('普隆德拉地形資料載入失敗，暫時保留自由移動。');
+    });
+  } else {
+    roPronteraLoadToken++;
+    if (typeof setRoExplorationGatMap === 'function') setRoExplorationGatMap(null);
+  }
 }
 
 /* ---------------- 背景音樂 ----------------
@@ -5379,7 +5407,6 @@ function selectMap(mapId) {
     renderMapBackground();
     playMapMusic();
     renderMapTab();
-    applyExploreMovement();
   }
 }
 
