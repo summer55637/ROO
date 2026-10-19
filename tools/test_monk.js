@@ -319,13 +319,24 @@ function learnChain(g, pairs) {
 
   H.mon(g, { minHp: 100000 });
   const md = g.MONSTERS[g.state.monsters[0].defId];
-  const hit = H.rate(600, () => {
+  const originalRandom = Math.random;
+  try {
+    Math.random = () => 0;
+    g.state.spirits = 5;
     g.state.monsters[0].hp = 9e9;
-    const hp = g.state.monsters[0].hp;
+    const startingHp = g.state.monsters[0].hp;
     g.tryMonkCombo(g.state.monsters[0], md);
-    return hp - g.state.monsters[0].hp > 0;
-  }, () => { g.state.spirits = 5; });
-  t.near('連段起手（六合拳）約 30%', hit / 600 * 100, 30, 6);
+    t.ok('六合拳在觸發門檻內會發動', g.state.monsters[0].hp < startingHp);
+
+    Math.random = () => 0.30;
+    g.state.spirits = 5;
+    g.state.monsters[0].hp = 9e9;
+    const boundaryHp = g.state.monsters[0].hp;
+    g.tryMonkCombo(g.state.monsters[0], md);
+    t.eq('六合拳在精確 30% 邊界不發動', g.state.monsters[0].hp, boundaryHp);
+  } finally {
+    Math.random = originalRandom;
+  }
 
   // 拿弓時整條鏈不跑（官方：近距離普通攻擊才觸發）
   const g2 = mk();
