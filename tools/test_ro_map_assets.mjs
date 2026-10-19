@@ -11,6 +11,7 @@ import {
   buildGndMeshData,
   analyzeRswPlacementBounds,
   buildGndWaterMeshData,
+  buildGndWaterMeshDataByPlane,
   compareGndGatHeights,
   insetGndTextureUvs,
   parseGndBuffer,
@@ -24,12 +25,14 @@ import {
   sampleRoWaterWaveOffset,
 } from './ro_map_assets.mjs';
 
-function makeGnd(surfaceStride = 40, minor = 7) {
+function makeGnd(surfaceStride = 40, minor = 7, gridU = 1, gridV = 1) {
   const width = 1;
   const height = 1;
   const texturePath = Buffer.alloc(80);
   Buffer.from('c7cab5e5b9d9b4da5c7072745fc3cabff830312e626d70', 'hex').copy(texturePath);
-  const waterBytes = minor === 8 ? 36 : minor === 9 ? 56 : 0;
+  const waterPlaneCount = gridU * gridV;
+  const waterBytes = minor === 8 ? 32 + waterPlaneCount * 4
+    : minor === 9 ? 32 + waterPlaneCount * 24 : 0;
   const buffer = Buffer.alloc(26 + texturePath.length + 16 + 4 + surfaceStride + 28 + waterBytes);
   buffer.write('GRGN', 0, 'ascii');
   buffer.writeUInt8(1, 4);
@@ -76,17 +79,20 @@ function makeGnd(surfaceStride = 40, minor = 7) {
     buffer.writeFloatLE(0.2, waterOffset + 12);
     buffer.writeFloatLE(0, waterOffset + 16);
     buffer.writeInt32LE(4, waterOffset + 20);
-    buffer.writeInt32LE(1, waterOffset + 24);
-    buffer.writeInt32LE(1, waterOffset + 28);
-    if (minor === 8) {
-      buffer.writeFloatLE(0.25, waterOffset + 32);
-    } else {
-      buffer.writeFloatLE(0.25, waterOffset + 32);
-      buffer.writeInt32LE(2, waterOffset + 36);
-      buffer.writeFloatLE(0.1, waterOffset + 40);
-      buffer.writeFloatLE(0.2, waterOffset + 44);
-      buffer.writeFloatLE(0, waterOffset + 48);
-      buffer.writeInt32LE(4, waterOffset + 52);
+    buffer.writeInt32LE(gridU, waterOffset + 24);
+    buffer.writeInt32LE(gridV, waterOffset + 28);
+    for (let i = 0; i < waterPlaneCount; i++) {
+      const at = waterOffset + 32 + i * (minor === 8 ? 4 : 24);
+      if (minor === 8) {
+        buffer.writeFloatLE(0.25 + i * 0.25, at);
+      } else {
+        buffer.writeFloatLE(0.25 + i * 0.25, at);
+        buffer.writeInt32LE(2 + i, at + 4);
+        buffer.writeFloatLE(0.1 + i * 0.05, at + 8);
+        buffer.writeFloatLE(0.2 + i * 0.1, at + 12);
+        buffer.writeFloatLE(i * 10, at + 16);
+        buffer.writeInt32LE(4 + i, at + 20);
+      }
     }
   }
   return buffer;
@@ -602,6 +608,45 @@ const water19 = parseGndBuffer(makeGnd(40, 9));
 assert.equal(water19.version, '1.9');
 assert.equal(water19.water.gridU, 1);
 assert.equal(water19.water.gridV, 1);
+assert.equal(water19.water.planes.length, 1);
+assert.equal(water19.water.planes[0].type, 2);
+assert.equal(water19.water.planes[0].textureCyclingInterval, 4);
+
+const multiWaterGnd = parseGndBuffer(makeGnd(40, 9, 2, 1));
+assert.equal(multiWaterGnd.water.planes.length, 2);
+assert.equal(multiWaterGnd.water.planes[1].level, 0.5);
+assert.equal(multiWaterGnd.water.planes[1].type, 3);
+assert.equal(multiWaterGnd.water.planes[1].textureCyclingInterval, 5);
+const multiWaterGat = {
+  version: '1.3',
+  width: 4,
+  height: 2,
+  terrainTypes: new Uint16Array(8),
+  water: new Uint8Array(8).fill(1),
+};
+const waterMeshes = buildGndWaterMeshDataByPlane(multiWaterGat, multiWaterGnd.water, 0.2);
+assert.equal(waterMeshes.planes.length, 2);
+assert.equal(waterMeshes.waterTileCount, 8);
+assert.equal(waterMeshes.planes[0].data.waterTileCount, 4);
+assert.equal(waterMeshes.planes[1].data.waterTileCount, 4);
+assert.ok(waterMeshes.planes[0].data.tileCoordinates.every((value, index) =>
+  index % 2 !== 0 || value < 2));
+assert.ok(waterMeshes.planes[1].data.tileCoordinates.every((value, index) =>
+  index % 2 !== 0 || value >= 2));
+assert.equal(waterMeshes.planes[0].data.positions[1], -0.05);
+assert.equal(waterMeshes.planes[1].data.positions[1], -0.1);
+
+const legacyWaterMeshes = buildGndWaterMeshDataByPlane({
+  version: '1.3', width: 2, height: 1,
+  terrainTypes: new Uint16Array([0, 0]), water: new Uint8Array([1, 0]),
+}, { level: 1, waveHeight: 0, waveSpeed: 0, wavePitch: 0 }, 0.2);
+assert.equal(legacyWaterMeshes.planes.length, 1);
+assert.equal(legacyWaterMeshes.waterTileCount, 1);
+
+const gnd18Multi = parseGndBuffer(makeGnd(40, 8, 2, 1));
+assert.equal(gnd18Multi.water.planes.length, 2);
+assert.equal(gnd18Multi.water.planes[1].level, 0.5);
+assert.equal(gnd18Multi.water.planes[1].type, gnd18Multi.water.type);
 
 let badHeaderRejected = false;
 try {
