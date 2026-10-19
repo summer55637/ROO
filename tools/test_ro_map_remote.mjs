@@ -3,6 +3,7 @@ import {
   RAGASSETS_BASE_URL,
   analyzeRswPlacementBounds,
   buildGndLightmapAtlasData,
+  buildGndWaterMeshDataByPlane,
   buildRsmNodeTransformData,
   buildRsm2NodeTransformData,
   buildRsmNodeMeshData,
@@ -144,10 +145,13 @@ async function validateMap(mapId) {
   assert.ok([2, 3].includes(gatView.getUint8(5)), mapId + ' GAT minor version');
   const gatWidth = gatView.getUint32(6, true);
   const gatHeight = gatView.getUint32(10, true);
+  const gatMinor = gatView.getUint8(5);
   assert.equal(gatBytes.byteLength, 14 + gatWidth * gatHeight * 20, mapId + ' GAT byte length');
   assert.equal(gatWidth, gnd.width * 2, mapId + ' GND/GAT width alignment');
   assert.equal(gatHeight, gnd.height * 2, mapId + ' GND/GAT height alignment');
   const gatHeights = new Float32Array(gatWidth * gatHeight);
+  const gatTerrainTypes = new Uint16Array(gatWidth * gatHeight);
+  const gatWater = new Uint8Array(gatWidth * gatHeight);
   for (let index = 0; index < gatHeights.length; index++) {
     const at = 14 + index * 20;
     gatHeights[index] = (
@@ -156,6 +160,29 @@ async function validateMap(mapId) {
       + gatView.getFloat32(at + 8, true)
       + gatView.getFloat32(at + 12, true)
     ) / 4;
+    gatTerrainTypes[index] = gatView.getUint16(at + 16, true);
+    gatWater[index] = gatMinor === 3 && (gatView.getUint16(at + 18, true) & 0x8000) !== 0 ? 1 : 0;
+  }
+  const waterMeshes = buildGndWaterMeshDataByPlane({
+    version: '1.' + gatMinor,
+    width: gatWidth,
+    height: gatHeight,
+    terrainTypes: gatTerrainTypes,
+    water: gatWater,
+  }, gnd.water || rsw.water, 0.2);
+  assert.equal(
+    waterMeshes.planes.reduce((sum, plane) => sum + plane.data.waterTileCount, 0),
+    waterMeshes.waterTileCount,
+    mapId + ' water plane tile counts add up'
+  );
+  if (mapId === 'icecastle') {
+    assert.equal(gnd.version, '1.9', 'icecastle is expected to exercise GND 1.9 water planes');
+    assert.ok(gnd.water && gnd.water.planes.length > 1, 'icecastle has multiple declared water planes');
+    assert.ok(waterMeshes.waterTileCount > 0, 'icecastle exposes real GAT water tiles');
+    console.log(
+      mapId + ': ' + gnd.water.planes.length + ' declared GND water planes, '
+        + waterMeshes.planes.length + ' with GAT water tiles, ' + waterMeshes.waterTileCount + ' tiles'
+    );
   }
   const heightAlignment = compareGndGatHeights(gnd, {
     width: gatWidth, height: gatHeight, heights: gatHeights,
@@ -207,8 +234,8 @@ async function validateMap(mapId) {
   );
 }
 
-for (const mapId of ['prontera', 'tra_fild']) {
+for (const mapId of ['prontera', 'tra_fild', 'icecastle']) {
   await validateMap(mapId);
 }
 
-console.log('公開 RO 地圖素材即時驗證通過（2 maps）');
+console.log('公開 RO 地圖素材即時驗證通過（3 maps）');
