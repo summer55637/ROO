@@ -1680,6 +1680,13 @@ export function insetGndTextureUvs(uvs, textureWidth, textureHeight) {
   return result;
 }
 
+// TextureCyclingInterval is measured in frames; the classic client advances at ~60 FPS.
+// Keep the 32-frame sequence aligned to that cadence, with sane limits for malformed data.
+export function sampleRoWaterTextureIntervalMs(interval) {
+  const frames = Number.isFinite(interval) && interval > 0 ? interval : 3;
+  return Math.max(1000 / 60, Math.min(4000, frames * (1000 / 60)));
+}
+
 // RSW describes vertex-height waves separately from the cycling water textures.
 // This lightweight sine-wave approximation uses a stable 3.5 s cycle; it is not
 // claimed to be pixel-identical to the original client's proprietary animation.
