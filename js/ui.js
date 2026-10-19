@@ -5248,7 +5248,9 @@ function renderMapBackground() {
 
   const layer = img.closest('.map-bg-layer');
   const panel = img.closest('.battle-panel');
+  const hasPronteraMap = mapId === 'prontera';
   if (panel) {
+    panel.classList.toggle('has-prontera-map', hasPronteraMap);
     panel.classList.toggle('has-water-surface', isWaterMap);
     panel.classList.toggle('is-underwater', isUnderwater);
   }
@@ -5264,7 +5266,10 @@ function renderMapBackground() {
     }
   }
 
-  img.src = mapImgSrc(state.mapId);
+  // 普隆德拉使用倉庫內的地圖預覽；其他地圖沿用原有背景映射。
+  img.src = hasPronteraMap
+    ? 'images/maps/prontera-minimap.webp'
+    : mapImgSrc(state.mapId);
 }
 
 /* ---------------- 背景音樂 ----------------

@@ -43,3 +43,8 @@
 - [ragassets：從本機 GRF 萃取素材的開源工具](https://github.com/adsonpleal/ragassets)
 
 外部工具僅作格式與轉換參考；遊戲執行時仍以 ROO 自己的靜態檔案為準，不依賴第三方服務。
+
+
+## 普隆德拉 2D 地圖預覽（新增）
+
+`images/maps/prontera-minimap.webp` 取自開源專案 `portons/codex-pet-share` 的已生成俯視預覽，並依其 MIT 授權附帶完整授權文字及來源紀錄。只在 `prontera` 地圖選取時顯示，作為更明確的普隆德拉畫面素材；此圖不等於原生地圖渲染，亦不啟用 GAT 碰撞／尋路。遊戲執行時使用倉庫內靜態檔，不呼叫外部來源。
