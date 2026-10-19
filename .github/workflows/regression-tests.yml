@@ -1,0 +1,55 @@
+name: Regression tests
+
+concurrency:
+  group: regression-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - feature/exploration-movement-controls
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check changed JavaScript syntax
+        run: |
+          node --check js/data.js
+          node --check js/map_pathfinding.js
+          node --check tools/convert_gat.js
+          node --check tools/test_map_pathfinding.js
+          node --check tools/map_preview.mjs
+          node --check tools/ro_map_assets.mjs
+          node --check tools/test_ro_map_assets.mjs
+          node --check tools/ro_explorer.mjs
+          node --check tools/latest_request_gate.mjs
+          node --check tools/test_latest_request_gate.mjs
+          node --check tools/ro_explorer_bootstrap.js
+          node --check tools/test_ro_explorer_bootstrap.mjs
+          node --check js/ui.js
+      - name: Test GAT conversion and pathfinding
+        run: node tools/test_map_pathfinding.js
+      - name: Test native GND map pipeline
+        run: node tools/test_ro_map_assets.mjs
+      - name: Test map explorer direct-entry mode
+        run: node tools/test_ro_explorer_bootstrap.mjs
+      - name: Run complete regression suite
+        run: node tools/test.js
+      - name: Run full-game smoke test
+        run: node tools/test_smoke.js
+      - name: Check primary data syntax
+        run: node tools/check_syntax.js

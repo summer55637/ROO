@@ -57,6 +57,9 @@ const SUITES = [
   'test_equipsets_144.js',// 說明欄有、實裝沒有的三組裝備套裝（#144）
   'test_images.js',      // 圖檔接線：別名指得到、圖鑑內不再長出缺圖（#141）
   'test_autosell_sync.js', // 自動販賣清單跨存檔同步（#140）
+  'test_latest_request_gate.mjs', // 非同步地圖載入只允許最新請求更新場景
+  'test_ro_map_assets.mjs', // 原生 GND/GAT/RSW/RSM、光照與水面解析
+  'test_ro_explorer_bootstrap.mjs', // 探索頁直達模式與初始化
   'test_saveio.js',      // 存檔匯出/匯入：序列化、遷移、覆寫與失敗還原
 ];
 

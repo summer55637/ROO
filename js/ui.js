@@ -2033,6 +2033,14 @@ function renderMapYieldBox(mapObj) {
   </div>`;
 }
 
+function openRoExplorer() {
+  if (!state) return;
+  const url = new URL('tools/ro_explorer.html', window.location.href);
+  url.searchParams.set('mode', 'native');
+  url.searchParams.set('map', String(state.mapId || 'prontera'));
+  window.open(url.toString(), '_blank', 'noopener,noreferrer');
+}
+
 function renderMapTab() {
   const el = document.getElementById('tab-map');
   if (!selectedRegionId) {
@@ -2094,6 +2102,11 @@ function renderMapTab() {
       <select id="map-select-place" class="map-select" onchange="selectMap(this.value)">${mapOptions}</select>
     </div>
     <div class="region-subtitle-detail">${region.subtitle}</div>
+    <div class="map-preview-box">
+      <div class="map-preview-title">🧭 真實 RO 地圖探索</div>
+      <div class="map-preview-body">從目前地圖開啟原生 3D 探索預覽；地表、模型、光照與水面依地圖素材支援情況呈現。</div>
+      <button class="btn-small" type="button" onclick="openRoExplorer()">開啟原生 3D 地圖探索</button>
+    </div>
     <div class="map-preview-box">
       <div class="map-preview-title">${isCity ? '🏠 安全區' : '⚔️ 遇怪列表'}</div>
       <div class="map-preview-body">${monsterPreview}</div>

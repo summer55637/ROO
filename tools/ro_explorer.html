@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ROO 真實地圖探索原型</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, "Noto Sans TC", sans-serif; background: #090f18; color: #e4edf8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; }
+    header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 16px; background: #111b2a; border-bottom: 1px solid #2b3a4f; }
+    .brand { min-width: 210px; margin-right: auto; }
+    .brand strong { display: block; font-size: 16px; }
+    .brand span, .hint, footer { color: #9eafc5; font-size: 12px; line-height: 1.5; }
+    .mode-buttons { display: flex; gap: 6px; }
+    label { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+    input[type="file"] { width: 170px; max-width: 32vw; font-size: 12px; }
+    input[type="number"] { width: 72px; }
+    input[type="text"], select { min-width: 130px; max-width: 42vw; padding: 6px; background: #0b1421; color: #e4edf8; border: 1px solid #405773; border-radius: 6px; }
+    input[type="range"] { width: 90px; }
+    input[type="checkbox"] { accent-color: #48d597; }
+    button, .link-button { display: inline-block; border: 1px solid #526985; border-radius: 7px; padding: 7px 10px; background: #1a2a3e; color: #e4edf8; cursor: pointer; font: inherit; font-size: 12px; text-decoration: none; }
+    button:hover, .link-button:hover { background: #263e59; }
+    button[aria-pressed="true"] { border-color: #48d597; background: #193a37; }
+    main { flex: 1; min-height: 0; }
+    main[hidden] { display: none; }
+    #public-mode { display: flex; flex-direction: column; min-height: 0; }
+    #public-info { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 10px 16px; background: #101927; border-bottom: 1px solid #273549; }
+    #public-info p { margin: 0; flex: 1; min-width: 240px; color: #b9c8da; font-size: 12px; line-height: 1.5; }
+    #public-map { width: 100%; height: calc(100vh - 180px); min-height: 460px; border: 0; background: #090f18; }
+    #local-toolbar, #native-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 16px; background: #101927; border-bottom: 1px solid #273549; }
+    #native-toolbar[hidden], #local-toolbar[hidden] { display: none; }
+    #stage { height: calc(100vh - 180px); min-height: 420px; position: relative; overflow: hidden; touch-action: pan-y; }
+    #stage canvas { display: block; width: 100%; height: 100%; }
+    #status { position: absolute; top: 12px; left: 12px; z-index: 2; max-width: min(660px, calc(100% - 24px)); padding: 10px 12px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .9); color: #d9e7f8; font-size: 12px; line-height: 1.5; white-space: pre-line; pointer-events: none; }
+    #status.error { color: #fecaca; border-color: #9f4141; }
+    #stats { position: absolute; right: 12px; bottom: 12px; z-index: 2; max-width: min(360px, calc(100% - 24px)); padding: 9px 11px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .9); color: #cbd8e8; font-size: 12px; line-height: 1.6; white-space: pre-line; pointer-events: none; }
+    footer { padding: 8px 16px; border-top: 1px solid #273549; }
+    a { color: #8cc8ff; }
+    @media (max-width: 700px) {
+      header { align-items: flex-start; }
+      .brand { width: 100%; }
+      input[type="file"] { width: 145px; max-width: 44vw; }
+      #public-map { height: 68vh; min-height: 420px; }
+      #stage { height: 68vh; min-height: 360px; }
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <strong>🧭 ROO 真實地圖探索</strong>
+      <span>優先使用公開地圖來源；不需要你先準備地圖檔</span>
+    </div>
+    <div class="mode-buttons">
+      <button id="show-public" type="button" aria-pressed="true">公開地圖預覽</button>
+      <button id="show-native" type="button" aria-pressed="false">原生地圖（測試）</button>
+      <button id="show-local" type="button" aria-pressed="false">本機 GLB/GAT</button>
+    </div>
+  </header>
+
+  <main id="public-mode">
+    <div id="public-info">
+      <p><strong>公開地圖來源：</strong>此模式從已公開的 RO 地圖模擬器載入資源。進入後點選預覽區的「Caminhe com seu personagem…／探索地圖」按鈕即可載入預設訓練場 <code>tra_fild</code>。此預覽是外部網站，尚未與 ROO 戰鬥或存檔相連。</p>
+      <a class="link-button" href="https://visuais.latam-tools.com.br/#play" target="_blank" rel="noopener noreferrer">另開公開地圖來源 ↗</a>
+    </div>
+    <iframe id="public-map"
+      title="公開的 Ragnarok Online 3D 地圖模擬器"
+      src="https://visuais.latam-tools.com.br/#play"
+      loading="eager"
+      referrerpolicy="no-referrer"
+      allow="fullscreen; autoplay"></iframe>
+  </main>
+
+  <main id="local-mode" hidden>
+    <div id="native-toolbar" hidden>
+      <label>地圖 ID <input id="native-map" type="text" value="prontera" maxlength="64" autocapitalize="none" spellcheck="false"></label>
+      <button id="load-native-map" type="button">載入原生地圖</button>
+      <span class="hint">載入 GND/GAT/RSW、地表貼圖與部分 RSM 1.x／RSM2 2.2–2.3 模型；有模型數量上限。RSM 節點旋轉／縮放及 RSM2 位移關鍵影格依 RSW 動畫開關與速度播放；RSM2.3 貼圖 UV 平移／縮放／旋轉 Z 已接入第一階段，仍待真實模型畫面驗證；完整角色動畫與正式戰鬥仍未完成。GND lightmap/AO 與水面為第一階段，真實素材仍需瀏覽器目視校驗。</span>
+    </div>
+    <div id="local-toolbar">
+      <label>地圖 GLB <input id="model-file" type="file" accept=".glb,model/gltf-binary"></label>
+      <label>地圖 GAT <input id="gat-file" type="file" accept=".gat"></label>
+      <label>世界比例 <input id="world-scale" type="number" min="0.01" max="10" step="0.01" value="0.2" inputmode="decimal"></label>
+      <label>速度 <input id="move-speed" type="range" min="1" max="8" value="4"><span id="speed-value">4</span></label>
+      <label><input id="show-cells" type="checkbox">顯示通行格</label>
+      <button id="recenter" type="button">重置視角</button>
+    </div>
+    <div id="stage">
+      <div id="status">選取同一張 RO 地圖的 GLB 與 GAT。建議使用 ragx 轉換：<br>
+ragx maps prontera --client "C:/Gravity/Ragnarok" --format glb --world-scale 0.2 --out ./tmp/roo-map<br>
+先選 GLB，再選相同地圖的原始 GAT。點擊地面行走；拖曳旋轉視角、滾輪縮放。</div>
+      <div id="stats">尚未載入地圖</div>
+    </div>
+  </main>
+
+  <footer>
+    公開模式使用第三方網站及其地圖資源主機，服務可能變動；ROO 沒有複製或重新散布該網站的程式碼／地圖二進位檔。
+    本機模式則使用你自行選取的檔案，且不會上傳。
+    <a href="https://github.com/adsonpleal/latamvisuais" target="_blank" rel="noopener noreferrer">地圖模擬器原始碼</a> ·
+    <a href="https://github.com/adsonpleal/ragassets" target="_blank" rel="noopener noreferrer">公開地圖資源管線</a> ·
+    <a href="https://github.com/joaopedrosgs/ragx" target="_blank" rel="noopener noreferrer">ragx 轉換工具</a>
+  </footer>
+
+  <script src="./ro_explorer_bootstrap.js"></script>
+</body>
+</html>
