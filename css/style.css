@@ -2140,3 +2140,34 @@ html, body { margin: 0; padding: 0; height: 100%; background: var(--bg-deep); co
   .battle-scene.ro-exploration-active .player-area { transition: none; }
   .battle-scene.ro-exploration-moving #player-img { animation: none; }
 }
+
+
+/* ---------------- 普隆德拉 3D 場景 ---------------- */
+.battle-panel.has-prontera-3d .map-bg-layer img {
+  visibility: hidden;
+  opacity: 0;
+}
+.battle-scene.ro-prontera-3d {
+  isolation: isolate;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 48%, #343c44 0%, #202732 65%, #10151e 100%);
+}
+.battle-scene.ro-prontera-3d .ro-prontera-3d-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.battle-scene.ro-prontera-3d .player-area {
+  width: 88px;
+  height: 112px;
+}
+.battle-scene.ro-prontera-3d .player-area .player-sprite {
+  width: 84px;
+  height: 112px;
+}
+.battle-scene.ro-prontera-3d .monster-area-right {
+  z-index: 2;
+}

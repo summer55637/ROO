@@ -207,6 +207,17 @@ function renderRoExplorationPosition() {
   const playerArea = document.getElementById('player-area');
   if (!scene || !playerArea) return;
   scene.classList.add('ro-exploration-active');
+  if (typeof ROProntera3D !== 'undefined' && ROProntera3D.isActive()) {
+    const rect = scene.getBoundingClientRect();
+    const point = ROProntera3D.projectExplorationPosition(pos.x, pos.y, rect.width, rect.height);
+    if (point) {
+      scene.classList.add('ro-prontera-3d');
+      playerArea.style.left = point.x + 'px';
+      playerArea.style.top = (point.y - 52) + 'px';
+      return;
+    }
+  }
+  scene.classList.remove('ro-prontera-3d');
   playerArea.style.left = pos.x + '%';
   playerArea.style.top = pos.y + '%';
 }
@@ -425,10 +436,17 @@ function onRoExplorationSceneClick(event) {
   const rect = scene.getBoundingClientRect();
   if (!rect.width || !rect.height) return;
 
-  const pos = normalizeRoExplorationPosition(
-    ((event.clientX - rect.left) / rect.width) * 100,
-    ((event.clientY - rect.top) / rect.height) * 100
-  );
+  let pos;
+  if (roExplorationGatMap && typeof ROProntera3D !== 'undefined' && ROProntera3D.isActive()) {
+    pos = ROProntera3D.screenToExplorationPosition(event.clientX, event.clientY, rect);
+    if (!pos) return;
+    pos = normalizeRoExplorationPosition(pos.x, pos.y);
+  } else {
+    pos = normalizeRoExplorationPosition(
+      ((event.clientX - rect.left) / rect.width) * 100,
+      ((event.clientY - rect.top) / rect.height) * 100
+    );
+  }
   roExplorationHeldKeys.clear();
   roExplorationPath = [];
   if (roExplorationGatMap) {
@@ -457,8 +475,14 @@ function onRoExplorationSceneClick(event) {
   roExplorationTargetMarker = document.createElement('span');
   roExplorationTargetMarker.className = 'exploration-target-marker';
   roExplorationTargetMarker.setAttribute('aria-hidden', 'true');
-  roExplorationTargetMarker.style.left = pos.x + '%';
-  roExplorationTargetMarker.style.top = pos.y + '%';
+  if (typeof ROProntera3D !== 'undefined' && ROProntera3D.isActive()) {
+    const point = ROProntera3D.projectExplorationPosition(pos.x, pos.y, rect.width, rect.height);
+    roExplorationTargetMarker.style.left = point ? point.x + 'px' : pos.x + '%';
+    roExplorationTargetMarker.style.top = point ? point.y + 'px' : pos.y + '%';
+  } else {
+    roExplorationTargetMarker.style.left = pos.x + '%';
+    roExplorationTargetMarker.style.top = pos.y + '%';
+  }
   scene.appendChild(roExplorationTargetMarker);
 
   startRoExplorationFrame();
