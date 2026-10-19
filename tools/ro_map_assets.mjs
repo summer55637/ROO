@@ -1743,6 +1743,51 @@ export function sampleRoWaterWaveOffset(waterConfig, gridX, gridZ, elapsedSecond
   return Math.abs(offset) < 1e-12 ? 0 : offset;
 }
 
+/**
+ * Fill a caller-owned buffer with the water-wave offset for each x+z diagonal.
+ * Water planes update synchronously, so the renderer can reuse one shared buffer
+ * instead of allocating a new Float32Array for every plane on every animation frame.
+ */
+export function fillRoWaterWaveOffsets(
+  waterConfig, mapWidth, mapHeight, elapsedSeconds, target, worldScale = 0.2
+) {
+  if (!waterConfig || typeof waterConfig !== 'object') {
+    throw new TypeError('必須提供 RO 水面參數。');
+  }
+  if (![mapWidth, mapHeight].every(Number.isInteger)
+    || mapWidth < 1 || mapHeight < 1 || mapWidth > 8192 || mapHeight > 8192) {
+    throw new Error('水波地圖尺寸無效。');
+  }
+  if (!Number.isFinite(elapsedSeconds)) {
+    throw new TypeError('水波時間必須是有限數值。');
+  }
+  if (!Number.isFinite(worldScale) || worldScale <= 0 || worldScale > 10) {
+    throw new Error('水波世界比例必須大於 0，且不可大於 10。');
+  }
+
+  const required = mapWidth + mapHeight + 1;
+  if (!(target instanceof Float32Array) || target.length < required) {
+    throw new TypeError('水波暫存緩衝區尺寸不足。');
+  }
+
+  const amplitude = Number(waterConfig.waveHeight);
+  if (!Number.isFinite(amplitude) || Math.abs(amplitude) < 1e-8) {
+    target.fill(0, 0, required);
+    return target;
+  }
+  const phaseOffset = Number.isFinite(waterConfig.waveSpeed) ? waterConfig.waveSpeed : 0;
+  const pitchDegrees = Number.isFinite(waterConfig.wavePitch) ? waterConfig.wavePitch : 0;
+  const phaseStep = pitchDegrees * Math.PI / 360;
+  const temporalPhase = elapsedSeconds * Math.PI * 2 / RO_WATER_WAVE_CYCLE_SECONDS;
+  const scaledAmplitude = Math.abs(amplitude) * worldScale;
+
+  for (let diagonal = 0; diagonal < required; diagonal++) {
+    const offset = -Math.sin(temporalPhase + phaseOffset + diagonal * phaseStep) * scaledAmplitude;
+    target[diagonal] = Math.abs(offset) < 1e-12 ? 0 : offset;
+  }
+  return target;
+}
+
 export function buildGndWaterMeshData(gat, waterLevel, worldScale = 0.2) {
   if (!gat || !Number.isInteger(gat.width) || !Number.isInteger(gat.height)
     || gat.width < 1 || gat.height < 1 || !gat.terrainTypes || !gat.water) {
