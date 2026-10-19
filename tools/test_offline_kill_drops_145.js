@@ -187,7 +187,7 @@ function thief() {
   t.ok('淨經驗約 2 倍（不是 10 倍，代表血量倍率有生效）',
     r2.expGained / e0 > 1.4 && r2.expGained / e0 < 3,
     `${e0} → ${r2.expGained}（×${(r2.expGained / e0).toFixed(2)}）`);
-  });
+}
 
 /* ---------- 遺物只有打寶模式才掉 ---------- */
 {
