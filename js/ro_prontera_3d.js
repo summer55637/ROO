@@ -197,7 +197,7 @@
   }
 
   function draw(instance) {
-    if (!instance || instance.disposed) return false;
+    if (!instance || instance.disposed || !instance.assetsLoaded) return false;
     const rect = instance.scene.getBoundingClientRect();
     if (!(rect.width > 0) || !(rect.height > 0)) return false;
     const dpr = Math.min(1.5, Math.max(1, Number(root.devicePixelRatio) || 1));
@@ -290,7 +290,7 @@
       const fallbackTexture = makeFallbackTexture(gl);
       const current = {
         panel, scene, canvas, gl, program, fallbackTexture, meshes: [], textures: [],
-        ready: false, disposed: false, resizeObserver: null, onResize: null,
+        ready: false, assetsLoaded: false, disposed: false, resizeObserver: null, onResize: null,
         positionLocation: gl.getAttribLocation(program, 'aPosition'),
         uvLocation: gl.getAttribLocation(program, 'aUv'),
         mvpLocation: gl.getUniformLocation(program, 'uMvp'),
@@ -317,6 +317,7 @@
       const loaded = await Promise.all(data.textures.map(filename => loadTexture(gl, filename, fallbackTexture)));
       if (token !== generation || instance !== current || current.disposed) return;
       current.textures = loaded.map(entry => entry.texture);
+      current.assetsLoaded = true;
       const failedCount = loaded.filter(entry => entry.failed).length;
       if (failedCount && typeof root.showToast === 'function') {
         root.showToast('普隆德拉有 ' + failedCount + ' 張貼圖載入失敗，已使用備用材質。');
@@ -359,7 +360,7 @@
   }
 
   root.ROProntera3D = Object.freeze({
-    isActive: () => !!(instance && instance.ready && !instance.disposed),
+    isActive: () => !!(instance && instance.ready && instance.assetsLoaded && !instance.disposed),
     projectPlanePoint,
     projectExplorationPosition,
     screenToExplorationPosition,
