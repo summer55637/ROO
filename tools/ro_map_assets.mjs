@@ -1716,10 +1716,28 @@ export function sampleRoWaterTextureIntervalMs(interval) {
   return Math.max(1000 / 60, Math.min(4000, frames * (1000 / 60)));
 }
 
-// RSW describes vertex-height waves separately from the cycling water textures.
-// This lightweight sine-wave approximation uses a stable 3.5 s cycle; it is not
-// claimed to be pixel-identical to the original client's proprietary animation.
-const RO_WATER_WAVE_CYCLE_SECONDS = 3.5;
+// RO water waves are advanced in fixed 1/60-second steps. Published RO
+// renderer references treat waveSpeed as degrees added per step, while wavePitch
+// changes the phase along the diagonal. Our mesh is sampled at GAT resolution,
+// so a GAT step spans half of a GND cell's pitch. This is a format-informed
+// implementation, not a claim of pixel-identical behavior to the official client.
+function resolveRoWaterWaveOffsetDegrees(waterSpeed, elapsedSeconds) {
+  const tick = Math.floor(elapsedSeconds * 60);
+  const angle = tick * waterSpeed;
+  if (!Number.isFinite(angle)) {
+    throw new RangeError('水波角度超出可計算範圍。');
+  }
+  // Keep the phase bounded even after a long-running session or reverse playback.
+  return ((angle + 180) % 360 + 360) % 360 - 180;
+}
+
+function sampleRoWaterWavePhaseRadians(waveOffsetDegrees, pitchDegrees, diagonal) {
+  const phaseDegrees = Math.trunc(waveOffsetDegrees + diagonal * pitchDegrees / 2);
+  if (!Number.isFinite(phaseDegrees)) {
+    throw new RangeError('水波空間相位超出可計算範圍。');
+  }
+  return phaseDegrees * Math.PI / 180;
+}
 
 export function sampleRoWaterWaveOffset(waterConfig, gridX, gridZ, elapsedSeconds, worldScale = 0.2) {
   if (!waterConfig || typeof waterConfig !== 'object') {
@@ -1733,13 +1751,12 @@ export function sampleRoWaterWaveOffset(waterConfig, gridX, gridZ, elapsedSecond
   }
   const amplitude = Number(waterConfig.waveHeight);
   if (!Number.isFinite(amplitude) || Math.abs(amplitude) < 1e-8) return 0;
-  const phaseOffset = Number.isFinite(waterConfig.waveSpeed) ? waterConfig.waveSpeed : 0;
+  const waveSpeed = Number.isFinite(waterConfig.waveSpeed) ? waterConfig.waveSpeed : 0;
   const pitchDegrees = Number.isFinite(waterConfig.wavePitch) ? waterConfig.wavePitch : 0;
-  // A GND surface spans 2×2 GAT cells, so one GAT-grid step adds half a pitch.
-  const spatialPhase = (gridX + gridZ) * pitchDegrees * Math.PI / 360;
-  const temporalPhase = elapsedSeconds * Math.PI * 2 / RO_WATER_WAVE_CYCLE_SECONDS;
+  const waveOffsetDegrees = resolveRoWaterWaveOffsetDegrees(waveSpeed, elapsedSeconds);
+  const phase = sampleRoWaterWavePhaseRadians(waveOffsetDegrees, pitchDegrees, gridX + gridZ);
   // Renderer Y is mirrored relative to the source file's vertical axis.
-  const offset = -Math.sin(temporalPhase + phaseOffset + spatialPhase) * Math.abs(amplitude) * worldScale;
+  const offset = -Math.sin(phase) * amplitude * worldScale;
   return Math.abs(offset) < 1e-12 ? 0 : offset;
 }
 
@@ -1775,14 +1792,14 @@ export function fillRoWaterWaveOffsets(
     target.fill(0, 0, required);
     return target;
   }
-  const phaseOffset = Number.isFinite(waterConfig.waveSpeed) ? waterConfig.waveSpeed : 0;
+  const waveSpeed = Number.isFinite(waterConfig.waveSpeed) ? waterConfig.waveSpeed : 0;
   const pitchDegrees = Number.isFinite(waterConfig.wavePitch) ? waterConfig.wavePitch : 0;
-  const phaseStep = pitchDegrees * Math.PI / 360;
-  const temporalPhase = elapsedSeconds * Math.PI * 2 / RO_WATER_WAVE_CYCLE_SECONDS;
-  const scaledAmplitude = Math.abs(amplitude) * worldScale;
+  const waveOffsetDegrees = resolveRoWaterWaveOffsetDegrees(waveSpeed, elapsedSeconds);
+  const scaledAmplitude = amplitude * worldScale;
 
   for (let diagonal = 0; diagonal < required; diagonal++) {
-    const offset = -Math.sin(temporalPhase + phaseOffset + diagonal * phaseStep) * scaledAmplitude;
+    const phase = sampleRoWaterWavePhaseRadians(waveOffsetDegrees, pitchDegrees, diagonal);
+    const offset = -Math.sin(phase) * scaledAmplitude;
     target[diagonal] = Math.abs(offset) < 1e-12 ? 0 : offset;
   }
   return target;
