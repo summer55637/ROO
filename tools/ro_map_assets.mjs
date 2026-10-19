@@ -1988,4 +1988,38 @@ export function resolveRagassetsMapUrls(mapId, manifest, baseUrl = RAGASSETS_BAS
   return urls;
 }
 
+
+/**
+ * Pick water animation frames for a GND plane.
+ * Exact water-type frames always win. Some public manifests only expose the
+ * legacy RSW map-level set even when GND 1.9 planes use another type; in that
+ * case keep the water animated with the available set instead of a flat fill.
+ * `usedFallback` lets the renderer expose this limitation in diagnostics.
+ */
+export function resolveWaterFramesForType(urls, waterType) {
+  if (!urls || typeof urls !== 'object') {
+    throw new TypeError('必須提供已解析的水面素材 URL。');
+  }
+
+  const type = Number(waterType);
+  const typedFrames = Number.isInteger(type) && urls.waterFramesByType
+    && urls.waterFramesByType[String(type)];
+  if (Array.isArray(typedFrames) && typedFrames.length) {
+    return { frames: typedFrames, sourceType: type, exactTypeMatch: true, usedFallback: false };
+  }
+
+  const frames = Array.isArray(urls.waterFrames) ? urls.waterFrames : [];
+  const sourceType = Number.isInteger(Number(urls.waterType)) ? Number(urls.waterType) : null;
+  if (!frames.length) {
+    return { frames: [], sourceType: null, exactTypeMatch: false, usedFallback: false };
+  }
+  const exactTypeMatch = sourceType === type;
+  return {
+    frames,
+    sourceType,
+    exactTypeMatch,
+    usedFallback: !exactTypeMatch,
+  };
+}
+
 export { normalizeTextureName };
