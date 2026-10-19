@@ -1873,7 +1873,10 @@ export function resolveRagassetsMapUrls(mapId, manifest, baseUrl = RAGASSETS_BAS
   const root = new URL('/maps/' + id + '/', baseUrl);
   const manifestUrl = new URL('manifest.json', root);
   const files = manifest.files && typeof manifest.files === 'object' ? manifest.files : {};
-  const urls = { manifest: manifestUrl.href, gat: null, gnd: null, rsw: null, textures: {}, models: {}, waterFrames: [] };
+  const urls = {
+    manifest: manifestUrl.href, gat: null, gnd: null, rsw: null,
+    textures: {}, models: {}, waterFrames: [], waterFramesByType: {}, waterType: null,
+  };
   for (const ext of ['gat', 'gnd', 'rsw']) {
     const name = files[ext] || id + '.' + ext;
     if (name !== id + '.' + ext) throw new Error('manifest 的 ' + ext.toUpperCase() + ' 檔名不符合地圖 ID。');
@@ -1897,13 +1900,45 @@ export function resolveRagassetsMapUrls(mapId, manifest, baseUrl = RAGASSETS_BAS
     if (url.origin !== manifestUrl.origin || !/^\/maps\/_m\/[a-f0-9]{16}\.rsm2?$/i.test(url.pathname)) continue;
     urls.models[normalizeModelName(name)] = url.href;
   }
-  const water = manifest.water && typeof manifest.water === 'object' ? manifest.water : {};
-  const waterFrames = Array.isArray(water.frames) ? water.frames : [];
-  for (const reference of waterFrames) {
-    if (typeof reference !== 'string' || !/^\.\.\/_w\/[a-f0-9]{16}\.jpg$/i.test(reference)) continue;
-    const url = new URL(reference, manifestUrl);
-    if (url.origin !== manifestUrl.origin || !/^\/maps\/_w\/[a-f0-9]{16}\.jpg$/i.test(url.pathname)) continue;
-    urls.waterFrames.push(url.href);
+  function safeWaterFrames(references) {
+    const result = [];
+    for (const reference of Array.isArray(references) ? references : []) {
+      if (typeof reference !== 'string' || !/^\.\.\/_w\/[a-f0-9]{16}\.jpg$/i.test(reference)) continue;
+      const url = new URL(reference, manifestUrl);
+      if (url.origin !== manifestUrl.origin || !/^\/maps\/_w\/[a-f0-9]{16}\.jpg$/i.test(url.pathname)) continue;
+      result.push(url.href);
+    }
+    return result;
+  }
+
+  const rawWater = manifest.water;
+  const waterSets = Array.isArray(rawWater) ? rawWater
+    : rawWater && typeof rawWater === 'object' ? [rawWater] : [];
+  if (rawWater && !Array.isArray(rawWater) && typeof rawWater === 'object') {
+    if (Array.isArray(rawWater.planes)) waterSets.push(...rawWater.planes);
+    if (rawWater.types && typeof rawWater.types === 'object' && !Array.isArray(rawWater.types)) {
+      for (const [type, config] of Object.entries(rawWater.types)) {
+        if (config && typeof config === 'object') waterSets.push({ ...config, type: config.type ?? Number(type) });
+      }
+    }
+  }
+  if (Array.isArray(manifest.waters)) waterSets.push(...manifest.waters);
+
+  let defaultWaterSetFound = false;
+  for (const waterSet of waterSets) {
+    if (!waterSet || typeof waterSet !== 'object') continue;
+    const frames = safeWaterFrames(waterSet.frames);
+    if (!frames.length) continue;
+    const type = Number(waterSet.type);
+    if (Number.isInteger(type) && type >= 0 && type <= 65535) {
+      urls.waterFramesByType[String(type)] = frames;
+      if (urls.waterType === null) urls.waterType = type;
+    }
+    if (!defaultWaterSetFound) {
+      urls.waterFrames = frames;
+      if (Number.isInteger(type) && type >= 0 && type <= 65535) urls.waterType = type;
+      defaultWaterSetFound = true;
+    }
   }
   return urls;
 }
