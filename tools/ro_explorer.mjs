@@ -1575,7 +1575,7 @@ renderer.domElement.addEventListener('click', event => {
   if (!wasDrag) requestWalk(event);
 });
 
-const stopRenderLoop = createVisibilityAwareFrameLoop(
+createVisibilityAwareFrameLoop(
   document,
   now => {
     const delta = lastFrame ? Math.min((now - lastFrame) / 1000, 0.05) : 0;
@@ -1589,7 +1589,6 @@ const stopRenderLoop = createVisibilityAwareFrameLoop(
   callback => window.requestAnimationFrame(callback),
   frameId => window.cancelAnimationFrame(frameId)
 );
-window.addEventListener('pagehide', stopRenderLoop, { once: true });
 
 const params = new URLSearchParams(window.location.search);
 const requestedMap = params.get('map');
