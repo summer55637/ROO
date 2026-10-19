@@ -83,7 +83,6 @@ let nativeWaterAnimations = [];
 let activeRsmAnimations = [];
 const nativeMapLoadGate = createLatestRequestGate();
 let gridMesh = null;
-const modelTextureCache = new Map();
 const MAX_NATIVE_MODEL_ASSETS = 100;
 const MAX_NATIVE_MODEL_PLACEMENTS = 450;
 let gridGeometry = null;
@@ -550,18 +549,18 @@ function getModelTextureUrl(urls, textureName) {
   return candidates.length === 1 ? candidates[0] : null;
 }
 
-function loadModelTexture(url) {
-  if (!url) return null;
-  if (modelTextureCache.has(url)) return modelTextureCache.get(url);
+function loadModelTexture(url, textureCache) {
+  if (!url || !textureCache) return null;
+  if (textureCache.has(url)) return textureCache.get(url);
   const texture = textureLoader.load(url, loadedTexture => {
     loadedTexture.colorSpace = THREE.SRGBColorSpace;
     loadedTexture.wrapS = THREE.RepeatWrapping;
     loadedTexture.wrapT = THREE.RepeatWrapping;
     loadedTexture.needsUpdate = true;
   }, undefined, () => {
-    modelTextureCache.delete(url);
+    textureCache.delete(url);
   });
-  modelTextureCache.set(url, texture);
+  textureCache.set(url, texture);
   return texture;
 }
 
@@ -587,7 +586,7 @@ function rsmTextureNames(rsm, node) {
   return node.textureIndices.map(index => rsm.textures[index] || '');
 }
 
-function buildRsmTemplate(rsm, urls, scale) {
+function buildRsmTemplate(rsm, urls, scale, textureCache) {
   if (rsm.major !== 1 && rsm.major !== 2) return null;
 
   const modelRoot = new THREE.Group();
@@ -636,7 +635,7 @@ function buildRsmTemplate(rsm, urls, scale) {
       if (!data.indices.length) continue;
       const textureName = textureNames[data.textureIndex] || '';
       const textureUrl = getModelTextureUrl(urls, textureName);
-      const texture = loadModelTexture(textureUrl);
+      const texture = loadModelTexture(textureUrl, textureCache);
       const opacity = Math.max(0, Math.min(1, rsm.alpha / 255));
       const materialOptions = {
         map: texture,
@@ -819,6 +818,7 @@ function makeRswInstanceTransform(instance, scale) {
 }
 
 async function loadAndPlaceRswModels(rsw, urls, mapRoot, scale, isCurrentRequest) {
+  const textureCache = new Map();
   const placements = rsw.models.slice(0, MAX_NATIVE_MODEL_PLACEMENTS);
   const availableByUrl = new Map();
   let unresolvedNames = 0;
@@ -844,7 +844,7 @@ async function loadAndPlaceRswModels(rsw, urls, mapRoot, scale, isCurrentRequest
         const response = await fetch(assetUrl, { mode: 'cors', signal: AbortSignal.timeout(20000) });
         if (!response.ok) throw new Error('RSM HTTP ' + response.status);
         const rsm = parseRsmBuffer(await response.arrayBuffer());
-        const template = buildRsmTemplate(rsm, urls, scale);
+        const template = buildRsmTemplate(rsm, urls, scale, textureCache);
         return { assetUrl, template, supported: !!template };
       } catch (error) {
         console.warn('ROO RSM 載入失敗：' + assetUrl, error);
@@ -1179,7 +1179,6 @@ async function loadRagassetsMap(mapName) {
     }
 
     setStatus('地表已建立，正在載入 RSW 模型資源…');
-    modelTextureCache.clear();
     const nextRenderStats = await loadAndPlaceRswModels(parsedRsw, urls, stagedRoot, worldScale, isCurrentRequest);
     if (!isCurrentRequest()) {
       disposeObject(stagedRoot);
