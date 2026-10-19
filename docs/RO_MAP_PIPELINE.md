@@ -161,3 +161,11 @@ GND lightmap／AO 已完成第一階段 atlas 與地表材質乘算；水面貼�
 - 2.2 使用模型層級材質索引；2.3 使用節點自己的 texture name。著色沿用 ShadeType 與平滑群組法線流程。
 - 新增 RSM2 2.2／2.3 二進位 fixture、父子節點旋轉／位移檢查、網格索引與 `.rsm2` manifest URL 白名單測試；公開素材 smoke test 擴大採樣並驗證 RSM2 節點資料（若樣本含 RSM2）。
 - 本階段只渲染靜態姿勢；不播放旋轉／縮放／平移或 UV 動畫。真實瀏覽器目視比對、手機／桌面及 GitHub Pages 驗收仍待完成。
+
+
+## 水波取樣與速度校正（2026-10-19）
+
+- 修正先前將 `waveSpeed` 當固定相位、並把週期硬編碼為 3.5 秒的近似。參考 [noclip.website 的 RO 水面動畫器](https://github.com/magcius/noclip.website/blob/fd973ff240233c63883750a557c62baf6ff2a6c7/src/RagnarokOnline/water.ts) 與 [頂點 shader](https://github.com/magcius/noclip.website/blob/fd973ff240233c63883750a557c62baf6ff2a6c7/src/RagnarokOnline/render.ts)：水波相位以固定 60 Hz 步進，每步按 `waveSpeed` 增加角度，再由 `wavePitch` 與頂點對角位置取樣。
+- ROO 目前水面網格以 GAT 格細分，因此沿對角線每個 GAT 格採用半個 GND pitch；相位會以 180° 為界循環，並保留來源座標到 Three.js Y 軸的方向轉換。
+- 新增單元測試，覆蓋速度與時間關係、角度回繞、空間 pitch，以及批次頂點緩衝區與單點取樣一致性。
+- 這是根據公開 RO 格式描述及開源 renderer 的行為改善，不表示已逐像素重現官方客戶端。下一步仍需在瀏覽器中比對多張真實地圖，並確認不同 GND 版本／地圖的波幅與透視表現。
