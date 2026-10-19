@@ -179,9 +179,22 @@ async function validateMap(mapId) {
     assert.equal(gnd.version, '1.9', 'icecastle is expected to exercise GND 1.9 water planes');
     assert.ok(gnd.water && gnd.water.planes.length > 1, 'icecastle has multiple declared water planes');
     assert.ok(waterMeshes.waterTileCount > 0, 'icecastle exposes real GAT water tiles');
+    const waterTypeCounts = {};
+    for (const plane of gnd.water.planes) {
+      const key = String(plane.type);
+      waterTypeCounts[key] = (waterTypeCounts[key] || 0) + 1;
+    }
+    const framesByType = urls.waterFramesByType || {};
+    const typedFrameCount = type => (framesByType[String(type)] || []).length;
+    const typedPlaneCount = Object.keys(waterTypeCounts)
+      .filter(type => typedFrameCount(type) > 0)
+      .reduce((sum, type) => sum + waterTypeCounts[type], 0);
     console.log(
       mapId + ': ' + gnd.water.planes.length + ' declared GND water planes, '
-        + waterMeshes.planes.length + ' with GAT water tiles, ' + waterMeshes.waterTileCount + ' tiles'
+        + waterMeshes.planes.length + ' with GAT water tiles, ' + waterMeshes.waterTileCount + ' tiles; '
+        + 'GND water types ' + JSON.stringify(waterTypeCounts) + '; manifest type ' + urls.waterType
+        + ' (' + urls.waterFrames.length + ' frames), type-specific matched planes '
+        + typedPlaneCount + '/' + gnd.water.planes.length
     );
   }
   const heightAlignment = compareGndGatHeights(gnd, {
