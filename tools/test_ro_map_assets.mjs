@@ -687,6 +687,10 @@ const manifest = {
   water: {
     type: 3,
     frames: ['../_w/0123456789abcdef.jpg', 'https://example.invalid/water.jpg', '../../secrets.jpg'],
+    planes: [{
+      type: 5,
+      frames: ['../_w/fedcba9876543210.jpg'],
+    }],
   },
 };
 const urls = resolveRagassetsMapUrls('prontera', manifest);
@@ -698,6 +702,9 @@ assert.equal(urls.models['tree/tree01.rsm'], RAGASSETS_BASE_URL + '/maps/_m/abcd
 assert.equal(urls.models['tree/tree02.rsm2'], RAGASSETS_BASE_URL + '/maps/_m/0123456789abcdef.rsm2');
 assert.equal(Object.keys(urls.models).length, 2);
 assert.deepEqual(urls.waterFrames, [RAGASSETS_BASE_URL + '/maps/_w/0123456789abcdef.jpg']);
+assert.equal(urls.waterType, 3);
+assert.deepEqual(urls.waterFramesByType['3'], [RAGASSETS_BASE_URL + '/maps/_w/0123456789abcdef.jpg']);
+assert.deepEqual(urls.waterFramesByType['5'], [RAGASSETS_BASE_URL + '/maps/_w/fedcba9876543210.jpg']);
 
 assert.throws(() => resolveRagassetsMapUrls('../prontera', manifest), /地圖 ID/);
 assert.throws(() => resolveRagassetsMapUrls('payon', manifest), /ID 不一致/);
