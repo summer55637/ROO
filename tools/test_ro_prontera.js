@@ -54,6 +54,14 @@ t.ok('普隆德拉起點位於可走區或可鄰近校正',
   || !!prontera.findPath(start.x, start.y, Math.max(0, start.x - 1), start.y)
   || !!prontera.findPath(start.x, start.y, Math.min(prontera.width - 1, start.x + 1), start.y));
 
+const rendererPath = path.join(__dirname, '..', 'js', 'ro_prontera_3d.js');
+const renderer = fs.readFileSync(rendererPath, 'utf8');
+t.ok('3D 貼圖尚未載完時不會提早啟用場景',
+  renderer.includes('!instance.assetsLoaded')
+  && renderer.includes('assetsLoaded: false')
+  && renderer.includes('current.assetsLoaded = true;')
+  && renderer.includes('instance.ready && instance.assetsLoaded'));
+
 const scenePath = path.join(__dirname, '..', 'data', 'maps', 'prontera-scene.json');
 const scene = JSON.parse(fs.readFileSync(scenePath, 'utf8'));
 const textureDir = path.join(__dirname, '..', 'images', 'maps', 'prontera', 'textures');
