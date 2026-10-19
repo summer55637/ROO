@@ -53,6 +53,21 @@ export function buildRoExplorerMinimapPixels(gat, pixelWidth, pixelHeight) {
   return pixels;
 }
 
+export function mapRoExplorerMinimapPointToCell(xRatio, yRatio, mapWidth, mapHeight) {
+  if (!isPositiveInteger(mapWidth) || !isPositiveInteger(mapHeight)
+    || mapWidth * mapHeight > 4000000) {
+    throw new RangeError('小地圖座標尺寸無效。');
+  }
+  if (!Number.isFinite(xRatio) || !Number.isFinite(yRatio)
+    || xRatio < 0 || xRatio > 1 || yRatio < 0 || yRatio > 1) {
+    return null;
+  }
+  return {
+    x: Math.min(mapWidth - 1, Math.floor(xRatio * mapWidth)),
+    y: Math.min(mapHeight - 1, Math.floor(yRatio * mapHeight)),
+  };
+}
+
 export function mapRoExplorerCellToMinimap(cell, mapWidth, mapHeight, pixelWidth, pixelHeight) {
   if (!isPositiveInteger(mapWidth) || !isPositiveInteger(mapHeight)
     || !isPositiveInteger(pixelWidth) || !isPositiveInteger(pixelHeight)) {

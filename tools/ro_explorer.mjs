@@ -42,6 +42,7 @@ import {
   buildRoExplorerMinimapPixels,
   getRoExplorerMinimapSize,
   mapRoExplorerCellToMinimap,
+  mapRoExplorerMinimapPointToCell,
 } from './ro_explorer_minimap.mjs';
 
 const stage = document.getElementById('stage');
@@ -1537,14 +1538,9 @@ function groundHitFromEvent(event) {
   return null;
 }
 
-function requestWalk(event) {
-  if (!gatInfo || !mapRoot || !currentCell || mapInfo.mapId !== gatInfo.mapId) {
+function requestWalkToCell(requestedTarget) {
+  if (!gatInfo || !mapRoot || !currentCell || !mapInfo || mapInfo.mapId !== gatInfo.mapId) {
     setStatus('請先載入地圖與同名 GAT。', true);
-    return;
-  }
-  const hit = groundHitFromEvent(event);
-  if (!hit) {
-    setStatus('沒有點到可辨識的地面；請點擊地圖地板，而不是天空或牆面。');
     return;
   }
 
@@ -1562,13 +1558,14 @@ function requestWalk(event) {
     removeRoute();
   }
 
-  let target = roMapCellFromWorldPoint(gatInfo, hit.point.x, hit.point.z, worldScale);
-  if (!target) {
+  if (!requestedTarget || !Number.isInteger(requestedTarget.x) || !Number.isInteger(requestedTarget.y)
+    || requestedTarget.x < 0 || requestedTarget.y < 0
+    || requestedTarget.x >= gatInfo.width || requestedTarget.y >= gatInfo.height) {
     setPlayerMotion('idle', currentFacing);
     setStatus('點擊位置在 GAT 地圖範圍之外。');
     return;
   }
-  let snapped = false;
+  let target = requestedTarget;
   if (!isRoMapCellWalkable(gatInfo, target.x, target.y)) {
     target = findNearestRoWalkableCell(gatInfo, target.x, target.y, 12);
     if (!target) {
@@ -1576,9 +1573,8 @@ function requestWalk(event) {
       setStatus('附近 12 格內找不到可走地面。', true);
       return;
     }
-    snapped = true;
   }
-
+  const snapped = target.x !== requestedTarget.x || target.y !== requestedTarget.y;
   const path = findRoPath(gatInfo, currentCell, target);
   if (!path) {
     setPlayerMotion('idle', currentFacing);
@@ -1598,9 +1594,38 @@ function requestWalk(event) {
   } else {
     updateRouteLine();
     setStatus((snapped ? '點擊處是障礙，已改到附近可走格。' : '已規劃路徑。')
-      + ' 點擊其他位置可重新下達目的地。');
+      + ' 可點 3D 地面或小地圖更改目的地。');
   }
   updateStats();
+}
+
+function requestWalk(event) {
+  if (!gatInfo || !mapRoot || !currentCell || !mapInfo || mapInfo.mapId !== gatInfo.mapId) {
+    setStatus('請先載入地圖與同名 GAT。', true);
+    return;
+  }
+  const hit = groundHitFromEvent(event);
+  if (!hit) {
+    setStatus('沒有點到可辨識的地面；請點擊地圖地板，而不是天空或牆面。');
+    return;
+  }
+  requestWalkToCell(roMapCellFromWorldPoint(gatInfo, hit.point.x, hit.point.z, worldScale));
+}
+
+function requestMinimapWalk(event) {
+  if (!gatInfo || !mapRoot || !currentCell || !mapInfo || mapInfo.mapId !== gatInfo.mapId) {
+    setStatus('請先載入地圖與同名 GAT。', true);
+    return;
+  }
+  const rect = minimapCanvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const target = mapRoExplorerMinimapPointToCell(
+    (event.clientX - rect.left) / rect.width,
+    (event.clientY - rect.top) / rect.height,
+    gatInfo.width,
+    gatInfo.height
+  );
+  if (target) requestWalkToCell(target);
 }
 
 function advanceMovement(deltaSeconds) {
@@ -1695,6 +1720,7 @@ scaleInput.addEventListener('change', () => {
 });
 speedInput.addEventListener('input', () => { speedValue.textContent = speedInput.value; });
 showMinimapInput.addEventListener('change', updateMinimap);
+minimapCanvas.addEventListener('click', requestMinimapWalk);
 showCellsInput.addEventListener('change', () => {
   makeGrid();
   if (showCellsInput.checked) setStatus('顯示通行格：綠色可走、紅色阻擋、橘色懸崖、藍色水域。');
