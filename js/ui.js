@@ -2094,7 +2094,7 @@ function openRoExplorer() {
     : [];
   if (mobs.length) url.searchParams.set('mobs', JSON.stringify(mobs));
   const directSkillTypes = new Set([
-    'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi'
+    'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc'
   ]);
   const combatSkills = typeof usableSkillEntries === 'function'
     ? usableSkillEntries()
