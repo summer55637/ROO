@@ -110,6 +110,7 @@ let localIdleTexture = null;
 let localIdleMetrics = null;
 let placeholderSpriteTexture = null;
 const playerMotionTextureCache = new Map();
+const playerMotionTextureEntries = new Map();
 let desiredPlayerMotionKey = '';
 let activePlayerMotionKey = '';
 let activePlayerMotionTexture = null;
@@ -1765,6 +1766,12 @@ function setPlayerMotion(motion, direction) {
     return;
   }
 
+  const cachedEntry = playerMotionTextureEntries.get(key);
+  if (cachedEntry) {
+    applyPlayerSpriteTexture(cachedEntry.texture, cachedEntry.metrics, key);
+    return;
+  }
+
   let pending = playerMotionTextureCache.get(key);
   if (!pending) {
     pending = textureLoader.loadAsync(url).then(texture => {
@@ -1780,7 +1787,10 @@ function setPlayerMotion(motion, direction) {
     playerMotionTextureCache.set(key, pending);
   }
 
+  // Do not leave an old-facing walk loop running while the next animation loads.
+  useLocalIdleSprite();
   pending.then(entry => {
+    if (entry) playerMotionTextureEntries.set(key, entry);
     // Direction can change while the public renderer is still responding.
     if (desiredPlayerMotionKey !== key) return;
     if (!entry) {
@@ -1802,8 +1812,7 @@ function refreshAnimatedPlayerTexture(now) {
 }
 
 async function loadExplorerSpriteFrames() {
-  // The current native scene uses the idle pose only; avoid downloading attack frames
-  // until directional movement animation is implemented.
+  // Keep one bundled idle pose as fallback; directional RO idle/walk APNGs load lazily.
   const url = new URL(roExplorerSpriteFramePath(explorerSpriteKey, 0), import.meta.url).href;
   let texture;
   try {
