@@ -2033,6 +2033,30 @@ function renderMapYieldBox(mapObj) {
   </div>`;
 }
 
+/* 探索頁以同源 localStorage 事件呼叫主遊戲引擎，不新增後端或傷害公式。 */
+const RO_EXPLORER_COMBAT_COMMAND_KEY = 'roo_explorer_combat_command';
+function handleRoExplorerCombatStorage(event) {
+  if (!event || event.key !== RO_EXPLORER_COMBAT_COMMAND_KEY || !event.newValue) return;
+  let command;
+  try { command = JSON.parse(event.newValue); } catch (error) { return; }
+  if (!command || command.type !== 'attack'
+    || typeof command.sessionId !== 'string' || !/^[a-z0-9_-]{4,80}$/i.test(command.sessionId)
+    || typeof command.requestId !== 'string' || !/^[a-z0-9_-]{1,100}$/i.test(command.requestId)) return;
+  let result;
+  try {
+    result = typeof attackRoExplorerMonster === 'function'
+      ? attackRoExplorerMonster(command.sessionId, command.spawnKey, command.mapId, command.defId)
+      : { ok: false, accepted: false, error: '主遊戲戰鬥引擎尚未載入。' };
+  } catch (error) { result = { ok: false, accepted: false, error: '主遊戲無法完成戰鬥結算。' }; }
+  try {
+    localStorage.setItem('roo_explorer_combat_result_' + command.sessionId,
+      JSON.stringify(Object.assign({ requestId: command.requestId }, result)));
+  } catch (error) { /* 儲存被停用時，探索端會顯示逾時訊息。 */ }
+}
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', handleRoExplorerCombatStorage);
+}
+
 function openRoExplorer() {
   if (!state) return;
   const url = new URL('tools/ro_explorer.html', window.location.href);

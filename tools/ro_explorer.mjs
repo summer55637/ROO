@@ -67,6 +67,16 @@ const monsterPanel = document.getElementById('monster-panel');
 const monsterTitle = document.getElementById('monster-title');
 const monsterDescription = document.getElementById('monster-description');
 const clearMonsterTargetButton = document.getElementById('clear-monster-target');
+const attackMonsterButton = document.getElementById('attack-monster');
+const stopMonsterAttackButton = document.getElementById('stop-monster-attack');
+const RO_EXPLORER_COMBAT_COMMAND_KEY = 'roo_explorer_combat_command';
+const combatSessionId = 'ex-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+const combatResultKey = 'roo_explorer_combat_result_' + combatSessionId;
+let activeCombatTarget = null;
+let pendingCombatRequest = null;
+let combatRequestCounter = 0;
+let nextCombatAt = 0;
+let combatAttackIntervalMs = 1000;
 const nativeMapInput = document.getElementById('native-map');
 const loadNativeMapButton = document.getElementById('load-native-map');
 
@@ -333,6 +343,7 @@ function updateMinimap() {
   context.imageSmoothingEnabled = false;
 
   for (const entry of monsterEntries) {
+    if (entry.dead) continue;
     const marker = mapRoExplorerCellToMinimap(entry.cell, gatInfo.width, gatInfo.height, size.width, size.height);
     if (!marker) continue;
     context.beginPath();
@@ -572,6 +583,9 @@ function updateStats() {
   if (mapInfo) {
     rows.push('地圖：' + mapInfo.name + '（' + mapInfo.mapId + '）');
     rows.push('場景大小：約 ' + [mapInfo.size.x, mapInfo.size.y, mapInfo.size.z].map(v => v.toFixed(1)).join(' × '));
+  }
+  if (mapInfo && monsterMapIdFromUrl === mapInfo.mapId) {
+    rows.push('野外怪物：' + monsterEntries.filter(entry => !entry.dead).length + ' 隻／初始上限 8');
   }
   if (gatInfo) {
     rows.push('GAT：' + gatInfo.name + '（' + gatInfo.mapId + '）');
@@ -1559,15 +1573,25 @@ async function loadGatFile(file) {
   }
 }
 
+function updateRoExplorerCombatButtons() {
+  if (attackMonsterButton) {
+    attackMonsterButton.disabled = !selectedMonsterEntry || !!selectedMonsterEntry.dead;
+    attackMonsterButton.hidden = !!activeCombatTarget && activeCombatTarget === selectedMonsterEntry;
+  }
+  if (stopMonsterAttackButton) stopMonsterAttackButton.hidden = !activeCombatTarget || activeCombatTarget !== selectedMonsterEntry;
+}
 function clearSelectedRoExplorerMonster() {
+  stopRoExplorerCombat(false);
   selectedMonsterEntry = null;
   selectedMonsterRing.visible = false;
   if (monsterPanel) monsterPanel.hidden = true;
+  updateRoExplorerCombatButtons();
   updateMinimap();
   updateStats();
 }
 
 function clearRoExplorerMonsters() {
+  stopRoExplorerCombat(false);
   monsterGeneration++;
   selectedMonsterEntry = null;
   selectedMonsterRing.visible = false;
@@ -1614,17 +1638,26 @@ function loadRoExplorerMonsterTexture(imageId) {
   monsterTextureCache.set(imageId, promise);
   return promise;
 }
-function selectRoExplorerMonster(entry) {
+function renderSelectedRoExplorerMonster(entry, note) {
   if (!entry) return;
+  const hp = Number.isFinite(entry.currentHp) ? entry.currentHp : entry.monster.hp;
+  const maxHp = Number.isFinite(entry.maxHp) ? entry.maxHp : entry.monster.hp;
+  if (monsterTitle) monsterTitle.textContent = (entry.monster.icon ? entry.monster.icon + ' ' : '') + entry.monster.name
+    + '　Lv.' + entry.monster.level + (entry.dead ? '（已擊敗）' : '');
+  if (monsterDescription) monsterDescription.textContent = 'HP ' + Math.floor(hp).toLocaleString()
+    + ' / ' + Math.floor(maxHp).toLocaleString() + '　ATK ' + Math.floor(entry.monster.atk).toLocaleString()
+    + (note ? '\n' + note : '\n選取後可接近怪物，使用主遊戲引擎普攻。');
+  if (monsterPanel) monsterPanel.hidden = false;
+}
+function selectRoExplorerMonster(entry) {
+  if (!entry || entry.dead) return;
+  if (activeCombatTarget && activeCombatTarget !== entry) stopRoExplorerCombat(false);
   selectedMonsterEntry = entry;
   selectedMonsterRing.position.copy(cellWorldPosition(entry.cell, 0.12));
   selectedMonsterRing.visible = true;
-  if (monsterTitle) monsterTitle.textContent = (entry.monster.icon ? entry.monster.icon + ' ' : '') + entry.monster.name + '　Lv.' + entry.monster.level;
-  if (monsterDescription) monsterDescription.textContent = 'HP ' + Math.floor(entry.monster.hp).toLocaleString()
-    + '　ATK ' + Math.floor(entry.monster.atk).toLocaleString()
-    + '\n此階段可查看目標；即時攻擊與傷害結算尚未接入。';
-  if (monsterPanel) monsterPanel.hidden = false;
-  setStatus('已選取 ' + entry.monster.name + '。怪物已使用 RO 素材顯示；戰鬥結算仍待整合。');
+  renderSelectedRoExplorerMonster(entry);
+  updateRoExplorerCombatButtons();
+  setStatus('已選取 ' + entry.monster.name + '。可按「靠近並自動普攻」。');
   updateMinimap();
   updateStats();
 }
@@ -1635,7 +1668,10 @@ function monsterHitFromEvent(event) {
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-  const hit = raycaster.intersectObject(monsterSpritesRoot, true).find(item => item.object.userData.rooMonsterEntry);
+  const hit = raycaster.intersectObject(monsterSpritesRoot, true).find(item => {
+    const entry = item.object.userData.rooMonsterEntry;
+    return entry && !entry.dead;
+  });
   return hit ? hit.object.userData.rooMonsterEntry : null;
 }
 function syncRoExplorerMonsters() {
@@ -1647,14 +1683,14 @@ function syncRoExplorerMonsters() {
   }
   const spawns = buildRoExplorerMonsterSpawns(gatInfo, explorerMonsterCatalog, currentCell, mapInfo.mapId, { maxCount: 8 });
   const generation = monsterGeneration;
-  for (const spawn of spawns) {
+  for (const [spawnIndex, spawn] of spawns.entries()) {
     const root = new THREE.Group();
     root.position.copy(cellWorldPosition(spawn.cell));
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
       color: 0xffffff, transparent: true, depthTest: true, depthWrite: false,
     }));
     sprite.visible = false;
-    const entry = { ...spawn, root, sprite, texture: null, metrics: null };
+    const entry = { ...spawn, spawnKey: 'm' + spawnIndex, root, sprite, texture: null, metrics: null, dead: false };
     sprite.userData.rooMonsterEntry = entry;
     root.add(sprite);
     monsterSpritesRoot.add(root);
@@ -1695,6 +1731,143 @@ function groundHitFromEvent(event) {
   }
   return null;
 }
+
+function stopRoExplorerCombat(showMessage = true) {
+  const previous = activeCombatTarget;
+  activeCombatTarget = null;
+  nextCombatAt = 0;
+  updateRoExplorerCombatButtons();
+  if (showMessage && previous) setStatus('已停止自動普攻。');
+}
+function findMonsterAdjacentPath(entry) {
+  if (!entry || !gatInfo || !currentCell) return null;
+  const cells = [];
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const x = entry.cell.x + dx, y = entry.cell.y + dy;
+      if (x < 0 || y < 0 || x >= gatInfo.width || y >= gatInfo.height
+        || !isRoMapCellWalkable(gatInfo, x, y)) continue;
+      const path = findRoPath(gatInfo, currentCell, { x, y });
+      if (path && (!cells.length || path.length < cells[0].path.length)) {
+        cells.length = 0;
+        cells.push({ cell: { x, y }, path });
+      } else if (path && cells.length && path.length === cells[0].path.length) {
+        cells.push({ cell: { x, y }, path });
+      }
+    }
+  }
+  cells.sort((a, b) => {
+    const da = Math.hypot(a.cell.x - currentCell.x, a.cell.y - currentCell.y);
+    const db = Math.hypot(b.cell.x - currentCell.x, b.cell.y - currentCell.y);
+    return da - db;
+  });
+  return cells.length ? cells[0].cell : null;
+}
+function startRoExplorerCombat() {
+  const entry = selectedMonsterEntry;
+  if (!entry || entry.dead) {
+    setStatus('請先選取還存活的怪物。', true);
+    return;
+  }
+  if (!gatInfo || !mapInfo || mapInfo.mapId !== gatInfo.mapId || mapInfo.mapId !== monsterMapIdFromUrl) {
+    setStatus('請先載入目前地圖及相同名稱的 GAT。', true);
+    return;
+  }
+  const targetDistance = () => Math.max(Math.abs(currentCell.x - entry.cell.x), Math.abs(currentCell.y - entry.cell.y));
+  activeCombatTarget = entry;
+  updateRoExplorerCombatButtons();
+  if (targetDistance() > 1) {
+    const adjacent = findMonsterAdjacentPath(entry);
+    if (!adjacent) {
+      stopRoExplorerCombat(false);
+      setStatus('找不到通往怪物附近的可走路徑。', true);
+      return;
+    }
+    requestWalkToCell(adjacent);
+    setStatus('正接近 ' + entry.monster.name + '；抵達一格距離後會開始普攻。');
+  } else {
+    nextCombatAt = 0;
+    setStatus('已進入普攻距離，準備攻擊 ' + entry.monster.name + '。');
+  }
+}
+function requestRoExplorerCombatAttack(entry) {
+  if (!entry || pendingCombatRequest) return;
+  const requestId = combatSessionId + '-' + (++combatRequestCounter).toString(36);
+  pendingCombatRequest = { requestId, entry };
+  const command = {
+    type: 'attack', requestId, sessionId: combatSessionId, spawnKey: entry.spawnKey,
+    mapId: mapInfo.mapId, defId: entry.monster.id,
+  };
+  try {
+    localStorage.setItem(RO_EXPLORER_COMBAT_COMMAND_KEY, JSON.stringify(command));
+    setStatus('正在由主遊戲引擎結算普攻…');
+  } catch (error) {
+    pendingCombatRequest = null;
+    nextCombatAt = performance.now() + 2000;
+    setStatus('無法傳送戰鬥指令；請允許此網站使用本機儲存。', true);
+    return;
+  }
+  window.setTimeout(() => {
+    if (!pendingCombatRequest || pendingCombatRequest.requestId !== requestId) return;
+    pendingCombatRequest = null;
+    nextCombatAt = performance.now() + 2000;
+    setStatus('未收到主遊戲回覆。請保持同源的主遊戲分頁開啟，再重新嘗試。', true);
+  }, 5000);
+}
+function handleRoExplorerCombatStorage(event) {
+  if (!event || event.key !== combatResultKey || !event.newValue) return;
+  let result;
+  try { result = JSON.parse(event.newValue); } catch (error) { return; }
+  if (!pendingCombatRequest || !result || result.requestId !== pendingCombatRequest.requestId) return;
+  const entry = pendingCombatRequest.entry;
+  pendingCombatRequest = null;
+  if (Number.isFinite(result.hp)) entry.currentHp = Math.max(0, result.hp);
+  if (Number.isFinite(result.maxHp)) entry.maxHp = Math.max(1, result.maxHp);
+  if (result.killed || entry.currentHp <= 0) {
+    entry.dead = true;
+    entry.root.visible = false;
+    entry.sprite.raycast = () => {};
+    if (selectedMonsterEntry === entry) selectedMonsterRing.visible = false;
+    if (activeCombatTarget === entry) activeCombatTarget = null;
+    renderSelectedRoExplorerMonster(entry, '已擊敗；經驗、職業經驗、金幣及掉落由主遊戲引擎結算。');
+    setStatus('擊敗 ' + entry.monster.name + '！獎勵已交由主遊戲結算。');
+    updateRoExplorerCombatButtons();
+    updateMinimap();
+    updateStats();
+    return;
+  }
+  if (!result.ok) {
+    stopRoExplorerCombat(false);
+    setStatus(result.error || '主遊戲拒絕了這次攻擊。', true);
+    renderSelectedRoExplorerMonster(entry, result.error || '主遊戲拒絕攻擊。');
+    updateRoExplorerCombatButtons();
+    return;
+  }
+  if (result.rateLimited) {
+    nextCombatAt = performance.now() + Math.max(50, Number(result.retryAfterMs) || 250);
+    return;
+  }
+  if (!result.accepted) {
+    stopRoExplorerCombat(false);
+    setStatus(result.error || '攻擊未執行；請檢查角色是否能攻擊及弓箭矢。', true);
+    renderSelectedRoExplorerMonster(entry, result.error || '攻擊未執行。');
+    updateRoExplorerCombatButtons();
+    return;
+  }
+  combatAttackIntervalMs = Math.max(150, Number(result.attackIntervalMs) || 1000);
+  nextCombatAt = performance.now() + combatAttackIntervalMs;
+  const note = result.damageDealt > 0
+    ? '本次造成 ' + Math.floor(result.damageDealt).toLocaleString() + ' 傷害。'
+    : '本次未造成傷害。';
+  renderSelectedRoExplorerMonster(entry, note + ' 玩家 HP ' + Math.floor(result.playerHp).toLocaleString()
+    + ' / ' + Math.floor(result.playerMaxHp).toLocaleString() + '。');
+  setStatus(note + ' 目標 HP ' + Math.floor(entry.currentHp).toLocaleString()
+    + ' / ' + Math.floor(entry.maxHp).toLocaleString() + '。');
+}
+window.addEventListener('storage', handleRoExplorerCombatStorage);
+attackMonsterButton.addEventListener('click', startRoExplorerCombat);
+stopMonsterAttackButton.addEventListener('click', () => stopRoExplorerCombat());
 
 function requestWalkToCell(requestedTarget) {
   if (!gatInfo || !mapRoot || !currentCell || !mapInfo || mapInfo.mapId !== gatInfo.mapId) {
@@ -1880,6 +2053,7 @@ scaleInput.addEventListener('change', () => {
 speedInput.addEventListener('input', () => { speedValue.textContent = speedInput.value; });
 showMinimapInput.addEventListener('change', updateMinimap);
 clearMonsterTargetButton.addEventListener('click', clearSelectedRoExplorerMonster);
+updateRoExplorerCombatButtons();
 minimapCanvas.addEventListener('click', requestMinimapWalk);
 showCellsInput.addEventListener('change', () => {
   makeGrid();
@@ -1928,6 +2102,9 @@ const stopRenderLoop = createVisibilityAwareFrameLoop(
     const delta = lastFrame ? Math.min((now - lastFrame) / 1000, 0.05) : 0;
     lastFrame = now;
     advanceMovement(delta);
+    if (activeCombatTarget && !activeCombatTarget.dead && !pendingCombatRequest && !movementPath
+      && currentCell && Math.max(Math.abs(currentCell.x - activeCombatTarget.cell.x), Math.abs(currentCell.y - activeCombatTarget.cell.y)) <= 1
+      && now >= nextCombatAt) requestRoExplorerCombatAttack(activeCombatTarget);
     advanceNativeWater(now);
     advanceRsmAnimations(now);
     refreshAnimatedPlayerTexture(now);

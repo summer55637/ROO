@@ -6535,6 +6535,106 @@ function playerAttack() {
   // playerAttack 有十幾個 return 點，包一層才不用逐一改成 return true
   return playerAttackInner() !== false;
 }
+const RO_EXPLORER_COMBAT_TARGETS = new Map();
+let roExplorerCombatSequence = 0;
+
+/* 原生探索暫借引擎怪物陣列結算同一條戰鬥流程，完成後復原放置戰鬥場。 */
+function attackRoExplorerMonster(sessionId, spawnKey, mapId, defId) {
+  const reject = message => ({ ok: false, accepted: false, error: message });
+  if (typeof sessionId !== 'string' || !/^[a-z0-9_-]{4,80}$/i.test(sessionId)
+    || typeof spawnKey !== 'string' || !/^[a-z0-9_-]{1,32}$/i.test(spawnKey)) return reject('探索戰鬥識別碼無效。');
+  if (typeof mapId !== 'string' || !/^[a-z0-9_@-]{1,64}$/i.test(mapId)) return reject('地圖識別碼無效。');
+  if (!state || String(state.mapId || '') !== mapId) return reject('主遊戲目前不在這張地圖；請重新開啟探索。');
+  if (state.hp <= 0) return reject('角色已倒下，暫時無法攻擊。');
+  if (typeof playerImmobile === 'function' && playerImmobile()) return reject('角色目前無法行動。');
+
+  const map = Array.isArray(MAPS) ? MAPS.find(item => item.id === mapId) : null;
+  if (!map || !Array.isArray(map.monsters) || !map.monsters.some(item => item && item.id === defId)) {
+    return reject('這隻怪物不屬於目前地圖。');
+  }
+  const def = MONSTERS[defId];
+  if (!def || !Number.isFinite(def.hp) || def.hp < 1) return reject('怪物資料不存在。');
+
+  const key = sessionId + ':' + mapId + ':' + spawnKey;
+  let record = RO_EXPLORER_COMBAT_TARGETS.get(key);
+  if (record && record.defId !== defId) return reject('怪物位置資料已變更，請重新選取目標。');
+  if (!record) {
+    const maxHp = Math.max(1, Math.round(def.hp * farmMult('hp')));
+    roExplorerCombatSequence = (roExplorerCombatSequence + 1) % 1000000000;
+    const monster = {
+      defId, hp: maxHp, maxHp, id: -2000000000 + roExplorerCombatSequence,
+      spawnedAt: Date.now(), lastAttackTime: Date.now(), farmMode: farmMode(),
+    };
+    record = { defId, monster, killed: false, lastAttackAt: 0, updatedAt: Date.now() };
+    RO_EXPLORER_COMBAT_TARGETS.set(key, record);
+  }
+
+  const target = record.monster;
+  record.updatedAt = Date.now();
+  const maxInterval = Math.max(100, Math.min(12000, Number(state.attackInterval) || 1000));
+  const attackIntervalMs = Math.ceil(maxInterval / Math.max(0.2, 1 + pDebuff('aspdPct') / 100));
+  if (record.killed || target.hp <= 0 || target._killed) {
+    record.killed = true;
+    return { ok: true, accepted: false, killed: true, hp: 0, maxHp: target.maxHp,
+      attackIntervalMs, playerHp: state.hp, playerMaxHp: state.maxHp };
+  }
+  const now = Date.now();
+  if (record.lastAttackAt && now - record.lastAttackAt < attackIntervalMs * 0.75) {
+    return { ok: true, accepted: false, rateLimited: true,
+      retryAfterMs: Math.max(50, Math.ceil(attackIntervalMs - (now - record.lastAttackAt))),
+      hp: target.hp, maxHp: target.maxHp, attackIntervalMs, playerHp: state.hp, playerMaxHp: state.maxHp };
+  }
+
+  const previousMonsters = state.monsters;
+  const previousMonster = state.monster;
+  const hpBefore = target.hp;
+  let accepted = false;
+  try {
+    state.monsters = [target];
+    state.monster = target;
+    accepted = playerAttack();
+    if (accepted && target.hp > 0 && !target._killed) {
+      record.lastAttackAt = now;
+      const monDef = MONSTERS[target.defId];
+      const interval = ((monDef && monDef.atkInterval) ? monDef.atkInterval * 1000 : 1000)
+        / (1 + monBuff(target, 'aspdPct') / 100) / monDebuffAspd(target);
+      if (!target.lastAttackTime) target.lastAttackTime = now;
+      if (now - target.lastAttackTime >= interval) {
+        target.lastAttackTime = now;
+        monsterAttackSingle(target);
+      }
+    } else if (accepted) {
+      record.lastAttackAt = now;
+    }
+  } catch (error) {
+    return reject('戰鬥結算失敗：' + (error && error.message ? error.message : '未知錯誤'));
+  } finally {
+    if (state.hp <= 0 && Array.isArray(previousMonsters)) {
+      previousMonsters.length = 0;
+      state.monsters = previousMonsters;
+      state.monster = null;
+    } else {
+      state.monsters = previousMonsters;
+      state.monster = previousMonster;
+    }
+  }
+
+  record.killed = target.hp <= 0 || !!target._killed;
+  if (typeof saveGameThrottled === 'function') saveGameThrottled();
+  if (RO_EXPLORER_COMBAT_TARGETS.size > 128) {
+    const cutoff = Date.now() - 30 * 60 * 1000;
+    for (const [targetKey, targetRecord] of RO_EXPLORER_COMBAT_TARGETS) {
+      if (targetRecord.updatedAt < cutoff || RO_EXPLORER_COMBAT_TARGETS.size > 160) RO_EXPLORER_COMBAT_TARGETS.delete(targetKey);
+    }
+  }
+  return {
+    ok: true, accepted, killed: record.killed,
+    damageDealt: Math.max(0, hpBefore - Math.max(0, target.hp)),
+    hp: Math.max(0, target.hp), maxHp: target.maxHp, attackIntervalMs,
+    playerHp: state.hp, playerMaxHp: state.maxHp, playerSp: state.sp, playerMaxSp: state.maxSp,
+  };
+}
+
 function playerAttackInner() {
   if (!state.monsters || state.monsters.length === 0) return false;
   // 弓沒箭就打不出去（先擋在最前面，音效動畫都不放）

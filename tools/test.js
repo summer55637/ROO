@@ -64,6 +64,7 @@ const SUITES = [
   'test_ro_explorer_sprites.mjs', // 原生探索使用安全的 RO 職業影格素材
   'test_ro_explorer_minimap.mjs', // 原生探索小地圖地形與座標
   'test_ro_explorer_monsters.mjs', // 原生探索怪物生成與選取資料
+  'test_ro_explorer_combat.js', // 原生探索普攻接回主引擎
   'test_saveio.js',      // 存檔匯出/匯入：序列化、遷移、覆寫與失敗還原
 ];
 

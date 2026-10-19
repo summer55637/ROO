@@ -44,7 +44,9 @@
     .monster-panel[hidden] { display: none; }
     .monster-panel strong { display: block; margin-bottom: 5px; font-size: 13px; }
     .monster-panel p { margin: 0 0 8px; white-space: pre-line; color: #dec8c2; }
-    .monster-panel button { border-color: #8a5b52; background: #402a2b; }
+    .monster-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+    .monster-panel button { border-color: #8a5b52; background: #402a2b; padding: 5px 8px; font-size: 11px; }
+    .monster-panel button:disabled { opacity: .45; cursor: not-allowed; }
     footer { padding: 8px 16px; border-top: 1px solid #273549; }
     a { color: #8cc8ff; }
     @media (max-width: 700px) {
@@ -119,7 +121,11 @@ ragx maps prontera --client "C:/Gravity/Ragnarok" --format glb --world-scale 0.2
       <section id="monster-panel" class="monster-panel" hidden aria-live="polite" aria-label="選取的 RO 怪物">
         <strong id="monster-title">目標怪物</strong>
         <p id="monster-description"></p>
-        <button id="clear-monster-target" type="button">解除選取</button>
+        <div class="monster-actions">
+          <button id="attack-monster" type="button">靠近並自動普攻</button>
+          <button id="stop-monster-attack" type="button" hidden>停止普攻</button>
+          <button id="clear-monster-target" type="button">解除選取</button>
+        </div>
       </section>
       <section id="minimap-panel" class="minimap-panel" hidden aria-label="地圖小地圖">
         <div class="minimap-heading"><strong id="minimap-map-name">RO 地圖</strong><span>北 ↑</span></div>
