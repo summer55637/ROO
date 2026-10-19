@@ -82,6 +82,7 @@ let nativeRenderStats = null;
 let nativeWaterAnimations = [];
 let activeRsmAnimations = [];
 const nativeMapLoadGate = createLatestRequestGate();
+let nativeMapLoadAbortController = null;
 let gridMesh = null;
 const MAX_NATIVE_MODEL_ASSETS = 100;
 const MAX_NATIVE_MODEL_PLACEMENTS = 450;
@@ -476,6 +477,13 @@ function clearNativeWaterAnimation() {
   nativeWaterAnimations = [];
 }
 
+function beginLocalMapLoadRequest() {
+  if (nativeMapLoadAbortController) nativeMapLoadAbortController.abort();
+  nativeMapLoadAbortController = null;
+  const token = nativeMapLoadGate.begin();
+  return () => nativeMapLoadGate.isCurrent(token);
+}
+
 function advanceNativeWater(now) {
   for (const animation of nativeWaterAnimations) {
     if (animation.waveEnabled && animation.basePositions && animation.tileCoordinates) {
@@ -817,7 +825,7 @@ function makeRswInstanceTransform(instance, scale) {
   return group;
 }
 
-async function loadAndPlaceRswModels(rsw, urls, mapRoot, scale, isCurrentRequest) {
+async function loadAndPlaceRswModels(rsw, urls, mapRoot, scale, isCurrentRequest, requestSignal) {
   const textureCache = new Map();
   const placements = rsw.models.slice(0, MAX_NATIVE_MODEL_PLACEMENTS);
   const availableByUrl = new Map();
@@ -841,13 +849,17 @@ async function loadAndPlaceRswModels(rsw, urls, mapRoot, scale, isCurrentRequest
     const batch = selectedUrls.slice(start, start + 8);
     const loaded = await Promise.all(batch.map(async assetUrl => {
       try {
-        const response = await fetch(assetUrl, { mode: 'cors', signal: AbortSignal.timeout(20000) });
+        const timeoutSignal = AbortSignal.timeout(20000);
+        const fetchSignal = requestSignal && typeof AbortSignal.any === 'function'
+          ? AbortSignal.any([requestSignal, timeoutSignal])
+          : (requestSignal || timeoutSignal);
+        const response = await fetch(assetUrl, { mode: 'cors', signal: fetchSignal });
         if (!response.ok) throw new Error('RSM HTTP ' + response.status);
         const rsm = parseRsmBuffer(await response.arrayBuffer());
         const template = buildRsmTemplate(rsm, urls, scale, textureCache);
         return { assetUrl, template, supported: !!template };
       } catch (error) {
-        console.warn('ROO RSM 載入失敗：' + assetUrl, error);
+        if (isCurrentRequest()) console.warn('ROO RSM 載入失敗：' + assetUrl, error);
         return { assetUrl, template: null, supported: false };
       }
     }));
@@ -855,10 +867,37 @@ async function loadAndPlaceRswModels(rsw, urls, mapRoot, scale, isCurrentRequest
       if (item.template) templates.set(item.assetUrl, item.template);
       else failedOrUnsupported++;
     }
-    if (isCurrentRequest()) {
-      setStatus('已解析 ' + Math.min(start + batch.length, selectedUrls.length) + '/'
-        + selectedUrls.length + ' 個地圖模型資源…');
+    if (!isCurrentRequest()) {
+      const geometries = new Set();
+      const materials = new Set();
+      const textures = new Set(textureCache.values());
+      for (const template of templates.values()) {
+        template.traverse(node => {
+          if (node.geometry) geometries.add(node.geometry);
+          const list = Array.isArray(node.material) ? node.material : (node.material ? [node.material] : []);
+          for (const material of list) {
+            materials.add(material);
+            for (const value of Object.values(material)) {
+              if (value && value.isTexture) textures.add(value);
+            }
+          }
+        });
+      }
+      for (const geometry of geometries) geometry.dispose();
+      for (const material of materials) material.dispose();
+      for (const texture of textures) texture.dispose();
+      return {
+        renderedPlacements: 0,
+        loadedAssets: 0,
+        unsupportedOrFailed: 0,
+        unresolvedNames: 0,
+        truncatedPlacements: 0,
+        animations: [],
+        aborted: true,
+      };
     }
+    setStatus('已解析 ' + Math.min(start + batch.length, selectedUrls.length) + '/'
+      + selectedUrls.length + ' 個地圖模型資源…');
   }
 
   let renderedPlacements = 0;
@@ -1067,6 +1106,8 @@ async function addNativeWater(root, gat, waterConfig, urls, scale) {
 
 async function loadRagassetsMap(mapName) {
   const loadToken = nativeMapLoadGate.begin();
+  if (nativeMapLoadAbortController) nativeMapLoadAbortController.abort();
+  nativeMapLoadAbortController = null;
   const isCurrentRequest = () => nativeMapLoadGate.isCurrent(loadToken);
   let stagedRoot = null;
   let stagedWaterStats = null;
@@ -1076,19 +1117,21 @@ async function loadRagassetsMap(mapName) {
     return;
   }
 
+  const abortController = new AbortController();
+  nativeMapLoadAbortController = abortController;
   setStatus('正在從公開素材來源載入 ' + mapId + ' 的 GND／GAT／RSW…');
   try {
     const manifestUrl = new URL('/maps/' + mapId + '/manifest.json', RAGASSETS_BASE_URL);
-    const manifestResponse = await fetch(manifestUrl.href, { mode: 'cors' });
+    const manifestResponse = await fetch(manifestUrl.href, { mode: 'cors', signal: abortController.signal });
     if (!isCurrentRequest()) return;
     if (!manifestResponse.ok) throw new Error('manifest HTTP ' + manifestResponse.status);
     const manifest = await manifestResponse.json();
     if (!isCurrentRequest()) return;
     const urls = resolveRagassetsMapUrls(mapId, manifest);
     const responses = await Promise.all([
-      fetch(urls.gnd, { mode: 'cors' }),
-      fetch(urls.gat, { mode: 'cors' }),
-      fetch(urls.rsw, { mode: 'cors' }),
+      fetch(urls.gnd, { mode: 'cors', signal: abortController.signal }),
+      fetch(urls.gat, { mode: 'cors', signal: abortController.signal }),
+      fetch(urls.rsw, { mode: 'cors', signal: abortController.signal }),
     ]);
     if (!isCurrentRequest()) return;
     const labels = ['GND 地表', 'GAT 通行格', 'RSW 場景設定'];
@@ -1178,8 +1221,10 @@ async function loadRagassetsMap(mapName) {
     }
 
     setStatus('地表已建立，正在載入 RSW 模型資源…');
-    const nextRenderStats = await loadAndPlaceRswModels(parsedRsw, urls, stagedRoot, nextScale, isCurrentRequest);
-    if (!isCurrentRequest()) {
+    const nextRenderStats = await loadAndPlaceRswModels(
+      parsedRsw, urls, stagedRoot, nextScale, isCurrentRequest, abortController.signal
+    );
+    if (!isCurrentRequest() || nextRenderStats.aborted) {
       disposeObject(stagedRoot);
       stagedRoot = null;
       return;
@@ -1251,28 +1296,41 @@ async function loadRagassetsMap(mapName) {
     setStatus('公開原生地圖載入失敗：' + error.message
       + '。公開素材服務可能暫時離線；可切回公開地圖預覽或改用本機 GLB/GAT。', true);
     console.error(error);
+  } finally {
+    if (nativeMapLoadAbortController === abortController) nativeMapLoadAbortController = null;
   }
 }
 
 async function loadMapFile(file) {
-  nativeMapLoadGate.begin();
+  const isCurrentRequest = beginLocalMapLoadRequest();
   setStatus('正在載入 ' + file.name + '…');
+  let stagedRoot = null;
   try {
     const buffer = await file.arrayBuffer();
+    if (!isCurrentRequest()) return;
     const gltf = await new Promise((resolve, reject) => loader.parse(buffer, '', resolve, reject));
+    stagedRoot = gltf.scene;
+    if (!isCurrentRequest()) {
+      disposeObject(stagedRoot);
+      stagedRoot = null;
+      return;
+    }
+    stagedRoot.updateMatrixWorld(true);
+    const stagedBounds = new THREE.Box3().setFromObject(stagedRoot);
+    if (stagedBounds.isEmpty()) throw new Error('GLB 沒有可顯示的模型。');
+    const size = stagedBounds.getSize(new THREE.Vector3());
+
     clearNativeWaterAnimation();
     if (mapRoot) {
       scene.remove(mapRoot);
       disposeObject(mapRoot);
     }
-    mapRoot = gltf.scene;
+    mapRoot = stagedRoot;
+    stagedRoot = null;
     activeRsmAnimations = [];
     scene.add(mapRoot);
     mapRoot.updateMatrixWorld(true);
     mapBounds = new THREE.Box3().setFromObject(mapRoot);
-    if (mapBounds.isEmpty()) throw new Error('GLB 沒有可顯示的模型。');
-
-    const size = mapBounds.getSize(new THREE.Vector3());
     mapInfo = { name: file.name, mapId: mapIdFromName(file.name), size, native: false };
     gndInfo = null;
     rswInfo = null;
@@ -1282,19 +1340,25 @@ async function loadMapFile(file) {
     finishOrRefreshScene();
     if (!gatInfo) setStatus('已載入 GLB。請再選取同一張地圖的 GAT 檔，才能啟用碰撞與尋路。');
   } catch (error) {
+    if (stagedRoot) disposeObject(stagedRoot);
+    if (!isCurrentRequest()) return;
     setStatus('GLB 載入失敗：' + error.message, true);
     console.error(error);
   }
 }
 
 async function loadGatFile(file) {
-  nativeMapLoadGate.begin();
+  const isCurrentRequest = beginLocalMapLoadRequest();
   setStatus('正在解析 ' + file.name + '…');
   try {
-    gatInfo = parseGatBuffer(await file.arrayBuffer(), file.name);
-    worldScale = safeScale();
-    if (!worldScale) throw new Error('世界比例必須大於 0，且不可大於 10。');
-    if (mapRoot && mapInfo && mapInfo.mapId !== gatInfo.mapId) {
+    const buffer = await file.arrayBuffer();
+    if (!isCurrentRequest()) return;
+    const parsedGat = parseGatBuffer(buffer, file.name);
+    const nextScale = safeScale();
+    if (!nextScale) throw new Error('世界比例必須大於 0，且不可大於 10。');
+    if (mapRoot && mapInfo && mapInfo.mapId !== parsedGat.mapId) {
+      gatInfo = parsedGat;
+      worldScale = nextScale;
       removeGrid();
       removeRoute();
       playerSprite.visible = false;
@@ -1303,8 +1367,11 @@ async function loadGatFile(file) {
       setStatus('兩個檔案名稱不一致：地圖=' + mapInfo.mapId + '，GAT=' + gatInfo.mapId + '。請選同一張地圖。', true);
       return;
     }
+    gatInfo = parsedGat;
+    worldScale = nextScale;
     finishOrRefreshScene();
   } catch (error) {
+    if (!isCurrentRequest()) return;
     gatInfo = null;
     removeGrid();
     removeRoute();
