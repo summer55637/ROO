@@ -2135,7 +2135,9 @@ function onKingdomSelectChange(kingdomId) {
 
 function onRegionSelectChange(regionId) {
   const region = REGIONS.find(r => r.id === regionId);
-  const nextMapId = region && (region.maps || []).find(id => MAPS.some(map => map.id === id));
+  const nextMapId = typeof getRegionDefaultMapId === 'function'
+    ? getRegionDefaultMapId(regionId)
+    : region && (region.maps || []).find(id => MAPS.some(map => map.id === id));
   if (!region || !nextMapId) {
     if (typeof showToast === 'function') showToast('這個地區目前沒有可用地圖。');
     renderMapTab();
@@ -2149,7 +2151,7 @@ function onRegionSelectChange(regionId) {
   const kingdom = KINGDOMS.find(k => k.regions.includes(region.id));
   if (kingdom) selectedKingdomId = kingdom.id;
 
-  selectMap(nextMapId); // 選取該地區第一張實際存在的地圖。
+  selectMap(nextMapId); // 優先進安全城鎮，沒城鎮時才進第一張有效地圖。
   if (state.mapId !== nextMapId) {
     // 防止地圖資料不完整時，選單顯示的地區與角色實際位置不一致。
     selectedRegionId = previousRegionId;
