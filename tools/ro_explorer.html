@@ -45,6 +45,8 @@
     .monster-panel strong { display: block; margin-bottom: 5px; font-size: 13px; }
     .monster-panel p { margin: 0 0 8px; white-space: pre-line; color: #dec8c2; }
     .monster-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+    .monster-skill-picker { flex: 1 1 100%; min-width: 0; }
+    .monster-skill-picker select { flex: 1; width: 100%; min-width: 0; }
     .monster-panel button { border-color: #8a5b52; background: #402a2b; padding: 5px 8px; font-size: 11px; }
     .monster-panel button:disabled { opacity: .45; cursor: not-allowed; }
     footer { padding: 8px 16px; border-top: 1px solid #273549; }
@@ -124,6 +126,12 @@ ragx maps prontera --client "C:/Gravity/Ragnarok" --format glb --world-scale 0.2
         <div class="monster-actions">
           <button id="attack-monster" type="button">靠近並自動普攻</button>
           <button id="stop-monster-attack" type="button" hidden>停止普攻</button>
+          <label class="monster-skill-picker" for="monster-skill">主動技能
+            <select id="monster-skill" name="monster-skill" aria-label="選擇主動攻擊技能" disabled>
+              <option value="">載入已學技能…</option>
+            </select>
+          </label>
+          <button id="cast-monster-skill" type="button" disabled>施放技能</button>
           <button id="clear-monster-target" type="button">解除選取</button>
         </div>
       </section>

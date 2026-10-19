@@ -2033,20 +2033,28 @@ function renderMapYieldBox(mapObj) {
   </div>`;
 }
 
-/* 探索頁以同源 localStorage 事件呼叫主遊戲引擎，不新增後端或傷害公式。 */
+/* 探索頁透過同源 localStorage 呼叫主遊戲引擎，不新增後端或傷害公式。 */
 const RO_EXPLORER_COMBAT_COMMAND_KEY = 'roo_explorer_combat_command';
 function handleRoExplorerCombatStorage(event) {
   if (!event || event.key !== RO_EXPLORER_COMBAT_COMMAND_KEY || !event.newValue) return;
   let command;
   try { command = JSON.parse(event.newValue); } catch (error) { return; }
-  if (!command || command.type !== 'attack'
+  if (!command || !['attack', 'skill'].includes(command.type)
     || typeof command.sessionId !== 'string' || !/^[a-z0-9_-]{4,80}$/i.test(command.sessionId)
     || typeof command.requestId !== 'string' || !/^[a-z0-9_-]{1,100}$/i.test(command.requestId)) return;
+  if (command.type === 'skill'
+    && (typeof command.skillId !== 'string' || !/^[a-z0-9_]{1,48}$/i.test(command.skillId))) return;
   let result;
   try {
-    result = typeof attackRoExplorerMonster === 'function'
-      ? attackRoExplorerMonster(command.sessionId, command.spawnKey, command.mapId, command.defId)
-      : { ok: false, accepted: false, error: '主遊戲戰鬥引擎尚未載入。' };
+    if (command.type === 'skill') {
+      result = typeof castRoExplorerSkill === 'function'
+        ? castRoExplorerSkill(command.sessionId, command.spawnKey, command.mapId, command.defId, command.skillId)
+        : { ok: false, accepted: false, error: '主遊戲技能引擎尚未載入。' };
+    } else {
+      result = typeof attackRoExplorerMonster === 'function'
+        ? attackRoExplorerMonster(command.sessionId, command.spawnKey, command.mapId, command.defId)
+        : { ok: false, accepted: false, error: '主遊戲戰鬥引擎尚未載入。' };
+    }
   } catch (error) { result = { ok: false, accepted: false, error: '主遊戲無法完成戰鬥結算。' }; }
   try {
     localStorage.setItem('roo_explorer_combat_result_' + command.sessionId,
@@ -2079,6 +2087,20 @@ function openRoExplorer() {
     }).filter(Boolean)
     : [];
   if (mobs.length) url.searchParams.set('mobs', JSON.stringify(mobs));
+  const directSkillTypes = new Set([
+    'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc'
+  ]);
+  const combatSkills = typeof usableSkillEntries === 'function'
+    ? usableSkillEntries()
+      .filter(entry => entry && entry.sk && entry.lv > 0 && directSkillTypes.has(entry.sk.type))
+      .slice(0, 30)
+      .map(entry => ({
+        id: entry.sk.id, name: entry.sk.name, level: entry.lv,
+        spCost: typeof skillSpCost === 'function' ? skillSpCost(entry.sk, entry.lv) : 0,
+        type: entry.sk.type
+      }))
+    : [];
+  if (combatSkills.length) url.searchParams.set('skills', JSON.stringify(combatSkills));
   window.open(url.toString(), '_blank', 'noopener,noreferrer');
 }
 

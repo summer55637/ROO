@@ -69,6 +69,8 @@ const monsterDescription = document.getElementById('monster-description');
 const clearMonsterTargetButton = document.getElementById('clear-monster-target');
 const attackMonsterButton = document.getElementById('attack-monster');
 const stopMonsterAttackButton = document.getElementById('stop-monster-attack');
+const monsterSkillInput = document.getElementById('monster-skill');
+const castMonsterSkillButton = document.getElementById('cast-monster-skill');
 const RO_EXPLORER_COMBAT_COMMAND_KEY = 'roo_explorer_combat_command';
 const combatSessionId = 'ex-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 const combatResultKey = 'roo_explorer_combat_result_' + combatSessionId;
@@ -112,6 +114,28 @@ const explorerParams = new URLSearchParams(window.location.search);
 const explorerSpriteKey = resolveRoExplorerSpriteKey(explorerParams.get('sprite'));
 const monsterMapIdFromUrl = String(explorerParams.get('map') || '').trim().toLowerCase();
 const explorerMonsterCatalog = parseRoExplorerMonsterCatalog(explorerParams.get('mobs'));
+const RO_EXPLORER_DIRECT_SKILL_TYPES = new Set([
+  'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc'
+]);
+function parseRoExplorerSkillCatalog(raw) {
+  try {
+    const value = JSON.parse(String(raw || ''));
+    if (!Array.isArray(value)) return [];
+    return value.slice(0, 80).filter(skill => skill
+      && typeof skill.id === 'string' && /^[a-z0-9_]{1,48}$/i.test(skill.id)
+      && typeof skill.name === 'string' && skill.name.length > 0 && skill.name.length <= 80
+      && Number.isInteger(skill.level) && skill.level >= 1 && skill.level <= 200
+      && RO_EXPLORER_DIRECT_SKILL_TYPES.has(skill.type))
+      .map(skill => ({
+        id: skill.id, name: skill.name, level: skill.level,
+        spCost: Number.isFinite(Number(skill.spCost)) ? Math.max(0, Math.floor(Number(skill.spCost))) : 0,
+        type: skill.type
+      }));
+  } catch (error) {
+    return [];
+  }
+}
+const explorerSkillCatalog = parseRoExplorerSkillCatalog(explorerParams.get('skills'));
 
 let mapRoot = null;
 let mapInfo = null;
@@ -164,6 +188,7 @@ const monsterTextureSet = new Set();
 const monsterEntries = [];
 let monsterGeneration = 0;
 let selectedMonsterEntry = null;
+let queuedCombatSkill = null;
 let lastMonsterTextureUploadAt = 0;
 
 const axes = new THREE.AxesHelper(10);
@@ -1579,9 +1604,32 @@ function updateRoExplorerCombatButtons() {
     attackMonsterButton.hidden = !!activeCombatTarget && activeCombatTarget === selectedMonsterEntry;
   }
   if (stopMonsterAttackButton) stopMonsterAttackButton.hidden = !activeCombatTarget || activeCombatTarget !== selectedMonsterEntry;
+  if (monsterSkillInput) monsterSkillInput.disabled = !explorerSkillCatalog.length || !!pendingCombatRequest;
+  if (castMonsterSkillButton) {
+    castMonsterSkillButton.disabled = !selectedMonsterEntry || !!selectedMonsterEntry.dead
+      || !explorerSkillCatalog.some(skill => skill.id === (monsterSkillInput && monsterSkillInput.value))
+      || !!pendingCombatRequest;
+  }
+}
+function populateRoExplorerSkillPicker() {
+  if (!monsterSkillInput) return;
+  monsterSkillInput.replaceChildren();
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = explorerSkillCatalog.length ? '選擇主動技能' : '沒有已學攻擊技能';
+  monsterSkillInput.appendChild(placeholder);
+  explorerSkillCatalog.forEach(skill => {
+    const option = document.createElement('option');
+    option.value = skill.id;
+    option.textContent = skill.name + ' Lv.' + skill.level + '（SP ' + skill.spCost + '）';
+    monsterSkillInput.appendChild(option);
+  });
+  monsterSkillInput.disabled = !explorerSkillCatalog.length;
+  updateRoExplorerCombatButtons();
 }
 function clearSelectedRoExplorerMonster() {
   stopRoExplorerCombat(false);
+  queuedCombatSkill = null;
   selectedMonsterEntry = null;
   selectedMonsterRing.visible = false;
   if (monsterPanel) monsterPanel.hidden = true;
@@ -1646,11 +1694,12 @@ function renderSelectedRoExplorerMonster(entry, note) {
     + '　Lv.' + entry.monster.level + (entry.dead ? '（已擊敗）' : '');
   if (monsterDescription) monsterDescription.textContent = 'HP ' + Math.floor(hp).toLocaleString()
     + ' / ' + Math.floor(maxHp).toLocaleString() + '　ATK ' + Math.floor(entry.monster.atk).toLocaleString()
-    + (note ? '\n' + note : '\n選取後可接近怪物，使用主遊戲引擎普攻。');
+    + (note ? '\n' + note : '\n可普攻，或選擇已學主動技能施放。');
   if (monsterPanel) monsterPanel.hidden = false;
 }
 function selectRoExplorerMonster(entry) {
   if (!entry || entry.dead) return;
+  if (selectedMonsterEntry !== entry) queuedCombatSkill = null;
   if (activeCombatTarget && activeCombatTarget !== entry) stopRoExplorerCombat(false);
   selectedMonsterEntry = entry;
   selectedMonsterRing.position.copy(cellWorldPosition(entry.cell, 0.12));
@@ -1791,10 +1840,63 @@ function startRoExplorerCombat() {
     setStatus('已進入普攻距離，準備攻擊 ' + entry.monster.name + '。');
   }
 }
+function sendRoExplorerSkillRequest(entry, skill) {
+  if (!entry || entry.dead || !skill || pendingCombatRequest || !mapInfo) return;
+  const requestId = combatSessionId + '-' + (++combatRequestCounter).toString(36);
+  pendingCombatRequest = { requestId, entry, action: 'skill', skill };
+  const command = {
+    type: 'skill', requestId, sessionId: combatSessionId, spawnKey: entry.spawnKey,
+    mapId: mapInfo.mapId, defId: entry.monster.id, skillId: skill.id
+  };
+  updateRoExplorerCombatButtons();
+  try {
+    localStorage.setItem(RO_EXPLORER_COMBAT_COMMAND_KEY, JSON.stringify(command));
+    setStatus('正在由主遊戲引擎施放「' + skill.name + '」…');
+  } catch (error) {
+    pendingCombatRequest = null;
+    updateRoExplorerCombatButtons();
+    setStatus('無法傳送技能指令；請允許此網站使用本機儲存。', true);
+    return;
+  }
+  window.setTimeout(() => {
+    if (!pendingCombatRequest || pendingCombatRequest.requestId !== requestId) return;
+    pendingCombatRequest = null;
+    updateRoExplorerCombatButtons();
+    nextCombatAt = performance.now() + 2000;
+    setStatus('未收到技能回覆。請保持同源的主遊戲分頁開啟，再重新嘗試。', true);
+  }, 5000);
+}
+function requestRoExplorerSkill(entry, skill) {
+  if (!entry || entry.dead || !skill || pendingCombatRequest) return;
+  if (!mapInfo || !gatInfo || mapInfo.mapId !== gatInfo.mapId
+    || mapInfo.mapId !== monsterMapIdFromUrl) {
+    setStatus('請先載入與主遊戲相同的地圖及 GAT。', true);
+    return;
+  }
+  if (!currentCell) {
+    setStatus('請先載入通行格，確認角色所在位置。', true);
+    return;
+  }
+  const distance = Math.max(Math.abs(currentCell.x - entry.cell.x), Math.abs(currentCell.y - entry.cell.y));
+  if (distance > 1) {
+    const adjacent = findMonsterAdjacentPath(entry);
+    if (!adjacent) {
+      setStatus('找不到通往怪物附近的可走路徑。', true);
+      return;
+    }
+    queuedCombatSkill = { entry, skill };
+    requestWalkToCell(adjacent);
+    setStatus('正接近 ' + entry.monster.name + '；抵達後會施放「' + skill.name + '」。');
+    return;
+  }
+  queuedCombatSkill = null;
+  sendRoExplorerSkillRequest(entry, skill);
+}
+
 function requestRoExplorerCombatAttack(entry) {
   if (!entry || pendingCombatRequest) return;
   const requestId = combatSessionId + '-' + (++combatRequestCounter).toString(36);
-  pendingCombatRequest = { requestId, entry };
+  pendingCombatRequest = { requestId, entry, action: 'attack' };
   const command = {
     type: 'attack', requestId, sessionId: combatSessionId, spawnKey: entry.spawnKey,
     mapId: mapInfo.mapId, defId: entry.monster.id,
@@ -1820,8 +1922,10 @@ function handleRoExplorerCombatStorage(event) {
   let result;
   try { result = JSON.parse(event.newValue); } catch (error) { return; }
   if (!pendingCombatRequest || !result || result.requestId !== pendingCombatRequest.requestId) return;
-  const entry = pendingCombatRequest.entry;
+  const request = pendingCombatRequest;
+  const entry = request.entry;
   pendingCombatRequest = null;
+  updateRoExplorerCombatButtons();
   if (Number.isFinite(result.hp)) entry.currentHp = Math.max(0, result.hp);
   if (Number.isFinite(result.maxHp)) entry.maxHp = Math.max(1, result.maxHp);
   if (result.killed || entry.currentHp <= 0) {
@@ -1838,9 +1942,9 @@ function handleRoExplorerCombatStorage(event) {
     return;
   }
   if (!result.ok) {
-    stopRoExplorerCombat(false);
-    setStatus(result.error || '主遊戲拒絕了這次攻擊。', true);
-    renderSelectedRoExplorerMonster(entry, result.error || '主遊戲拒絕攻擊。');
+    if (request.action !== 'skill') stopRoExplorerCombat(false);
+    setStatus(result.error || (request.action === 'skill' ? '主遊戲拒絕了技能。' : '主遊戲拒絕了這次攻擊。'), true);
+    renderSelectedRoExplorerMonster(entry, result.error || '主遊戲拒絕了這次動作。');
     updateRoExplorerCombatButtons();
     return;
   }
@@ -1849,13 +1953,32 @@ function handleRoExplorerCombatStorage(event) {
     return;
   }
   if (!result.accepted) {
-    stopRoExplorerCombat(false);
-    setStatus(result.error || '攻擊未執行；請檢查角色是否能攻擊及弓箭矢。', true);
-    renderSelectedRoExplorerMonster(entry, result.error || '攻擊未執行。');
+    if (request.action !== 'skill') stopRoExplorerCombat(false);
+    const fallback = request.action === 'skill'
+      ? '技能未施放；請檢查 SP、冷卻、沉默狀態與裝備條件。'
+      : '攻擊未執行；請檢查角色是否能攻擊及弓箭矢。';
+    setStatus(result.error || fallback, true);
+    renderSelectedRoExplorerMonster(entry, result.error || fallback);
     updateRoExplorerCombatButtons();
     return;
   }
   combatAttackIntervalMs = Math.max(150, Number(result.attackIntervalMs) || 1000);
+  if (request.action === 'skill') {
+    nextCombatAt = performance.now() + combatAttackIntervalMs;
+    const skillName = result.skillName || request.skill.name;
+    const note = result.damageDealt > 0
+      ? skillName + ' 造成 ' + Math.floor(result.damageDealt).toLocaleString() + ' 傷害。'
+      : skillName + ' 已施放。';
+    const playerInfo = ' 玩家 HP ' + Math.floor(result.playerHp).toLocaleString()
+      + ' / ' + Math.floor(result.playerMaxHp).toLocaleString()
+      + '，SP ' + Math.floor(result.playerSp).toLocaleString()
+      + ' / ' + Math.floor(result.playerMaxSp).toLocaleString() + '。';
+    renderSelectedRoExplorerMonster(entry, note + playerInfo);
+    setStatus(note + ' 目標 HP ' + Math.floor(entry.currentHp).toLocaleString()
+      + ' / ' + Math.floor(entry.maxHp).toLocaleString() + '。' + playerInfo);
+    updateRoExplorerCombatButtons();
+    return;
+  }
   nextCombatAt = performance.now() + combatAttackIntervalMs;
   const note = result.damageDealt > 0
     ? '本次造成 ' + Math.floor(result.damageDealt).toLocaleString() + ' 傷害。'
@@ -1868,6 +1991,11 @@ function handleRoExplorerCombatStorage(event) {
 window.addEventListener('storage', handleRoExplorerCombatStorage);
 attackMonsterButton.addEventListener('click', startRoExplorerCombat);
 stopMonsterAttackButton.addEventListener('click', () => stopRoExplorerCombat());
+if (monsterSkillInput) monsterSkillInput.addEventListener('change', updateRoExplorerCombatButtons);
+if (castMonsterSkillButton) castMonsterSkillButton.addEventListener('click', () => {
+  const skill = explorerSkillCatalog.find(item => item.id === (monsterSkillInput && monsterSkillInput.value));
+  requestRoExplorerSkill(selectedMonsterEntry, skill);
+});
 
 function requestWalkToCell(requestedTarget) {
   if (!gatInfo || !mapRoot || !currentCell || !mapInfo || mapInfo.mapId !== gatInfo.mapId) {
@@ -2053,6 +2181,7 @@ scaleInput.addEventListener('change', () => {
 speedInput.addEventListener('input', () => { speedValue.textContent = speedInput.value; });
 showMinimapInput.addEventListener('change', updateMinimap);
 clearMonsterTargetButton.addEventListener('click', clearSelectedRoExplorerMonster);
+populateRoExplorerSkillPicker();
 updateRoExplorerCombatButtons();
 minimapCanvas.addEventListener('click', requestMinimapWalk);
 showCellsInput.addEventListener('change', () => {
@@ -2102,6 +2231,16 @@ const stopRenderLoop = createVisibilityAwareFrameLoop(
     const delta = lastFrame ? Math.min((now - lastFrame) / 1000, 0.05) : 0;
     lastFrame = now;
     advanceMovement(delta);
+    if (queuedCombatSkill && !pendingCombatRequest && !movementPath && currentCell) {
+      const queued = queuedCombatSkill;
+      const distance = Math.max(Math.abs(currentCell.x - queued.entry.cell.x), Math.abs(currentCell.y - queued.entry.cell.y));
+      queuedCombatSkill = null;
+      if (!queued.entry.dead && monsterEntries.includes(queued.entry) && distance <= 1) {
+        sendRoExplorerSkillRequest(queued.entry, queued.skill);
+      } else if (!queued.entry.dead && monsterEntries.includes(queued.entry)) {
+        setStatus('移動未抵達技能施放距離，請重新選取目標後施放。', true);
+      }
+    }
     if (activeCombatTarget && !activeCombatTarget.dead && !pendingCombatRequest && !movementPath
       && currentCell && Math.max(Math.abs(currentCell.x - activeCombatTarget.cell.x), Math.abs(currentCell.y - activeCombatTarget.cell.y)) <= 1
       && now >= nextCombatAt) requestRoExplorerCombatAttack(activeCombatTarget);
