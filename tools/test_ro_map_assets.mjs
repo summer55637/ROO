@@ -22,6 +22,7 @@ import {
   sampleRsmAnimationPose,
   sampleRsmTextureAnimation,
   sampleRoWaterTextureIntervalMs,
+  fillRoWaterWaveOffsets,
   sampleRoWaterWaveOffset,
 } from './ro_map_assets.mjs';
 
@@ -576,6 +577,23 @@ assert.ok(Math.abs(
 ) > 0.1);
 assert.throws(() => sampleRoWaterWaveOffset(waveConfig, NaN, 0, 0), /有限數值/);
 assert.throws(() => sampleRoWaterWaveOffset(waveConfig, 0, 0, 0, 0), /比例/);
+
+const waveOffsetBuffer = new Float32Array(9);
+assert.equal(
+  fillRoWaterWaveOffsets(waveConfig, 4, 4, 0.875, waveOffsetBuffer, 0.5),
+  waveOffsetBuffer
+);
+for (let diagonal = 0; diagonal < waveOffsetBuffer.length; diagonal++) {
+  assert.ok(Math.abs(
+    waveOffsetBuffer[diagonal] - sampleRoWaterWaveOffset(waveConfig, diagonal, 0, 0.875, 0.5)
+  ) < 1e-6);
+}
+assert.throws(() => fillRoWaterWaveOffsets(
+  waveConfig, 4, 4, 0.875, new Float32Array(8), 0.5
+), /緩衝區尺寸不足/);
+assert.throws(() => fillRoWaterWaveOffsets(
+  waveConfig, 0, 4, 0.875, new Float32Array(5), 0.5
+), /尺寸無效/);
 
 const legacyWaterMesh = buildGndWaterMeshData({
   version: '1.2',
