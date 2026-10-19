@@ -55,4 +55,14 @@ t.ok('探索畫面右下角映射到 RO 南側格', (() => { const p = g.roExplo
 t.ok('RO 北側格映射回探索畫面頂部', (() => { const p = g.roExplorationTileToPosition({ x: 0, y: 4 }, mockGrid); return p.x === 7 && p.y === 14; })());
 t.ok('尋路點會轉成角色可到達的畫面座標', (() => { const p = g.buildRoExplorationPath(7, 14, 93, 84, mockGrid); return p.length === 1 && p[0].x === 93 && p[0].y === 84; })());
 
+const traversalWall = {
+  width: 5,
+  height: 5,
+  isWalkable: (x, y) => !(x === 2 && y === 2)
+};
+t.ok('移動線段中途遇到封鎖格會被擋住',
+  !g.roExplorationCanTraverse(7, 14, 93, 84, traversalWall));
+t.ok('沿無障礙直線可以持續移動',
+  g.roExplorationCanTraverse(7, 14, 7, 84, traversalWall));
+
 process.exit(t.report('角色探索移動'));

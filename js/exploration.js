@@ -139,9 +139,25 @@ function roExplorationCanTraverse(fromX, fromY, toX, toY, mapData) {
   if (!mapData || typeof mapData.isWalkable !== 'function') return true;
   const from = roExplorationPositionToTile(fromX, fromY, mapData);
   const to = roExplorationPositionToTile(toX, toY, mapData);
-  if (!from || !to || !mapData.isWalkable(to.x, to.y)) return false;
-  if (from.x !== to.x && from.y !== to.y
-    && (!mapData.isWalkable(to.x, from.y) || !mapData.isWalkable(from.x, to.y))) return false;
+  if (!from || !to || !mapData.isWalkable(from.x, from.y) || !mapData.isWalkable(to.x, to.y)) return false;
+
+  // 每個動畫影格可能跨過數個地圖格，逐段檢查避免高速移動穿過薄牆。
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const steps = Math.max(1, Math.max(Math.abs(dx), Math.abs(dy)) * 2);
+  let previous = from;
+  for (let step = 1; step <= steps; step++) {
+    const next = {
+      x: Math.round(from.x + dx * step / steps),
+      y: Math.round(from.y + dy * step / steps)
+    };
+    if (next.x === previous.x && next.y === previous.y) continue;
+    if (!mapData.isWalkable(next.x, next.y)) return false;
+    if (next.x !== previous.x && next.y !== previous.y
+      && (!mapData.isWalkable(next.x, previous.y)
+        || !mapData.isWalkable(previous.x, next.y))) return false;
+    previous = next;
+  }
   return true;
 }
 
