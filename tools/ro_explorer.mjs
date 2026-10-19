@@ -114,8 +114,9 @@ const explorerParams = new URLSearchParams(window.location.search);
 const explorerSpriteKey = resolveRoExplorerSpriteKey(explorerParams.get('sprite'));
 const monsterMapIdFromUrl = String(explorerParams.get('map') || '').trim().toLowerCase();
 const explorerMonsterCatalog = parseRoExplorerMonsterCatalog(explorerParams.get('mobs'));
+/* 目前只列出能在單次指令中完整結算的直接攻擊；持續傷害與異常計時待後續接入。 */
 const RO_EXPLORER_DIRECT_SKILL_TYPES = new Set([
-  'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc'
+  'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi'
 ]);
 function parseRoExplorerSkillCatalog(raw) {
   try {
