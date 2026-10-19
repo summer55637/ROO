@@ -2134,12 +2134,29 @@ function onKingdomSelectChange(kingdomId) {
 }
 
 function onRegionSelectChange(regionId) {
-  selectedRegionId = regionId;
-  // 自動更新所屬王國
-  const k = KINGDOMS.find(k => k.regions.includes(regionId));
-  if (k) selectedKingdomId = k.id;
   const region = REGIONS.find(r => r.id === regionId);
-  selectMap(region.maps[0]); // 切換地區時，預設進入該地區的第一張地圖（城鎮）
+  const nextMapId = region && (region.maps || []).find(id => MAPS.some(map => map.id === id));
+  if (!region || !nextMapId) {
+    if (typeof showToast === 'function') showToast('這個地區目前沒有可用地圖。');
+    renderMapTab();
+    return;
+  }
+
+  const previousRegionId = selectedRegionId;
+  const previousKingdomId = selectedKingdomId;
+  selectedRegionId = region.id;
+  // 自動更新所屬王國。
+  const kingdom = KINGDOMS.find(k => k.regions.includes(region.id));
+  if (kingdom) selectedKingdomId = kingdom.id;
+
+  selectMap(nextMapId); // 選取該地區第一張實際存在的地圖。
+  if (state.mapId !== nextMapId) {
+    // 防止地圖資料不完整時，選單顯示的地區與角色實際位置不一致。
+    selectedRegionId = previousRegionId;
+    selectedKingdomId = previousKingdomId;
+    if (typeof showToast === 'function') showToast('切換地區失敗，請再試一次。');
+    renderMapTab();
+  }
 }
 
 /* 打寶模式（#110）。放在自動戰鬥分頁而不是地圖分頁——它是全域的模式，
