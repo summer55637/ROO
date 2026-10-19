@@ -1,4 +1,4 @@
-/* 普隆德拉 GAT 衍生阻擋區轉換與 A* 尋路。 */
+/* 普隆德拉碰撞、A* 尋路與 3D 靜態資產驗證。 */
 const fs = require('fs');
 const path = require('path');
 const H = require('./harness');
@@ -53,5 +53,15 @@ t.ok('普隆德拉起點位於可走區或可鄰近校正',
   prontera.isWalkable(start.x, start.y)
   || !!prontera.findPath(start.x, start.y, Math.max(0, start.x - 1), start.y)
   || !!prontera.findPath(start.x, start.y, Math.min(prontera.width - 1, start.x + 1), start.y));
+
+const scenePath = path.join(__dirname, '..', 'data', 'maps', 'prontera-scene.json');
+const scene = JSON.parse(fs.readFileSync(scenePath, 'utf8'));
+const textureDir = path.join(__dirname, '..', 'images', 'maps', 'prontera', 'textures');
+t.ok('普隆德拉 3D 網格與 86 張配套貼圖完整',
+  scene.version === 1 && scene.map === 'prontera'
+  && scene.meshes.length === 86 && scene.textures.length === 86
+  && scene.textures.every(name => fs.existsSync(path.join(textureDir, name)))
+  && scene.meshes.every(mesh => mesh.texture >= 0 && mesh.texture < scene.textures.length
+    && mesh.positions.length / 3 <= 65535));
 
 process.exit(t.report('普隆德拉碰撞與尋路'));
