@@ -6205,6 +6205,19 @@ function effectiveFleeWithBuff() {
   return Math.round(state.flee * b.mult) + b.flatBonus + pDebuff('fleeFlat');
 }
 
+/* ---------------- 地圖 ---------------- */
+/* 切換地區時優先進入安全城鎮，不依賴 maps 陣列剛好把城鎮排第一。 */
+function getRegionDefaultMapId(regionId) {
+  const region = Array.isArray(REGIONS) ? REGIONS.find(item => item.id === regionId) : null;
+  if (!region || !Array.isArray(region.maps)) return null;
+
+  const maps = region.maps
+    .map(id => MAPS.find(map => map.id === id))
+    .filter(Boolean);
+  const safeTown = maps.find(map => Array.isArray(map.monsters) && map.monsters.length === 0);
+  return (safeTown || maps[0] || {}).id || null;
+}
+
 /* ---------------- 怪物 ---------------- */
 function currentMap() { return MAPS.find(m => m.id === state.mapId); }
 
