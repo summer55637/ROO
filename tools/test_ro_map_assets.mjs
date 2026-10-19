@@ -563,10 +563,16 @@ assert.equal(sampleRoWaterTextureIntervalMs(300), 4000);
 
 const stationaryWater = { waveHeight: 0, waveSpeed: 0, wavePitch: 0 };
 assert.equal(sampleRoWaterWaveOffset(stationaryWater, 0, 0, 1, 1), 0);
-const waveConfig = { waveHeight: 2, waveSpeed: 0, wavePitch: 0 };
+const waveConfig = { waveHeight: 2, waveSpeed: 2, wavePitch: 0 };
 assert.equal(sampleRoWaterWaveOffset(waveConfig, 0, 0, 0, 0.5), 0);
-assert.ok(Math.abs(sampleRoWaterWaveOffset(waveConfig, 0, 0, 0.875, 0.5) + 1) < 1e-6);
-assert.ok(Math.abs(sampleRoWaterWaveOffset(waveConfig, 0, 0, 2.625, 0.5) - 1) < 1e-6);
+// waveSpeed advances the wave phase in degrees at fixed 60 Hz steps.
+assert.ok(Math.abs(sampleRoWaterWaveOffset(waveConfig, 0, 0, 0.25, 0.5) + 0.5) < 1e-6);
+assert.ok(Math.abs(sampleRoWaterWaveOffset(waveConfig, 0, 0, 0.75, 0.5) + 1) < 1e-6);
+// The angle wraps around 180 degrees instead of accumulating without bound.
+assert.ok(Math.abs(sampleRoWaterWaveOffset(waveConfig, 0, 0, 1.5, 0.5)) < 1e-6);
+assert.ok(Math.abs(
+  sampleRoWaterWaveOffset(waveConfig, 0, 0, 91 / 60, 0.5) - Math.sin(2 * Math.PI / 180)
+) < 1e-6);
 const pitchedWave = { waveHeight: 1, waveSpeed: 0, wavePitch: 90 };
 assert.ok(Math.abs(
   sampleRoWaterWaveOffset(pitchedWave, 3, 4, 0, 1)
