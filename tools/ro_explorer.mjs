@@ -21,6 +21,7 @@ import {
   parseRsmBuffer,
   parseRswBuffer,
   resolveRagassetsMapUrls,
+  resolveWaterFramesForType,
   sampleGndHeightAtGatCell,
   sampleRsmAnimationPose,
   sampleRsmTextureAnimation,
@@ -413,7 +414,8 @@ function updateStats() {
       + MAX_NATIVE_MODEL_PLACEMENTS + '；載入資源 ' + nativeRenderStats.loadedAssets
       + ' 個，未支援／失敗 ' + nativeRenderStats.unsupportedOrFailed);
     rows.push('水域：' + (nativeRenderStats.waterTileCount || 0) + ' 格；動畫影格 '
-      + (nativeRenderStats.waterFrameCount || 0));
+      + (nativeRenderStats.waterFrameCount || 0) + '；缺少類型影格、使用備援 '
+      + (nativeRenderStats.waterTextureFallbackPlanes || 0) + ' 區');
     rows.push('RSM2.3 UV 動畫：' + (nativeRenderStats.textureAnimatedPlacements || 0)
       + ' 個擺放實例；' + (nativeRenderStats.textureAnimationMeshes || 0)
       + ' 個網格／' + (nativeRenderStats.textureAnimationChannels || 0) + ' 個通道');
@@ -992,17 +994,13 @@ async function addNativeWater(root, gat, waterConfig, urls, scale) {
 
   const animations = [];
   let maxFrameCount = 0;
+  let fallbackWaterPlaneCount = 0;
   let sharedWaveOffsets = null;
   for (const plane of waterData.planes) {
     const config = plane.config;
-    const typedFrames = urls.waterFramesByType
-      && urls.waterFramesByType[String(config.type)];
-    const matchesDefaultType = urls.waterType === null
-      || urls.waterType === undefined
-      || Number(config.type) === Number(urls.waterType);
-    const frameUrls = Array.isArray(typedFrames) ? typedFrames
-      : (matchesDefaultType && Array.isArray(urls.waterFrames) ? urls.waterFrames : []);
-    const textures = await loadTextures(frameUrls);
+    const frameSelection = resolveWaterFramesForType(urls, config.type);
+    if (frameSelection.usedFallback) fallbackWaterPlaneCount++;
+    const textures = await loadTextures(frameSelection.frames);
     maxFrameCount = Math.max(maxFrameCount, textures.length);
 
     const data = plane.data;
@@ -1056,6 +1054,7 @@ async function addNativeWater(root, gat, waterConfig, urls, scale) {
     animations,
     waterTileCount: waterData.waterTileCount,
     waterFrameCount: maxFrameCount,
+    waterTextureFallbackPlanes: fallbackWaterPlaneCount,
   };
 }
 
@@ -1198,6 +1197,7 @@ async function loadRagassetsMap(mapName) {
       ...modelRenderStats,
       waterTileCount: nextWaterStats.waterTileCount,
       waterFrameCount: nextWaterStats.waterFrameCount,
+      waterTextureFallbackPlanes: nextWaterStats.waterTextureFallbackPlanes,
       textureAnimatedPlacements: nextRsmAnimations.filter(animation => animation.textureTracks.length > 0).length,
       textureAnimationMeshes: nextRsmAnimations.reduce((sum, animation) => sum + animation.textureTracks.length, 0),
       textureAnimationChannels: nextRsmAnimations.reduce((sum, animation) => sum
