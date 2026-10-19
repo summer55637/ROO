@@ -5,6 +5,13 @@ const H = require('./harness');
 const g = H.boot();
 const t = H.tester();
 
+const pronteraRegion = g.REGIONS.find(region => region.id === 'r_prontera');
+const pronteraTown = g.MAPS.find(map => map.id === 'prontera');
+t.ok('普隆德拉區域包含安全主城', !!pronteraRegion && !!pronteraTown
+  && pronteraRegion.maps.includes('prontera') && pronteraTown.monsters.length === 0);
+t.eq('切換普隆德拉區域預設進入主城', g.getRegionDefaultMapId('r_prontera'), 'prontera');
+t.eq('未知地區不會產生無效地圖', g.getRegionDefaultMapId('region_missing'), null);
+
 const small = g.ROPronteraMap.buildGrid([
   { kind: 'rect', x: 0, z: 0, width: 2, depth: 2 }
 ], 4, 2);
