@@ -20,6 +20,7 @@ import {
   sampleGndHeightAtGatCell,
   sampleRsmAnimationPose,
   sampleRsmTextureAnimation,
+  sampleRoWaterTextureIntervalMs,
   sampleRoWaterWaveOffset,
 } from './ro_map_assets.mjs';
 
@@ -545,6 +546,12 @@ assert.equal(waterMesh.indices.length, 6);
 assert.equal(waterMesh.positions[1], -0.4);
 assert.deepEqual(waterMesh.uvs, [0, 0, 1, 0, 0, 1, 1, 1]);
 assert.deepEqual(waterMesh.tileCoordinates, [0, 0]);
+
+assert.equal(sampleRoWaterTextureIntervalMs(3), 50);
+assert.equal(sampleRoWaterTextureIntervalMs(3) * 32, 1600);
+assert.ok(Math.abs(sampleRoWaterTextureIntervalMs(1) - 1000 / 60) < 1e-10);
+assert.equal(sampleRoWaterTextureIntervalMs(NaN), 50);
+assert.equal(sampleRoWaterTextureIntervalMs(300), 4000);
 
 const stationaryWater = { waveHeight: 0, waveSpeed: 0, wavePitch: 0 };
 assert.equal(sampleRoWaterWaveOffset(stationaryWater, 0, 0, 1, 1), 0);
