@@ -6538,6 +6538,13 @@ function playerAttack() {
 const RO_EXPLORER_COMBAT_TARGETS = new Map();
 let roExplorerCombatSequence = 0;
 let roExplorerCombatTransactionDepth = 0;
+const RO_EXPLORER_SELF_BUFF_TYPES = new Set([
+  'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd', 'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+]);
+const RO_EXPLORER_SUPPORTED_SKILL_TYPES = new Set([
+  'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc',
+  'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd', 'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+]);
 function roExplorerTimedStatusState(target) {
   const now = Date.now();
   const labels = [];
@@ -6690,11 +6697,9 @@ function castRoExplorerSkill(sessionId, spawnKey, mapId, defId, skillId) {
 
   const sk = findSkillForUse(skillId);
   const lv = skillLv(skillId);
-  /* 先開放即時攻擊與已接通中毒計時的施毒；其他持續／異常技能待專項計時完成再開。 */
-  const directAttackTypes = ['damage', 'magic', 'magic_aoe', 'damage_aoe',
-    'damage_multihit', 'damage_multi', 'poison_proc'];
-  if (!sk || !lv || !directAttackTypes.includes(sk.type)) {
-    return reject('只能對怪物施放已學會的直接攻擊技能。');
+  /* 攻擊技能沿用正式傷害流程；白名單內的自身增益也可直接套用到角色。 */
+  if (!sk || !lv || !RO_EXPLORER_SUPPORTED_SKILL_TYPES.has(sk.type)) {
+    return reject('這個技能類型尚未接通原生探索戰鬥。');
   }
   if (!skillReady(skillId)) {
     return { ok: true, accepted: false, error: '技能冷卻中。', skillName: sk.name,
@@ -6783,6 +6788,7 @@ function castRoExplorerSkill(sessionId, spawnKey, mapId, defId, skillId) {
   }
   return {
     ok: true, accepted, killed: record.killed, skillName: sk.name, skillLevel: lv,
+    skillType: sk.type, isSelfBuff: RO_EXPLORER_SELF_BUFF_TYPES.has(sk.type),
     damageDealt: Math.max(0, hpBefore - Math.max(0, target.hp)),
     hp: Math.max(0, target.hp), maxHp: target.maxHp, attackIntervalMs,
     playerHp: state.hp, playerMaxHp: state.maxHp, playerSp: state.sp, playerMaxSp: state.maxSp,
