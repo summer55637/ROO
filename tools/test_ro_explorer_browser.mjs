@@ -84,6 +84,14 @@ async function minimapTargets(targetPage) {
 }
 
 async function clickMinimapUntilMoving(targetPage, useTouch, label) {
+  await targetPage.evaluate(() => {
+    window.__rooMinimapAcceptanceClicks = { count: 0, last: null };
+    const canvas = document.getElementById('minimap');
+    canvas.addEventListener('click', event => {
+      window.__rooMinimapAcceptanceClicks.count++;
+      window.__rooMinimapAcceptanceClicks.last = { clientX: event.clientX, clientY: event.clientY };
+    }, true);
+  });
   const candidates = await minimapTargets(targetPage);
   assert.ok(candidates.length, label + ' 小地圖附近找不到可走地面像素。');
   const canvas = targetPage.locator('#minimap');
@@ -101,13 +109,16 @@ async function clickMinimapUntilMoving(targetPage, useTouch, label) {
     const x = box.x + ((cell.x + 0.5) / cell.mapWidth) * box.width;
     const y = box.y + ((cell.y + 0.5) / cell.mapHeight) * box.height;
     try {
+      const clicksBefore = await targetPage.evaluate(() => window.__rooMinimapAcceptanceClicks.count);
       if (useTouch) await targetPage.touchscreen.tap(x, y);
       else await targetPage.mouse.click(x, y);
+      const clickInfo = await targetPage.evaluate(() => window.__rooMinimapAcceptanceClicks);
       if (await stopButton.isVisible()) {
         moved = true;
         break;
       }
-      attempted.push({ x: cell.x, y: cell.y, radius: cell.radius,
+      attempted.push({ cellX: cell.x, cellY: cell.y, radius: cell.radius,
+        eventReachedCanvas: clickInfo.count > clicksBefore, lastClick: clickInfo.last,
         status: (await targetPage.locator('#status').innerText()).slice(0, 90) });
     } catch (error) {
       attempted.push({ x: cell.x, y: cell.y, error: String(error).slice(0, 90) });
