@@ -252,7 +252,7 @@ async function run() {
   });
   await page.locator('#native-toolbar').waitFor({ state: 'visible', timeout: 30000 });
   await page.locator('#gnd-debug-mode').waitFor({ state: 'visible', timeout: 5000 });
-  assert.equal(await page.locator('#gnd-debug-mode option').count(), 7, 'GND 診斷應提供完整合成與六種獨立通道檢視。');
+  assert.equal(await page.locator('#gnd-debug-mode option').count(), 9, 'GND 診斷應提供完整合成與八種獨立通道檢視。');
   await page.locator('#player-vitals-panel').waitFor({ state: 'visible', timeout: 30000 });
   await page.locator('#support-skill').waitFor({ state: 'visible', timeout: 30000 });
   await page.locator('#cast-support-skill').waitFor({ state: 'visible', timeout: 30000 });
