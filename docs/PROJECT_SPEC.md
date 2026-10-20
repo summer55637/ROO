@@ -391,5 +391,8 @@
 - 地表診斷面板現在顯示 diffuse 與 lightmap/AO 的 colorSpace；桌面／手機 Chromium 驗收會確認兩者皆為 `NoColorSpace`，同時保留來源像素、頂點色、UV、光照取樣及 GPU 最終像素檢查。
 - 這次校正專攻「合成色調／明暗計算方式不一致」；不會消除 diffuse 貼圖中原本的紋路，也不會自動修好 GND surfaces 幾何接縫或 RGB lightmap 本身的線狀細節。仍須看新 CI 截圖逐地圖驗證，不能宣稱已與官方客戶端逐像素一致。
 - 參考：[Three.js 色彩管理](https://threejs.org/manual/pages/color-management.html)、[Three.js 舊色彩工作流程差異](https://github.com/mrdoob/three.js/issues/30305)、[GRFEditor 經典 GND shader](https://github.com/Tokeiburu/GRFEditor/blob/e6508407c1e193dac5252eef788dc0a0c1d9d07f/GRFEditor/Resources/Shaders/map/gnd.frag)。
-- 本輪 CI 結果待新提交跑完後更新；PR #1 仍是草稿，未合併 `main`，GitHub Pages 正式網址不會因本分支提交自動更新。
+- 新提交 `627eeba` 的 Push CI #39474450690 與 PR CI #39474459688 均已成功；桌面／手機 Chromium 驗收、主遊戲＋探索戰鬥端到端、63 個測試檔、全遊戲 smoke test（34 項）及資料語法檢查全部通過。
+- 截圖驗收仍顯示完整合成畫面較前版暗，大片色塊與部分細線仍存在；純 diffuse 模式大致不變，而 vertex-color-only 模式也可見部分塊狀變化。因此本次只能記錄為顏色計算空間校正，不能宣稱剩餘色塊／細線已修好或已與官方客戶端逐像素一致。下一輪應針對實際 GND surface 的逐角色值、UV 對應與鄰接面做源資料核對。
+- 最新驗收截圖：[Push artifact #12287394833](https://github.com/summer55637/ROO/actions/runs/39474450690/artifacts/12287394833)、[PR artifact #12288202427](https://github.com/summer55637/ROO/actions/runs/39474459688/artifacts/12288202427)。
+- PR #1 仍為草稿、尚未合併 `main`；開發分支提交不會自動更新 GitHub Pages 正式網址。
 
