@@ -1480,16 +1480,18 @@ function applyGndBakedLighting(material, lightMapTexture, aoTexture, rswLight) {
         + '\nvarying float vRooGndHasLightmap;\nvarying vec3 vRooGndLightMultiplier;'
     ).replace(
       '#include <color_fragment>',
-      '#include <color_fragment>\n'
+      'vec3 rooGndDiffuseOnly = diffuseColor.rgb;\n#include <color_fragment>\n'
+        + 'vec3 rooGndVertexColor = vec3(1.0);\n'
+        + '#ifdef USE_COLOR\nrooGndVertexColor = vColor;\n#endif\n'
         + 'float rooGndHasValidLightmap = clamp(vRooGndHasLightmap, 0.0, 1.0);\n'
-        + 'vec3 rooGndDiffuse = diffuseColor.rgb;\n'
+        + 'vec3 rooGndDiffuse = rooGndDiffuseOnly;\n'
         + 'vec3 rooGndRgbLightmap = clamp(texture2D(rooGndLightMap, vRooGndLightmapUv).rgb, 0.0, 1.0);\n'
         + 'float rooGndAo = clamp(texture2D(rooGndAoMap, vRooGndLightmapUv).r, 0.0, 1.0);\n'
         + 'float rooGndAoBlend = mix(1.0, rooGndAo, rooGndHasValidLightmap * ' + GND_PREVIEW_AO_STRENGTH.toFixed(2) + ');\n'
         + 'if (rooGndDebugMode < 0.5) {\n'
-        + '  diffuseColor.rgb = rooGndDiffuse * vRooGndLightMultiplier * rooGndAoBlend + rooGndRgbLightmap * rooGndHasValidLightmap;\n'
+        + '  diffuseColor.rgb = rooGndDiffuse * rooGndVertexColor * vRooGndLightMultiplier * rooGndAoBlend + rooGndRgbLightmap * rooGndHasValidLightmap;\n'
         + '} else if (rooGndDebugMode < 1.5) {\n'
-        + '  diffuseColor.rgb = rooGndDiffuse;\n'
+        + '  diffuseColor.rgb = rooGndDiffuse * rooGndVertexColor;\n'
         + '} else if (rooGndDebugMode < 2.5) {\n'
         + '  diffuseColor.rgb = rooGndRgbLightmap * rooGndHasValidLightmap;\n'
         + '} else if (rooGndDebugMode < 3.5) {\n'
@@ -1497,13 +1499,17 @@ function applyGndBakedLighting(material, lightMapTexture, aoTexture, rswLight) {
         + '} else if (rooGndDebugMode < 4.5) {\n'
         + '  diffuseColor.rgb = vRooGndLightMultiplier;\n'
         + '} else if (rooGndDebugMode < 5.5) {\n'
-        + '  diffuseColor.rgb = rooGndDiffuse * rooGndAoBlend;\n'
+        + '  diffuseColor.rgb = rooGndDiffuse * rooGndVertexColor * rooGndAoBlend;\n'
+        + '} else if (rooGndDebugMode < 6.5) {\n'
+        + '  diffuseColor.rgb = rooGndDiffuse * rooGndVertexColor * vRooGndLightMultiplier;\n'
+        + '} else if (rooGndDebugMode < 7.5) {\n'
+        + '  diffuseColor.rgb = rooGndDiffuse;\n'
         + '} else {\n'
-        + '  diffuseColor.rgb = rooGndDiffuse * vRooGndLightMultiplier;\n'
+        + '  diffuseColor.rgb = rooGndVertexColor;\n'
         + '}'
     );
   };
-  material.customProgramCacheKey = () => 'roo-gnd-baked-lightmap-v5-channel-debug-modes';
+  material.customProgramCacheKey = () => 'roo-gnd-baked-lightmap-v6-independent-diffuse-vertex-debug';
 }
 
 function createLightmapDataTexture(data, width, height) {
@@ -1769,6 +1775,10 @@ async function loadRagassetsMap(mapName) {
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = 'terrain-texture-' + bucket.textureIndex;
       mesh.userData.rooTerrainSurface = true;
+      mesh.userData.rooGndSurfaceIndices = bucket.surfaceIndices;
+      mesh.userData.rooGndTextureIndex = bucket.textureIndex;
+      mesh.userData.rooGndTextureName = textureName;
+      mesh.userData.rooGndTextureUrl = textureUrl || '';
       stagedRoot.add(mesh);
     }
 
@@ -2947,6 +2957,165 @@ showCellsInput.addEventListener('change', () => {
   makeGrid();
   if (showCellsInput.checked) setStatus('顯示通行格：綠色可走、紅色阻擋、橘色懸崖、藍色水域。');
 });
+const gndSurfaceInspector = document.getElementById('gnd-surface-inspector');
+const gndSurfaceInspectorContent = document.getElementById('gnd-surface-inspector-content');
+const gndSourceTextureCanvasCache = new WeakMap();
+let lastGndDiagnosticPointer = null;
+let pendingGndInspectorReadback = null;
+
+function formatGndDiagnosticVector(values) {
+  return (values || []).map(value => Number.isFinite(value) ? value.toFixed(4) : '—').join(', ');
+}
+
+function sampleGndSourceTexturePixel(texture, uv) {
+  const image = texture && texture.image;
+  const width = image && (image.naturalWidth || image.videoWidth || image.width);
+  const height = image && (image.naturalHeight || image.videoHeight || image.height);
+  if (!image || !Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+    return '原貼圖尚未載入';
+  }
+
+  let cached = gndSourceTextureCanvasCache.get(texture);
+  if (!cached || cached.image !== image || cached.width !== width || cached.height !== height) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return '無法建立像素取樣畫布';
+    try {
+      context.drawImage(image, 0, 0, width, height);
+    } catch (error) {
+      return '原貼圖讀取失敗：' + (error && error.message ? error.message : String(error));
+    }
+    cached = { image, width, height, context };
+    gndSourceTextureCanvasCache.set(texture, cached);
+  }
+
+  const u = ((uv[0] % 1) + 1) % 1;
+  const v = ((uv[1] % 1) + 1) % 1;
+  const x = Math.max(0, Math.min(width - 1, Math.floor(u * width)));
+  const y = Math.max(0, Math.min(height - 1, height - 1 - Math.floor(v * height)));
+  try {
+    const pixel = cached.context.getImageData(x, y, 1, 1).data;
+    return 'rgba(' + pixel[0] + ', ' + pixel[1] + ', ' + pixel[2] + ', ' + pixel[3]
+      + ') @ (' + x + ', ' + y + ')';
+  } catch (error) {
+    return '原貼圖像素不可讀（可能是跨來源 CORS 限制）：'
+      + (error && error.message ? error.message : String(error));
+  }
+}
+
+function updateGndSurfaceInspector(event) {
+  if (GND_DEBUG_MODE_UNIFORM.value !== 7 && GND_DEBUG_MODE_UNIFORM.value !== 8) {
+    gndSurfaceInspector.hidden = true;
+    pendingGndInspectorReadback = null;
+    return;
+  }
+
+  gndSurfaceInspector.hidden = false;
+  if (!mapRoot || !gndInfo || !event) {
+    gndSurfaceInspectorContent.textContent = '請先載入原生 GND 地圖，再把滑鼠移到地表。';
+    return;
+  }
+
+  const rect = renderer.domElement.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hit = raycaster.intersectObject(mapRoot, true).find(item => (
+    item.object && item.object.userData.rooTerrainSurface
+      && Number.isInteger(item.faceIndex) && item.uv
+  ));
+  if (!hit) {
+    gndSurfaceInspectorContent.textContent = '目前游標沒有命中 GND 地表；請移到可見的地面或牆面。';
+    pendingGndInspectorReadback = null;
+    return;
+  }
+
+  const object = hit.object;
+  const quadIndex = Math.floor(hit.faceIndex / 2);
+  const surfaceIndices = object.userData.rooGndSurfaceIndices || [];
+  const surfaceIndex = surfaceIndices[quadIndex];
+  const surface = Number.isInteger(surfaceIndex) ? gndInfo.surfaces[surfaceIndex] : null;
+  if (!surface) {
+    gndSurfaceInspectorContent.textContent = '已命中地表網格，但無法對應回原始 GND surface。'
+      + '\nmesh=' + object.name + '；triangle=' + hit.faceIndex + '；quad=' + quadIndex;
+    pendingGndInspectorReadback = null;
+    return;
+  }
+
+  const geometry = object.geometry;
+  const uvAttribute = geometry.getAttribute('uv');
+  const colorAttribute = geometry.getAttribute('color');
+  const baseVertex = quadIndex * 4;
+  const actualUvs = [];
+  const actualColors = [];
+  for (let corner = 0; corner < 4; corner++) {
+    const vertexIndex = baseVertex + corner;
+    actualUvs.push(uvAttribute
+      ? [uvAttribute.getX(vertexIndex), uvAttribute.getY(vertexIndex)] : [NaN, NaN]);
+    actualColors.push(colorAttribute
+      ? [colorAttribute.getX(vertexIndex), colorAttribute.getY(vertexIndex), colorAttribute.getZ(vertexIndex)]
+      : [1, 1, 1]);
+  }
+
+  const texture = object.material && object.material.map;
+  const textureName = gndInfo.textures[surface.textureIndex] || object.userData.rooGndTextureName || '(未指定)';
+  const uvLines = actualUvs.map((uv, corner) => (
+    '  幾何角 ' + corner + ': 實際 UV (' + formatGndDiagnosticVector(uv) + ')；來源像素 '
+      + sampleGndSourceTexturePixel(texture, uv)
+  ));
+  const colorLines = actualColors.map((color, corner) => (
+    '  幾何角 ' + corner + ': RGB (' + formatGndDiagnosticVector(color) + ')'
+  ));
+  const detail = [
+    '地圖：' + (mapInfo && mapInfo.mapId || '未知'),
+    'Surface #' + surfaceIndex + '；triangle #' + hit.faceIndex + '；quad #' + quadIndex,
+    '真實材質路徑：' + textureName,
+    '實際載入 URL：' + (object.userData.rooGndTextureUrl || '無；使用純色備援'),
+    '材質索引：' + surface.textureIndex + '；lightmap 索引：' + surface.lightmapIndex,
+    '原始四角 UV（UV0..UV3）：',
+    ...(surface.uv || []).map((uv, index) => '  UV' + index + ': (' + formatGndDiagnosticVector(uv) + ')'),
+    '渲染網格四角（含半像素內縮）與原貼圖像素近似取樣：',
+    ...uvLines,
+    '實際傳入 GPU 的逐角頂點色 RGB：',
+    ...colorLines,
+    '游標處插值 UV：(' + formatGndDiagnosticVector([hit.uv.x, hit.uv.y]) + ')',
+    '游標處原貼圖像素近似值：' + sampleGndSourceTexturePixel(texture, [hit.uv.x, hit.uv.y]),
+    'GPU 最終畫面取樣 RGBA：等待下一個渲染影格。',
+  ].join('\n');
+  gndSurfaceInspectorContent.textContent = detail;
+
+  const ratio = renderer.getPixelRatio();
+  pendingGndInspectorReadback = {
+    x: Math.floor((event.clientX - rect.left) * ratio),
+    y: Math.floor((rect.bottom - event.clientY) * ratio),
+    detail,
+  };
+}
+
+function sampleGndInspectorFramebuffer() {
+  const pending = pendingGndInspectorReadback;
+  if (!pending || gndSurfaceInspector.hidden) return;
+  pendingGndInspectorReadback = null;
+  const gl = renderer.getContext();
+  if (gl.drawingBufferWidth < 1 || gl.drawingBufferHeight < 1) return;
+  const x = Math.max(0, Math.min(gl.drawingBufferWidth - 1, pending.x));
+  const y = Math.max(0, Math.min(gl.drawingBufferHeight - 1, pending.y));
+  const pixel = new Uint8Array(4);
+  try {
+    gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+    gndSurfaceInspectorContent.textContent = pending.detail
+      + '\nGPU 最終畫面取樣 RGBA：(' + pixel[0] + ', ' + pixel[1] + ', '
+      + pixel[2] + ', ' + pixel[3] + ') @ (' + x + ', ' + y + ')';
+  } catch (error) {
+    gndSurfaceInspectorContent.textContent = pending.detail
+      + '\nGPU 最終畫面取樣失敗：'
+      + (error && error.message ? error.message : String(error));
+  }
+}
+
 document.getElementById('recenter').addEventListener('click', () => {
   fitCamera(false);
   if (followPlayerInput.checked) focusCameraOnPlayer();
@@ -2955,9 +3124,17 @@ document.getElementById('recenter').addEventListener('click', () => {
 document.getElementById('gnd-debug-mode').addEventListener('change', event => {
   const selected = event.currentTarget;
   const mode = Number(selected.value);
-  GND_DEBUG_MODE_UNIFORM.value = Number.isInteger(mode) && mode >= 0 && mode <= 6 ? mode : 0;
+  GND_DEBUG_MODE_UNIFORM.value = Number.isInteger(mode) && mode >= 0 && mode <= 8 ? mode : 0;
   const label = selected.options[selected.selectedIndex]?.textContent || '完整合成';
   setStatus('GND 診斷模式：' + label + '。僅供分離材質通道排查；按「完整合成」回到一般地表畫面。');
+  if (GND_DEBUG_MODE_UNIFORM.value === 7 || GND_DEBUG_MODE_UNIFORM.value === 8) {
+    gndSurfaceInspector.hidden = false;
+    gndSurfaceInspectorContent.textContent = '把滑鼠移到地表，即可查看來源貼圖路徑、四角 UV、貼圖像素、頂點色與 GPU 畫面取樣。';
+    if (lastGndDiagnosticPointer) updateGndSurfaceInspector(lastGndDiagnosticPointer);
+  } else {
+    gndSurfaceInspector.hidden = true;
+    pendingGndInspectorReadback = null;
+  }
 });
 let pointerOrigin = null;
 let pointerDragged = false;
@@ -2966,6 +3143,8 @@ renderer.domElement.addEventListener('pointerdown', event => {
   pointerDragged = false;
 });
 renderer.domElement.addEventListener('pointermove', event => {
+  lastGndDiagnosticPointer = { clientX: event.clientX, clientY: event.clientY };
+  updateGndSurfaceInspector(lastGndDiagnosticPointer);
   if (!pointerOrigin) return;
   if (Math.hypot(event.clientX - pointerOrigin.x, event.clientY - pointerOrigin.y) > 6) {
     pointerDragged = true;
@@ -3018,6 +3197,7 @@ const stopRenderLoop = createVisibilityAwareFrameLoop(
     controls.update();
     updateRoExplorerCombatFeedback(now);
     renderer.render(scene, camera);
+    sampleGndInspectorFramebuffer();
   },
   callback => window.requestAnimationFrame(callback),
   frameId => window.cancelAnimationFrame(frameId)
