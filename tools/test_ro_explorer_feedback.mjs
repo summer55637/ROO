@@ -28,7 +28,7 @@ assert.match(explorer,
   '建立跳字時使用安全的傷害顯示資料');
 
 assert.match(explorer,
-  /function updatePlayerVitals\(values, options = \{\)[\s\S]*?options\.showDamage[\s\S]*?showRoExplorerPlayerDamageFeedback/,
+  /function updatePlayerVitals\(values, options = \{\}\)[\s\S]*?options\.showDamage[\s\S]*?showRoExplorerPlayerDamageFeedback/,
   '生命值下降時可選擇顯示受到傷害');
 assert.match(explorer,
   /function showRoExplorerPlayerDamageFeedback\(damage\)[\s\S]*?playerRoot\.position\.clone\(\)[\s\S]*?showRoExplorerWorldFeedback[\s\S]*?'player-hit'/,
