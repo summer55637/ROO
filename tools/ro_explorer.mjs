@@ -1749,6 +1749,9 @@ async function loadRagassetsMap(mapName) {
           nextTerrainTextureDiagnostics.loaded++;
           if (terrainTextureDiagnostics === nextTerrainTextureDiagnostics) updateStats();
         }, undefined, () => {
+        texture.generateMipmaps = false;
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
           nextTerrainTextureDiagnostics.failed++;
           if (terrainTextureDiagnostics === nextTerrainTextureDiagnostics) updateStats();
           if (material) {
