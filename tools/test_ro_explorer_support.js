@@ -91,11 +91,12 @@ t.ok('天使之賜福也套用命中增益',
 
 g.state.cooldowns = {};
 g.state.sp = g.state.maxSp;
+const maxHpBeforeAngelus = g.state.maxHp;
 const angelus = g.castRoExplorerSupportSkill('ex-support-session', map.id, 'angelusbarrier');
 t.eq('探索可施放天使之障壁', angelus.accepted, true);
 t.ok('天使之障壁寫入防禦增益',
   g.state.buffs.some(buff => buff.type === 'def' && buff.skillId === 'angelusbarrier' && buff.mult > 1));
-t.ok('天使之障壁提高角色最大 HP', g.state.maxHp > angelus.playerMaxHp - 150);
+t.ok('天使之障壁提高角色最大 HP', g.state.maxHp > maxHpBeforeAngelus);
 
 g.state.cooldowns = {};
 g.state.sp = g.state.maxSp;
@@ -137,6 +138,7 @@ t.eq('探索可施放緩毒術', poisonGuard.accepted, true);
 t.eq('緩毒術會解除現有中毒', (g.state.playerAil || {}).poison, undefined);
 t.ok('緩毒術寫入主引擎中毒免疫增益',
   g.state.buffs.some(buff => buff.type === 'ailimmune' && buff.ailType === 'poison'));
+t.eq('緩毒術施放後立即刷新中毒抗性', g.state.ailResist.poison, 100);
 t.ok('緩毒期間主引擎拒絕新中毒',
   !g.applyPlayerAilment('poison'));
 

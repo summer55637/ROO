@@ -10279,6 +10279,8 @@ function castSkillInner(skillId, opts) {
       state.buffs.push({ type: 'ailimmune', ailType: t, mult: 1, msRemaining: dur * 1000, skillId: sk.id });
       // 身上已經中著的那一份先解掉，不然「免疫」要等現有的毒跑完才看得出來
       if (state.playerAil && state.playerAil[t]) delete state.playerAil[t];
+      // 立刻刷新 state.ailResist，否則施放當下的新異常仍可能穿過免疫 buff。
+      recomputeDerived(false);
       logMsg(`💊 「${sk.name}」Lv${lv} 發動，免疫${(PLAYER_AILMENTS[t] || {}).name || t}，持續 ${dur} 秒！`);
       break;
     }
