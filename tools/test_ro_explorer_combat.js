@@ -21,6 +21,7 @@ g.state.monster = g.state.monsters[0];
 const idleMonsters = g.state.monsters;
 g.Math = Object.create(Math);
 g.Math.random = () => 0;
+g.saveGame();
 
 const wrongMapId = g.MAPS.find(item => item.id !== map.id).id;
 const wrongMap = g.attackRoExplorerMonster('ex-test-session', 'm0', wrongMapId, spawn.id);
@@ -56,6 +57,10 @@ t.eq('技能成功消耗正式施放流程', skillResult.accepted, true);
 t.eq('探索技能回傳正確技能名稱', skillResult.skillName, g.SKILLS.bash.name);
 t.ok('技能造成實際怪物 HP 變化', skillResult.damageDealt > 0);
 t.ok('主動技能消耗 SP', skillResult.playerSp < skillSpBefore);
+const persistedAfterSkill = JSON.parse(g.localStorage.getItem('ro_idle_save_slot_0'));
+t.eq('探索技能存檔保留原放置怪物陣列', JSON.stringify(persistedAfterSkill.monsters), JSON.stringify(idleMonsters));
+t.eq('探索技能 SP 消耗寫入存檔', persistedAfterSkill.sp, g.state.sp);
+t.eq('探索技能存檔保留玩家職業', persistedAfterSkill.jobId, g.state.jobId);
 t.eq('技能結算後仍復原放置戰鬥怪物陣列', g.state.monsters, idleMonsters);
 t.eq('探索技能不會更改放置怪物 HP', g.state.monsters[0].hp, 777);
 const skillTooSoon = g.castRoExplorerSkill('ex-skill-session', 'm1', map.id, spawn.id, 'bash');

@@ -6537,6 +6537,7 @@ function playerAttack() {
 }
 const RO_EXPLORER_COMBAT_TARGETS = new Map();
 let roExplorerCombatSequence = 0;
+let roExplorerCombatTransactionDepth = 0;
 function roExplorerTimedStatusState(target) {
   const now = Date.now();
   const labels = [];
@@ -6616,6 +6617,7 @@ function attackRoExplorerMonster(sessionId, spawnKey, mapId, defId) {
   const previousMonster = state.monster;
   const hpBefore = target.hp;
   let accepted = false;
+  roExplorerCombatTransactionDepth++;
   try {
     state.monsters = [target];
     state.monster = target;
@@ -6644,10 +6646,12 @@ function attackRoExplorerMonster(sessionId, spawnKey, mapId, defId) {
       state.monsters = previousMonsters;
       state.monster = previousMonster;
     }
+    roExplorerCombatTransactionDepth = Math.max(0, roExplorerCombatTransactionDepth - 1);
   }
 
   record.killed = target.hp <= 0 || !!target._killed;
-  if (typeof saveGameThrottled === 'function') saveGameThrottled();
+  if (record.killed) saveGame();
+  else if (typeof saveGameThrottled === 'function') saveGameThrottled();
   if (RO_EXPLORER_COMBAT_TARGETS.size > 128) {
     const cutoff = Date.now() - 30 * 60 * 1000;
     for (const [targetKey, targetRecord] of RO_EXPLORER_COMBAT_TARGETS) {
@@ -6735,6 +6739,7 @@ function castRoExplorerSkill(sessionId, spawnKey, mapId, defId, skillId) {
   const hpBefore = target.hp;
   const now = Date.now();
   let accepted = false;
+  roExplorerCombatTransactionDepth++;
   try {
     state.monsters = [target];
     state.monster = target;
@@ -6763,10 +6768,11 @@ function castRoExplorerSkill(sessionId, spawnKey, mapId, defId, skillId) {
       state.monsters = previousMonsters;
       state.monster = previousMonster;
     }
+    roExplorerCombatTransactionDepth = Math.max(0, roExplorerCombatTransactionDepth - 1);
   }
 
   record.killed = target.hp <= 0 || !!target._killed;
-  if (typeof saveGameThrottled === 'function') saveGameThrottled();
+  if (accepted) saveGame();
   if (RO_EXPLORER_COMBAT_TARGETS.size > 128) {
     const cutoff = Date.now() - 30 * 60 * 1000;
     for (const [targetKey, targetRecord] of RO_EXPLORER_COMBAT_TARGETS) {
@@ -6819,6 +6825,7 @@ function tickRoExplorerMonsterStatus(sessionId, spawnKey, mapId, defId) {
   const previousMonsters = state.monsters;
   const previousMonster = state.monster;
   const hpBefore = target.hp;
+  roExplorerCombatTransactionDepth++;
   try {
     state.monsters = [target];
     state.monster = target;
@@ -6835,10 +6842,14 @@ function tickRoExplorerMonsterStatus(sessionId, spawnKey, mapId, defId) {
       state.monsters = previousMonsters;
       state.monster = previousMonster;
     }
+    roExplorerCombatTransactionDepth = Math.max(0, roExplorerCombatTransactionDepth - 1);
   }
   record.killed = target.hp <= 0 || !!target._killed;
   const damageDealt = Math.max(0, hpBefore - Math.max(0, target.hp));
-  if (damageDealt > 0 && typeof saveGameThrottled === 'function') saveGameThrottled();
+  if (damageDealt > 0) {
+    if (record.killed) saveGame();
+    else if (typeof saveGameThrottled === 'function') saveGameThrottled();
+  }
   return {
     ok: true, accepted: true, statusTick: true, killed: record.killed, damageDealt,
     hp: Math.max(0, target.hp), maxHp: target.maxHp,
@@ -13731,7 +13742,7 @@ function saveGameThrottled() {
   if (Date.now() - lastSaveTs > 5000) saveGame();
 }
 function saveGame() {
-  if (!state) return;
+  if (!state || roExplorerCombatTransactionDepth > 0) return;
   /* 換身期間（withAlly）**絕對不能存**（#105）：那時候的 `state` 是隊友快照，
      存下去等於把玩家的存檔格整個換成隊友——名字、職業、等級、背包全部變成他的。
 
