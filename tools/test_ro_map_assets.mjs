@@ -449,7 +449,12 @@ assert.deepEqual(Array.from(lightmapAtlas.lightMapPixels.slice((4 * 16 + 4) * 4,
   [127, 95, 63, 255]);
 assert.deepEqual(Array.from(lightmapAtlas.aoMapPixels.slice((4 * 16 + 4) * 4, (4 * 16 + 4) * 4 + 4)),
   [128, 128, 128, 255]);
-assert.deepEqual(lightmapAtlas.uvsBySlice[0], [[0.28125, 0.28125], [0.71875, 0.28125], [0.28125, 0.71875], [0.71875, 0.71875]]);
+assert.equal(lightmapAtlas.sourceGutter, 1,
+  '真實 RO lightmap slices reserve one source pixel of border');
+assert.deepEqual(lightmapAtlas.uvsBySlice[0], [
+  [0.34375, 0.34375], [0.65625, 0.34375],
+  [0.34375, 0.65625], [0.65625, 0.65625],
+], 'lightmap UV only samples the 6×6 useful inner texels, not the reserved 8×8 border');
 const standardMesh = buildGndMeshData(standardGnd, 0.2, lightmapAtlas);
 assert.equal(standardMesh.buckets[0].lightmapUvs.length, 8);
 assert.deepEqual(standardMesh.buckets[0].colors.slice(0, 3), [1, 1, 1]);
@@ -463,6 +468,8 @@ const legacyAtlas = buildGndLightmapAtlasData({
 }, 0);
 assert.deepEqual(Array.from(legacyAtlas.lightMapPixels.slice(0, 4)), [20, 40, 60, 255]);
 assert.equal(legacyAtlas.width, 9);
+assert.equal(legacyAtlas.sourceGutter, 0, 'sub-4px synthetic slices do not lose their complete data');
+assert.deepEqual(legacyAtlas.uvsBySlice[0], [[0.5, 0.5], [0.5, 0.5], [0.5, 0.5], [0.5, 0.5]]);
 assert.deepEqual(readAtlasRgbaAt(legacyAtlas.aoMapPixels, legacyAtlas.width, 4, 4), [90, 90, 90, 255]);
 assert.equal(buildGndLightmapAtlasData({ lightmapSlices: [] }), null);
 assert.throws(() => buildGndLightmapAtlasData(null), /lightmap slices/);

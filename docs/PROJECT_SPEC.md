@@ -328,3 +328,12 @@
 - 發現 GND lightmap/AO atlas 原本關閉 mipmap。8×8 光照切片被壓縮顯示時容易產生細密條紋，特別是整張地圖的總覽視角。
 - atlas 邊界填充由 1 像素加寬為 4 像素，四周都複製切片邊緣色，並啟用線性 mipmap 取樣以減少縮小混疊，同時降低相鄰光照切片互相滲漏。
 - 增加 atlas 尺寸、UV、legacy 格式及四側 gutter 複製測試；預期同時改善遠景地表平滑度與細節穩定性。
+
+
+## 2026-10-20 更新：GND lightmap/AO 有效 UV 範圍修正
+
+- 對照 [Ragnarok Research Lab 的 GND 格式文件](https://ragnarokresearchlab.github.io/file-formats/gnd/) 與 [Ground Mesh 光照說明](https://ragnarokresearchlab.github.io/rendering/ground-mesh/)，確認每個 8×8 lightmap/AO slice 的外圈是濾波緩衝，不應直接映射到地表。
+- 過去 atlas 已在 slice 外加 padding，卻仍用 UV 取樣原始 8×8 的首尾 texel；因此地表反覆映射到 RO 保留的邊框資料，形成規律的明暗條紋。新增的修正把 surface UV 限制在原始切片中央 6×6 的有效 texel 區域，外部 4px atlas padding 與 mipmap 繼續負責避免相鄰 slice 滲色。
+- 對照公開素材目前的兩種布局：`standard-split` 使用 RGB lightmap + 獨立灰階 AO；`legacy-rgba` 使用 RGBA slice 並由 alpha 取 AO。保留兩種通道來源，不把 RGB/lightmap 與 AO 誤當同一張灰階圖。
+- 專項測試驗證 8×8 slice UV 不再碰觸保留外圈，且小尺寸合成資料不會因裁切而遺失像素。公開地圖 smoke test 對 Prontera、tra_fild、icecastle 逐張確認 8×8 slice 尺寸、通道布局及 source gutter。
+- Diffuse UV 仍依格式規格中的四角 U 與四角 V 順序解碼；地形幾何、模型擺放、GAT 通行與尋路及戰鬥公式不變。

@@ -46,7 +46,21 @@ async function validateMap(mapId) {
   const gnd = parseGndBuffer(gndBytes);
   assert.ok(['standard-split', 'legacy-rgba'].includes(gnd.lightmapLayout), mapId + ' recognized GND lightmap layout');
   assert.equal(gnd.lightmapSlices.length, gnd.lightmapCount, mapId + ' lightmap slice count');
+  assert.ok(gnd.lightmapSlices.every(slice => slice.width === 8 && slice.height === 8),
+    mapId + ' real RO lightmap slices are 8×8');
+  if (gnd.lightmapLayout === 'standard-split') {
+    assert.ok(gnd.lightmapSlices.every(slice => slice.channels === 3
+      && slice.shadowPixels && slice.shadowPixels.length === 64
+      && slice.colorPixels.length === 8 * 8 * 3),
+    mapId + ' standard lightmap stores RGB color and separate 1-channel AO');
+  } else {
+    assert.ok(gnd.lightmapSlices.every(slice => slice.channels === 4
+      && !slice.shadowPixels && slice.colorPixels.length === 8 * 8 * 4),
+    mapId + ' packed legacy RGBA stores per-pixel AO in alpha');
+  }
   const lightmapAtlas = buildGndLightmapAtlasData(gnd);
+  assert.equal(lightmapAtlas.sourceGutter, 1,
+    mapId + ' atlas excludes the source lightmap/AO border ring');
   assert.ok(lightmapAtlas, mapId + ' lightmap atlas was built');
   assert.equal(lightmapAtlas.uvsBySlice.length, gnd.lightmapCount, mapId + ' lightmap atlas UV count');
   assert.ok(lightmapAtlas.width <= 4096 && lightmapAtlas.height <= 4096, mapId + ' atlas fits common GPU limits');
@@ -248,7 +262,10 @@ async function validateMap(mapId) {
     mapId + ': GND ' + gnd.version + ' ' + gnd.width + '×' + gnd.height
       + ', GAT ' + gatWidth + '×' + gatHeight
       + ', surfaces ' + gnd.surfaces.length
-      + ', lightmaps ' + gnd.lightmapCount + ' (' + gnd.lightmapLayout + ')'
+      + ', lightmaps ' + gnd.lightmapCount + ' (' + gnd.lightmapLayout
+      + ', ' + lightmapAtlas.sliceWidth + '×' + lightmapAtlas.sliceHeight + ' per slice, '
+      + (gnd.lightmapLayout === 'standard-split' ? 'RGB + separate AO' : 'RGBA + AO alpha')
+      + ', excluded inner border ' + lightmapAtlas.sourceGutter + 'px)'
       + ', atlas ' + lightmapAtlas.width + '×' + lightmapAtlas.height
       + ', RSW ' + rsw.version + ' with ' + rsw.models.length + ' model placements'
       + ', sample RSM versions ' + versionSummary

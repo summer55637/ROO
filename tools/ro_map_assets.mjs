@@ -1587,10 +1587,13 @@ export function buildGndLightmapAtlasData(gnd, posterizationLevel = 16) {
       }
     }
 
-    const u0 = (column * cellWidth + gutter + 0.5) / width;
-    const u1 = (column * cellWidth + gutter + sliceWidth - 0.5) / width;
-    const v0 = (row * cellHeight + gutter + 0.5) / height;
-    const v1 = (row * cellHeight + gutter + sliceHeight - 0.5) / height;
+    // The original RO 8x8 lightmap/AO slices reserve their outermost
+    // pixel ring as a filter buffer. Never map a surface across those texels.
+    const sourceGutter = sliceWidth >= 4 && sliceHeight >= 4 ? 1 : 0;
+    const u0 = (column * cellWidth + gutter + sourceGutter + 0.5) / width;
+    const u1 = (column * cellWidth + gutter + sliceWidth - sourceGutter - 0.5) / width;
+    const v0 = (row * cellHeight + gutter + sourceGutter + 0.5) / height;
+    const v1 = (row * cellHeight + gutter + sliceHeight - sourceGutter - 0.5) / height;
     uvsBySlice.push([[u0, v0], [u1, v0], [u0, v1], [u1, v1]]);
   }
 
@@ -1601,6 +1604,7 @@ export function buildGndLightmapAtlasData(gnd, posterizationLevel = 16) {
     rows,
     sliceWidth,
     sliceHeight,
+    sourceGutter: sliceWidth >= 4 && sliceHeight >= 4 ? 1 : 0,
     channels,
     lightMapPixels,
     aoMapPixels,
