@@ -1,4 +1,4 @@
-const FEEDBACK_ACTIONS = new Set(['attack', 'skill', 'dot']);
+const FEEDBACK_ACTIONS = new Set(['attack', 'skill', 'dot', 'player-hit']);
 
 export function buildRoExplorerCombatFeedback(damageValue, action = 'attack') {
   if (damageValue === null || damageValue === undefined || damageValue === '') return null;
@@ -10,8 +10,8 @@ export function buildRoExplorerCombatFeedback(damageValue, action = 'attack') {
 
   const kind = FEEDBACK_ACTIONS.has(action) ? action : 'attack';
   return {
-    text: wholeDamage.toLocaleString('en-US'),
+    text: (kind === 'player-hit' ? '−' : '') + wholeDamage.toLocaleString('en-US'),
     kind,
-    durationMs: kind === 'skill' ? 1000 : (kind === 'dot' ? 900 : 820),
+    durationMs: kind === 'skill' ? 1000 : (kind === 'dot' || kind === 'player-hit' ? 900 : 820),
   };
 }

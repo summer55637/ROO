@@ -172,12 +172,20 @@ function renderPlayerVitals() {
   updateRoExplorerGauge(playerHpGauge, playerHpBar, playerHpValue, playerVitals.hp, playerVitals.maxHp);
   updateRoExplorerGauge(playerSpGauge, playerSpBar, playerSpValue, playerVitals.sp, playerVitals.maxSp);
 }
-function updatePlayerVitals(values) {
+function updatePlayerVitals(values, options = {}) {
   if (!values || typeof values !== 'object') return;
+  const previousHp = playerVitals.hp;
+  const previousHpValue = Number(previousHp);
+  const hadPreviousHp = previousHp !== null && previousHp !== undefined && previousHp !== ''
+    && Number.isFinite(previousHpValue);
   for (const key of ['hp', 'maxHp', 'sp', 'maxSp']) {
     if (values[key] === null || values[key] === undefined || values[key] === '') continue;
     const value = Number(values[key]);
     if (Number.isFinite(value)) playerVitals[key] = value;
+  }
+  const currentHp = Number(playerVitals.hp);
+  if (options.showDamage && hadPreviousHp && Number.isFinite(currentHp) && currentHp < previousHpValue) {
+    showRoExplorerPlayerDamageFeedback(previousHpValue - currentHp);
   }
   renderPlayerVitals();
 }
@@ -1780,8 +1788,8 @@ function loadRoExplorerMonsterTexture(imageId) {
   monsterTextureCache.set(imageId, promise);
   return promise;
 }
-function showRoExplorerCombatFeedback(entry, damage, action) {
-  if (!entry || !entry.cell || !combatFeedbackLayer) return;
+function showRoExplorerWorldFeedback(worldPosition, damage, action) {
+  if (!worldPosition || !combatFeedbackLayer) return;
   const feedback = buildRoExplorerCombatFeedback(damage, action);
   if (!feedback) return;
 
@@ -1792,11 +1800,22 @@ function showRoExplorerCombatFeedback(entry, damage, action) {
   combatFeedbackLayer.appendChild(element);
   combatFeedbackEntries.add({
     element,
-    worldPosition: cellWorldPosition(entry.cell, 1.55),
+    worldPosition: worldPosition.clone(),
     startedAt: performance.now(),
     durationMs: feedback.durationMs,
   });
 }
+function showRoExplorerCombatFeedback(entry, damage, action) {
+  if (!entry || !entry.cell) return;
+  showRoExplorerWorldFeedback(cellWorldPosition(entry.cell, 1.55), damage, action);
+}
+function showRoExplorerPlayerDamageFeedback(damage) {
+  if (!currentCell || !gatInfo) return;
+  const worldPosition = playerRoot.position.clone();
+  worldPosition.y += tileSize() * 1.55;
+  showRoExplorerWorldFeedback(worldPosition, damage, 'player-hit');
+}
+
 function updateRoExplorerCombatFeedback(now) {
   const width = stage.clientWidth;
   const height = stage.clientHeight;
@@ -2154,18 +2173,16 @@ function handleRoExplorerCombatStorage(event) {
     if (result.ok && result.accepted) updatePlayerVitals({
       hp: result.playerHp, maxHp: result.playerMaxHp,
       sp: result.playerSp, maxSp: result.playerMaxSp,
-    });
+    }, { showDamage: true });
     return;
   }
-  updatePlayerVitals({
-    hp: result.playerHp,
-    maxHp: result.playerMaxHp,
-    sp: result.playerSp,
-    maxSp: result.playerMaxSp,
-  });
   if (result.requestType === 'status_tick') {
     if (result.requestId !== pendingStatusTickId) return;
     pendingStatusTickId = null;
+    updatePlayerVitals({
+      hp: result.playerHp, maxHp: result.playerMaxHp,
+      sp: result.playerSp, maxSp: result.playerMaxSp,
+    });
     const entry = monsterEntries.find(item => item.spawnKey === result.spawnKey);
     if (!entry) return;
     entry.nextStatusTickAt = performance.now() + 900;
@@ -2213,6 +2230,12 @@ function handleRoExplorerCombatStorage(event) {
   const request = pendingCombatRequest;
   const entry = request.entry;
   pendingCombatRequest = null;
+  updatePlayerVitals({
+    hp: result.playerHp,
+    maxHp: result.playerMaxHp,
+    sp: result.playerSp,
+    maxSp: result.playerMaxSp,
+  }, { showDamage: true });
   updateRoExplorerCombatButtons();
   if (Number.isFinite(result.hp)) entry.currentHp = Math.max(0, result.hp);
   if (Number.isFinite(result.maxHp)) entry.maxHp = Math.max(1, result.maxHp);

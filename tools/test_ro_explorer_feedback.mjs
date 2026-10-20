@@ -14,6 +14,8 @@ assert.deepEqual(buildRoExplorerCombatFeedback(8765, 'skill'),
   { text: '8,765', kind: 'skill', durationMs: 1000 });
 assert.deepEqual(buildRoExplorerCombatFeedback(37, 'dot'),
   { text: '37', kind: 'dot', durationMs: 900 });
+assert.deepEqual(buildRoExplorerCombatFeedback(321, 'player-hit'),
+  { text: '−321', kind: 'player-hit', durationMs: 900 });
 assert.deepEqual(buildRoExplorerCombatFeedback(0, 'attack'),
   { text: 'MISS', kind: 'miss', durationMs: 720 });
 assert.equal(buildRoExplorerCombatFeedback(undefined, 'attack'), null);
@@ -24,6 +26,19 @@ assert.match(html, /id="combat-feedback-layer"/,
 assert.match(explorer,
   /function showRoExplorerCombatFeedback\(entry, damage, action\)[\s\S]*?buildRoExplorerCombatFeedback\(damage, action\)[\s\S]*?combatFeedbackEntries\.add/,
   '建立跳字時使用安全的傷害顯示資料');
+
+assert.match(explorer,
+  /function updatePlayerVitals\(values, options = \{\)[\s\S]*?options\.showDamage[\s\S]*?showRoExplorerPlayerDamageFeedback/,
+  '生命值下降時可選擇顯示受到傷害');
+assert.match(explorer,
+  /function showRoExplorerPlayerDamageFeedback\(damage\)[\s\S]*?playerRoot\.position\.clone\(\)[\s\S]*?showRoExplorerWorldFeedback[\s\S]*?'player-hit'/,
+  '玩家受到傷害時在角色位置顯示紅色跳字');
+assert.match(explorer,
+  /if \(result\.ok && result\.accepted\) updatePlayerVitals\([\s\S]*?\{ showDamage: true \}\)/,
+  '生命值快照確認 HP 下降時顯示受到傷害');
+assert.match(explorer,
+  /pendingCombatRequest = null;[\s\S]*?updatePlayerVitals\([\s\S]*?\{ showDamage: true \}\)/,
+  '普攻與主動技能回覆可觸發玩家受傷回饋');
 assert.match(explorer,
   /if \(result\.accepted\) showRoExplorerCombatFeedback\(entry, result\.damageDealt, request\.action === 'skill' \? 'skill' : 'attack'\)/,
   '普攻與主動技能成功時顯示傷害');
