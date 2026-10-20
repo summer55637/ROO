@@ -104,24 +104,32 @@ async function clickMinimapUntilMoving(targetPage, useTouch, label) {
   });
   let moved = false;
   const attempted = [];
+  const minimap = targetPage.locator('#minimap');
   const stopButton = targetPage.locator('#stop-movement');
   for (const cell of candidates) {
-    const x = box.x + ((cell.x + 0.5) / cell.mapWidth) * box.width;
-    const y = box.y + ((cell.y + 0.5) / cell.mapHeight) * box.height;
+    const localX = ((cell.x + 0.5) / cell.mapWidth) * box.width;
+    const localY = ((cell.y + 0.5) / cell.mapHeight) * box.height;
+    const x = box.x + localX;
+    const y = box.y + localY;
+    const hitTarget = await targetPage.evaluate(({ x, y }) => {
+      const element = document.elementFromPoint(x, y);
+      return element ? { tag: element.tagName, id: element.id, className: String(element.className || '') } : null;
+    }, { x, y });
     try {
       const clicksBefore = await targetPage.evaluate(() => window.__rooMinimapAcceptanceClicks.count);
-      if (useTouch) await targetPage.touchscreen.tap(x, y);
-      else await targetPage.mouse.click(x, y);
+      if (useTouch) await minimap.tap({ position: { x: localX, y: localY }, timeout: 1500 });
+      else await minimap.click({ position: { x: localX, y: localY }, timeout: 1500 });
       const clickInfo = await targetPage.evaluate(() => window.__rooMinimapAcceptanceClicks);
       if (await stopButton.isVisible()) {
         moved = true;
         break;
       }
       attempted.push({ cellX: cell.x, cellY: cell.y, radius: cell.radius,
-        eventReachedCanvas: clickInfo.count > clicksBefore, lastClick: clickInfo.last,
+        eventReachedCanvas: clickInfo.count > clicksBefore, lastClick: clickInfo.last, hitTarget,
         status: (await targetPage.locator('#status').innerText()).slice(0, 90) });
     } catch (error) {
-      attempted.push({ x: cell.x, y: cell.y, error: String(error).slice(0, 90) });
+      attempted.push({ cellX: cell.x, cellY: cell.y, radius: cell.radius,
+        hitTarget, error: String(error).slice(0, 240) });
     }
   }
   assert.ok(moved, label + ' 點擊小地圖沒有建立可停止的移動路徑；嘗試 ' + JSON.stringify(attempted.slice(-8)));
