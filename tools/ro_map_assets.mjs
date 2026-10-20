@@ -173,8 +173,8 @@ export function parseGndBuffer(input) {
     }
   }
 
-  // Keep support for the global-dimension/40-byte surface variant already used
-  // by the public test corpus; only select it when its complete file layout fits.
+  // Some public RO GND assets use global lightmap dimensions and 40-byte
+  // surfaces. For GND 1.7+, each slice is still 64 AO bytes followed by 192 RGB bytes.
   let legacyCandidate = null;
   if (lightmapHeaderOffset + 16 <= length) {
     const count = view.getInt32(lightmapHeaderOffset, true);
@@ -230,7 +230,7 @@ export function parseGndBuffer(input) {
     lightmapWidth = legacyCandidate.lightmapWidth;
     lightmapHeight = legacyCandidate.lightmapHeight;
     cellsPerGrid = legacyCandidate.cellsPerGrid;
-    lightmapLayout = 'legacy-rgba';
+    lightmapLayout = 'legacy-split';
     surfaceCount = legacyCandidate.count;
     surfaceStride = 40;
     surfaceLayout = 'legacy';
@@ -243,14 +243,19 @@ export function parseGndBuffer(input) {
       view.byteOffset + legacyCandidate.sliceStart,
       legacyCandidate.bytes
     ).slice();
-    const pixelsPerSlice = lightmapWidth * lightmapHeight * 4;
+    const pixelsPerSlice = lightmapWidth * lightmapHeight;
+    const bytesPerSlice = pixelsPerSlice * 4;
     for (let i = 0; i < lightmapCount; i++) {
+      const sliceAt = i * bytesPerSlice;
       lightmapSlices.push({
         width: lightmapWidth,
         height: lightmapHeight,
-        colorPixels: legacyLightmapPixels.slice(i * pixelsPerSlice, (i + 1) * pixelsPerSlice),
-        shadowPixels: null,
-        channels: 4,
+        shadowPixels: legacyLightmapPixels.slice(sliceAt, sliceAt + pixelsPerSlice),
+        colorPixels: legacyLightmapPixels.slice(
+          sliceAt + pixelsPerSlice,
+          sliceAt + bytesPerSlice
+        ),
+        channels: 3,
       });
     }
   } else {

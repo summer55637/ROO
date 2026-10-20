@@ -334,6 +334,14 @@
 
 - 對照 [Ragnarok Research Lab 的 GND 格式文件](https://ragnarokresearchlab.github.io/file-formats/gnd/) 與 [Ground Mesh 光照說明](https://ragnarokresearchlab.github.io/rendering/ground-mesh/)，確認每個 8×8 lightmap/AO slice 的外圈是濾波緩衝，不應直接映射到地表。
 - 過去 atlas 已在 slice 外加 padding，卻仍用 UV 取樣原始 8×8 的首尾 texel；因此地表反覆映射到 RO 保留的邊框資料，形成規律的明暗條紋。新增的修正把 surface UV 限制在原始切片中央 6×6 的有效 texel 區域，外部 4px atlas padding 與 mipmap 繼續負責避免相鄰 slice 滲色。
-- 對照公開素材目前的兩種布局：`standard-split` 使用 RGB lightmap + 獨立灰階 AO；`legacy-rgba` 使用 RGBA slice 並由 alpha 取 AO。保留兩種通道來源，不把 RGB/lightmap 與 AO 誤當同一張灰階圖。
+- 對照公開素材目前的兩種版面：`standard-split` 與 `legacy-split` 都使用 RGB lightmap + 獨立灰階 AO；差別是切片尺寸資訊的存放位置與 surface 記錄長度，不是 AO／RGB 的通道排列。
 - 專項測試驗證 8×8 slice UV 不再碰觸保留外圈，且小尺寸合成資料不會因裁切而遺失像素。公開地圖 smoke test 對 Prontera、tra_fild、icecastle 逐張確認 8×8 slice 尺寸、通道布局及 source gutter。
 - Diffuse UV 仍依格式規格中的四角 U 與四角 V 順序解碼；地形幾何、模型擺放、GAT 通行與尋路及戰鬥公式不變。
+
+
+## 2026-10-20 更新：修正 GND lightmap／AO 通道解讀
+- 對照 [RagnarokFileFormats GND 規格](https://github.com/rdw-archive/RagnarokFileFormats/blob/master/GND.MD) 與 [ragx GND parser](https://github.com/joaopedrosgs/ragx/blob/main/ragx/formats/gnd.py)，確認 GND 1.7+ 的全域尺寸版面每片資料是 64 bytes 灰階 AO，接著 192 bytes RGB lightmap；不是每像素 RGBA 交錯。
+- 修正 `legacy-split` 解析：先分離 AO 與 RGB，再建立兩張 atlas；原本把兩種資料當成 RGBA 交錯會令 AO 位元組錯位混入光照 RGB，造成地表出現密集規律條紋。
+- 新增二進位 fixture 回歸，逐像素驗證 AO 首三值、RGB 首三個 texel、atlas 輸出與 surface 左下角 lightmap UV 對應；保留既有 4px gutter、保護邊框與 mipmap。
+- diffuse UV 的 RO 頂點順序仍是 SW、SE、NW、NE；這次只修正已由公開格式和程式碼比對證實的通道解析，不任意翻轉 UV。
+- 等待本次完整 CI 與桌面／手機截圖驗證；目前分支仍是 PR 草稿，尚未合併 `main`，GitHub Pages 不會因功能分支提交自動更新。

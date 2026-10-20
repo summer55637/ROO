@@ -32,7 +32,7 @@ import {
   sampleRoWaterWaveOffset,
 } from './ro_map_assets.mjs';
 
-function makeGnd(surfaceStride = 40, minor = 7, gridU = 1, gridV = 1) {
+function makeGnd(surfaceStride = 40, minor = 7, gridU = 1, gridV = 1, lightmapCount = 0) {
   const width = 1;
   const height = 1;
   const texturePath = Buffer.alloc(80);
@@ -40,7 +40,8 @@ function makeGnd(surfaceStride = 40, minor = 7, gridU = 1, gridV = 1) {
   const waterPlaneCount = gridU * gridV;
   const waterBytes = minor === 8 ? 32 + waterPlaneCount * 4
     : minor === 9 ? 32 + waterPlaneCount * 24 : 0;
-  const buffer = Buffer.alloc(26 + texturePath.length + 16 + 4 + surfaceStride + 28 + waterBytes);
+  const buffer = Buffer.alloc(26 + texturePath.length + 16 + lightmapCount * 256
+    + 4 + surfaceStride + 28 + waterBytes);
   buffer.write('GRGN', 0, 'ascii');
   buffer.writeUInt8(1, 4);
   buffer.writeUInt8(minor, 5);
@@ -51,10 +52,21 @@ function makeGnd(surfaceStride = 40, minor = 7, gridU = 1, gridV = 1) {
   buffer.writeInt32LE(80, 22);
   texturePath.copy(buffer, 26);
   let offset = 106;
-  buffer.writeInt32LE(0, offset); offset += 4; // lightmap count
+  buffer.writeInt32LE(lightmapCount, offset); offset += 4;
   buffer.writeInt32LE(8, offset); offset += 4;
   buffer.writeInt32LE(8, offset); offset += 4;
   buffer.writeInt32LE(1, offset); offset += 4;
+  for (let slice = 0; slice < lightmapCount; slice++) {
+    // GND 1.7+: 8×8 grayscale AO first, then 8×8 RGB lightmap.
+    for (let pixel = 0; pixel < 64; pixel++) {
+      buffer[offset + pixel] = 20 + pixel;
+      const colorAt = offset + 64 + pixel * 3;
+      buffer[colorAt] = 80 + pixel;
+      buffer[colorAt + 1] = 120 + pixel;
+      buffer[colorAt + 2] = 160 + pixel;
+    }
+    offset += 256;
+  }
   buffer.writeInt32LE(1, offset); offset += 4; // surface count
 
   const surfaceOffset = offset;
@@ -535,6 +547,27 @@ assert.deepEqual(mesh.buckets[0].positions.slice(0, 3), [-1, 0, 1]);
 assert.deepEqual(mesh.buckets[0].uvs.slice(0, 2), [0, 0]);
 
 assert.throws(() => parseGndBuffer(makeGnd(56)), /40-byte surface/);
+
+const splitLightmapGnd = parseGndBuffer(makeGnd(40, 7, 1, 1, 1));
+assert.equal(splitLightmapGnd.lightmapLayout, 'legacy-split');
+assert.equal(splitLightmapGnd.lightmapCount, 1);
+assert.equal(splitLightmapGnd.lightmapSlices[0].channels, 3);
+assert.deepEqual(Array.from(splitLightmapGnd.lightmapSlices[0].shadowPixels.slice(0, 3)),
+  [20, 21, 22], 'legacy-sized RO slices start with the independent grayscale AO channel');
+assert.deepEqual(Array.from(splitLightmapGnd.lightmapSlices[0].colorPixels.slice(0, 9)),
+  [80, 120, 160, 81, 121, 161, 82, 122, 162],
+  'RGB lightmap bytes must not be read as interleaved RGBA');
+const splitLightmapAtlas = buildGndLightmapAtlasData(splitLightmapGnd, 0);
+assert.deepEqual(readAtlasRgbaAt(
+  splitLightmapAtlas.lightMapPixels, splitLightmapAtlas.width, 4, 4
+), [80, 120, 160, 255], 'atlas preserves the first RGB lightmap texel');
+assert.deepEqual(readAtlasRgbaAt(
+  splitLightmapAtlas.aoMapPixels, splitLightmapAtlas.width, 4, 4
+), [20, 20, 20, 255], 'atlas preserves the independent first AO texel');
+const splitLightmapMesh = buildGndMeshData(splitLightmapGnd, 0.2, splitLightmapAtlas);
+assert.equal(splitLightmapMesh.buckets[0].lightmapUvs.length, 8);
+assert.deepEqual(splitLightmapMesh.buckets[0].lightmapUvs.slice(0, 2),
+  splitLightmapAtlas.uvsBySlice[0][0], 'surface corner zero maps to the RO bottom-left lightmap UV');
 
 const adjacentTint = buildGndMeshData({
   width: 2,
