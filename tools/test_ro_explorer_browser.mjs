@@ -206,6 +206,9 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
             await targetPage.waitForFunction(() => {
               const text = document.getElementById('gnd-surface-inspector-content')?.textContent || '';
               return text.includes('真實材質路徑') && text.includes('原始四角 UV')
+                && text.includes('原始 RGB lightmap / AO 四角取樣')
+                && text.includes('Diffuse 貼圖採樣：mipmap=off')
+                && text.includes('RGB lightmap/AO 採樣：mipmap=off')
                 && /GPU 最終畫面取樣 RGBA：\(\d+,\s*\d+,\s*\d+,\s*\d+\)/.test(text);
             }, null, { timeout: 1600 });
           } catch (error) {
@@ -214,6 +217,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
           diagnosticText = await inspector.innerText();
           const pixelMatch = diagnosticText.match(/GPU 最終畫面取樣 RGBA：\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)/);
           if (!pixelMatch) continue;
+          if (!/(?:SW|SE|NW|NE): RGB \(\d+, \d+, \d+\); AO \d+/.test(diagnosticText)) continue;
           groundProbe = point;
           sampledPixels['7'] = pixelMatch.slice(1, 4).join(',');
           foundVisibleGround = true;
@@ -228,6 +232,9 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
           const text = document.getElementById('gnd-surface-inspector-content')?.textContent || '';
           return text.includes('Surface #') && text.includes('真實材質路徑')
             && text.includes('原始四角 UV')
+            && text.includes('原始 RGB lightmap / AO 四角取樣')
+            && text.includes('Diffuse 貼圖採樣：mipmap=off')
+            && text.includes('RGB lightmap/AO 採樣：mipmap=off')
             && /GPU 最終畫面取樣 RGBA：\(\d+,\s*\d+,\s*\d+,\s*\d+\)/.test(text);
         }, null, { timeout: 5000 });
         const diagnosticText = await inspector.innerText();
