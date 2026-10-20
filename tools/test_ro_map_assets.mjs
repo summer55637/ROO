@@ -561,6 +561,44 @@ assert.deepEqual(mesh.buckets[0].indices, [0, 1, 2, 2, 1, 3]);
 assert.deepEqual(mesh.buckets[0].positions.slice(0, 3), [-1, 0, 1]);
 assert.deepEqual(mesh.buckets[0].uvs.slice(0, 2), [0, 0]);
 assert.deepEqual(mesh.buckets[0].surfaceIndices, [0]);
+assert.deepEqual(mesh.buckets[0].sourceUvs, [0, 0, 1, 0, 0, 1, 1, 1]);
+assert.deepEqual(mesh.buckets[0].diffuseUvRect, {
+  minU: 0, maxU: 1, minV: 0, maxV: 1,
+}, 'full-texture GND surfaces retain their source UV rectangle while using local UVs');
+
+const splitDiffuseRegions = buildGndMeshData({
+  width: 3,
+  height: 1,
+  textures: ['packed-atlas.png'],
+  surfaces: [
+    { textureIndex: 0, uv: [[0, 0], [0.5, 0], [0, 0.5], [0.5, 0.5]], color: [1, 1, 1, 1] },
+    { textureIndex: 0, uv: [[0.5, 0], [1, 0], [0.5, 0.5], [1, 0.5]], color: [1, 1, 1, 1] },
+    { textureIndex: 0, uv: [[0, 0], [0.5, 0], [0, 0.5], [0.5, 0.5]], color: [1, 1, 1, 1] },
+  ],
+  cubes: [
+    { hSW: 0, hSE: 0, hNW: 0, hNE: 0, topSurface: 0, northSurface: -1, eastSurface: -1 },
+    { hSW: 0, hSE: 0, hNW: 0, hNE: 0, topSurface: 1, northSurface: -1, eastSurface: -1 },
+    { hSW: 0, hSE: 0, hNW: 0, hNE: 0, topSurface: 2, northSurface: -1, eastSurface: -1 },
+  ],
+});
+assert.equal(splitDiffuseRegions.buckets.length, 2,
+  'same source texture but different UV sub-rectangles must use separate mip-safe regions');
+const leftDiffuseRegion = splitDiffuseRegions.buckets.find(bucket => bucket.diffuseUvRect.minU === 0);
+const rightDiffuseRegion = splitDiffuseRegions.buckets.find(bucket => bucket.diffuseUvRect.minU === 0.5);
+assert.ok(leftDiffuseRegion && rightDiffuseRegion);
+assert.deepEqual(leftDiffuseRegion.surfaceIndices, [0, 2],
+  'surfaces sharing the same texture rectangle remain batched together');
+assert.deepEqual(leftDiffuseRegion.uvs, [
+  0, 0, 1, 0, 0, 1, 1, 1,
+  0, 0, 1, 0, 0, 1, 1, 1,
+], 'each isolated diffuse region remaps original UVs to the complete local texture');
+assert.deepEqual(rightDiffuseRegion.uvs, [0, 0, 1, 0, 0, 1, 1, 1]);
+assert.deepEqual(rightDiffuseRegion.sourceUvs, [
+  0.5, 0, 1, 0, 0.5, 0.5, 1, 0.5,
+], 'source diffuse UVs remain available for exact inspection after local remapping');
+assert.deepEqual(rightDiffuseRegion.diffuseUvRect, {
+  minU: 0.5, maxU: 1, minV: 0, maxV: 0.5,
+});
 
 assert.throws(() => parseGndBuffer(makeGnd(56)), /40-byte surface/);
 
