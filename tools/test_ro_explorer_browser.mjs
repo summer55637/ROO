@@ -209,6 +209,9 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
                 && text.includes('原始 RGB lightmap / AO 四角取樣')
                 && text.includes('Diffuse 貼圖採樣：mipmap=off')
                 && text.includes('RGB lightmap/AO 採樣：mipmap=off')
+            && text.includes('游標處插值頂點色 RGB：')
+            && text.includes('游標處 Lightmap atlas UV2：')
+            && text.includes('游標處來源 RGB lightmap / AO 最近像素（原始 GND bytes）：RGB (')
                 && /GPU 最終畫面取樣 RGBA：\(\d+,\s*\d+,\s*\d+,\s*\d+\)/.test(text);
             }, null, { timeout: 1600 });
           } catch (error) {
@@ -235,6 +238,9 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
             && text.includes('原始 RGB lightmap / AO 四角取樣')
             && text.includes('Diffuse 貼圖採樣：mipmap=off')
             && text.includes('RGB lightmap/AO 採樣：mipmap=off')
+            && text.includes('游標處插值頂點色 RGB：')
+            && text.includes('游標處 Lightmap atlas UV2：')
+            && text.includes('游標處來源 RGB lightmap / AO 最近像素（原始 GND bytes）：RGB (')
             && /GPU 最終畫面取樣 RGBA：\(\d+,\s*\d+,\s*\d+,\s*\d+\)/.test(text);
         }, null, { timeout: 5000 });
         const diagnosticText = await inspector.innerText();
