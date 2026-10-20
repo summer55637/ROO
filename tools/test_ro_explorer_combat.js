@@ -68,6 +68,36 @@ t.eq('技能冷卻中不能重複施放', skillTooSoon.accepted, false);
 const unlearnedSkill = g.castRoExplorerSkill('ex-skill-session', 'm2', map.id, spawn.id, 'heal');
 t.eq('未學會的技能不得從探索頁施放', unlearnedSkill.ok, false);
 
+/* 自身增益直接套用到角色：不靠怪物距離，不傷害所選目標，也要正常存檔。 */
+g.state.jobId = 'knight';
+g.state.jobLevel = 30;
+g.state.jobLevelHistory = Object.assign({}, g.state.jobLevelHistory, { knight: 30 });
+g.state.learnedSkills.lk_concentration = 5;
+g.state.sp = g.state.maxSp;
+g.state.cooldowns = {};
+g.saveGame();
+const buffTargetHp = def.hp;
+const buffSpBefore = g.state.sp;
+const buffResult = g.castRoExplorerSkill(
+  'ex-buff-session', 'buff-target', map.id, spawn.id, 'lk_concentration'
+);
+t.eq('原生探索允許已學會的集中攻擊', buffResult.ok, true);
+t.eq('集中攻擊透過主引擎成功施放', buffResult.accepted, true);
+t.eq('增益回覆會標記自身增益類型', buffResult.isSelfBuff, true);
+t.eq('增益回覆保留技能類型', buffResult.skillType, 'buff_atk');
+t.eq('施放自身增益不會傷害探索目標', buffResult.damageDealt, 0);
+t.eq('施放自身增益不會改變目標 HP', buffResult.hp, buffTargetHp);
+t.ok('集中攻擊把正式 ATK 增益套用到角色',
+  g.state.buffs.some(b => b.skillId === 'lk_concentration' && b.type === 'atk'));
+t.ok('集中攻擊正常消耗 SP', g.state.sp < buffSpBefore);
+t.eq('集中攻擊 SP 消耗立即存檔',
+  JSON.parse(g.localStorage.getItem('ro_idle_save_slot_0')).sp, g.state.sp);
+t.ok('集中攻擊持續效果寫入存檔',
+  JSON.parse(g.localStorage.getItem('ro_idle_save_slot_0')).buffs
+    .some(b => b.skillId === 'lk_concentration' && b.type === 'atk'));
+t.eq('自身增益結算後放置怪物陣列仍完整',
+  JSON.stringify(g.state.monsters), JSON.stringify(idleMonsters));
+
 g.state.jobId = 'thief';
 g.state.learnedSkills.envenom = 10;
 g.state.maxSp = Math.max(100, g.state.maxSp);
