@@ -4,6 +4,7 @@ import {
   RAGASSETS_BASE_URL,
   analyzeRswPlacementBounds,
   buildGndLightmapAtlasData,
+  computeGndLightDirection,
   computeGndLightMultiplier,
   buildGndWaterMeshDataByPlane,
   buildRsmNodeTransformData,
@@ -450,13 +451,7 @@ async function validateMap(mapId) {
     edgeA[0] * edgeB[1] - edgeA[1] * edgeB[0],
   ];
   if (sampleNormal[1] < 0) sampleNormal = sampleNormal.map(value => -value);
-  const longitude = rsw.light.longitude * Math.PI / 180;
-  const latitude = rsw.light.latitude * Math.PI / 180;
-  const rswDirection = [
-    Math.cos(latitude) * Math.cos(longitude),
-    Math.sin(latitude),
-    Math.cos(latitude) * Math.sin(longitude),
-  ];
+  const rswDirection = computeGndLightDirection(rsw.light.longitude, rsw.light.latitude);
   const rswMultiplier = computeGndLightMultiplier(
     sampleNormal, rswDirection, rsw.light.ambient, rsw.light.diffuse
   );
@@ -478,6 +473,10 @@ async function validateMap(mapId) {
       + ' atlas UV=' + JSON.stringify(sampleLightmapUvs)
       + ' vertex tint=' + JSON.stringify(vertexColor)
       + ' surface normal=' + JSON.stringify(sampleNormal)
+      + ' RSW angles=' + JSON.stringify([rsw.light.longitude, rsw.light.latitude])
+      + ' RSW ambient=' + JSON.stringify(rsw.light.ambient)
+      + ' RSW diffuse=' + JSON.stringify(rsw.light.diffuse)
+      + ' RSW direction=' + JSON.stringify(rswDirection)
       + ' RSW direction multiplier=' + JSON.stringify(rswMultiplier)
       + ' (official shader: diffuse×RSW multiplier×vertexColor×AO + RGB lightmap)'
   );

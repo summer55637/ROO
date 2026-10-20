@@ -5,6 +5,7 @@ import {
   buildGndLightmapAtlasData,
   GND_PREVIEW_AO_STRENGTH,
   computeGndPreviewColor,
+  computeGndLightDirection,
   computeGndLightMultiplier,
   buildRsmNodeTransformData,
   buildRsm2NodeTransformData,
@@ -1008,6 +1009,18 @@ assert.deepEqual(
   [0.22, 0.33, 0.525],
   'diffuse is multiplied by RSW light, vertex tint and AO before RGB lightmap is added'
 );
+const equatorialLightDirection = computeGndLightDirection(0, 0);
+assert.ok(Math.abs(equatorialLightDirection[0]) < 1e-12
+  && Math.abs(equatorialLightDirection[1] - 1) < 1e-12
+  && Math.abs(equatorialLightDirection[2]) < 1e-12,
+  'GND RSW angles must follow GRFEditor rotations rather than a generic spherical-angle mapping');
+const quarterTurnLightDirection = computeGndLightDirection(90, 90);
+assert.ok(Math.abs(quarterTurnLightDirection[0] - 1) < 1e-12
+  && Math.abs(quarterTurnLightDirection[1]) < 1e-12
+  && Math.abs(quarterTurnLightDirection[2]) < 1e-12,
+  'GND longitude and latitude rotation order is preserved');
+assert.throws(() => computeGndLightDirection(NaN, 0), /光照方向/,
+  'invalid RSW angles are rejected');
 const brightSideMultiplier = computeGndLightMultiplier(
   [0, 1, 0], [0, -1, 0], [0.2, 0.2, 0.2], [0.8, 0.8, 0.8]
 );
@@ -1023,6 +1036,8 @@ assert.throws(() => computeGndLightMultiplier([0, 0, 0], [0, 1, 0], [0.2, 0.2, 0
 const gndExplorerSource = readFileSync(new URL('./ro_explorer.mjs', import.meta.url), 'utf8');
 assert.match(gndExplorerSource, /vRooGndLightMultiplier/,
   'native ground shader applies the computed RSW lighting multiplier');
+assert.match(gndExplorerSource, /computeGndLightDirection/,
+  'native ground shader uses the reference RSW angle conversion');
 assert.match(gndExplorerSource, /rooGndHasLightmap/,
   'native ground shader masks surfaces without valid lightmap slices');
 

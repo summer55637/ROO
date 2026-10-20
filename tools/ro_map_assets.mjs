@@ -30,6 +30,21 @@ export function computeGndPreviewColor(
     + Math.max(0, Math.min(1, lightmapRgb[index])));
 }
 
+// GRFEditor's GndRenderer rotates the base up-vector around X by -latitude
+// and then Y by -longitude before the fragment shader applies -lightDirection.
+export function computeGndLightDirection(longitude, latitude) {
+  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+    throw new TypeError('GND 光照方向需要有限的 longitude 與 latitude。');
+  }
+  const longitudeRadians = longitude * Math.PI / 180;
+  const latitudeRadians = latitude * Math.PI / 180;
+  return [
+    Math.sin(longitudeRadians) * Math.sin(latitudeRadians),
+    Math.cos(latitudeRadians),
+    Math.cos(longitudeRadians) * Math.sin(latitudeRadians),
+  ];
+}
+
 // Mirror the official GRFEditor GND vertex shader, including its non-linear
 // ambient/diffuse blend and the negative light-direction dot product.
 export function computeGndLightMultiplier(normal, lightDirection, lightAmbient, lightDiffuse) {

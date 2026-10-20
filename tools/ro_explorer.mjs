@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
   RAGASSETS_BASE_URL,
   buildGndLightmapAtlasData,
+  computeGndLightDirection,
   buildGndMeshData,
   GND_PREVIEW_AO_STRENGTH,
   analyzeRswPlacementBounds,
@@ -1425,12 +1426,8 @@ function applyGndBakedLighting(material, lightMapTexture, aoTexture, rswLight) {
   const latitude = Number.isFinite(rswLight && rswLight.latitude) ? rswLight.latitude : 45;
   const ambientSource = rswLight && Array.isArray(rswLight.ambient) ? rswLight.ambient : [0.3, 0.3, 0.3];
   const diffuseSource = rswLight && Array.isArray(rswLight.diffuse) ? rswLight.diffuse : [1, 1, 1];
-  const longitudeRadians = longitude * Math.PI / 180;
-  const latitudeRadians = latitude * Math.PI / 180;
   const lightDirection = new THREE.Vector3(
-    Math.cos(latitudeRadians) * Math.cos(longitudeRadians),
-    Math.sin(latitudeRadians),
-    Math.cos(latitudeRadians) * Math.sin(longitudeRadians)
+    ...computeGndLightDirection(longitude, latitude)
   ).normalize();
   const lightAmbient = new THREE.Vector3(...ambientSource.map(value =>
     Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.3))));
