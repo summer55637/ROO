@@ -92,14 +92,14 @@ const ailmentState = g.roExplorerTimedStatusState({
     silence: statusExpiry,
   },
 });
-t.eq('探索 UI 回報既有引擎狀態且不重複中毒', ailmentState.statusLabels,
-  ['中毒', '昏迷', '黑暗', '出血', '沉默']);
+t.eq('探索 UI 回報既有引擎狀態且不重複中毒', JSON.stringify(ailmentState.statusLabels),
+  JSON.stringify(['中毒', '昏迷', '黑暗', '出血', '沉默']));
 t.eq('任一有效限時狀態都會排入狀態更新', ailmentState.hasTimedStatus, true);
 const expiredState = g.roExplorerTimedStatusState({
   poisonDotEnd: Date.now() - 1,
   ail: { stun: Date.now() - 1, silence: Date.now() - 1 },
 });
-t.eq('所有異常狀態過期後從探索 UI 清除', expiredState.statusLabels, []);
+t.eq('所有異常狀態過期後從探索 UI 清除', JSON.stringify(expiredState.statusLabels), '[]');
 t.eq('過期狀態不會繼續觸發狀態輪詢', expiredState.hasTimedStatus, false);
 
 process.exit(t.report('原生探索普攻、技能與持續狀態接回主引擎'));
