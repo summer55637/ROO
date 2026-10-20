@@ -158,6 +158,8 @@ const GND_DEBUG_SCREENSHOT_MODES = [
   { value: '4', label: 'RSW 方向光', file: 'rsw-light' },
   { value: '5', label: '貼圖×AO', file: 'diffuse-times-ao' },
   { value: '6', label: '貼圖×方向光', file: 'diffuse-times-rsw' },
+  { value: '7', label: '純 Diffuse 貼圖', file: 'diffuse-only' },
+  { value: '8', label: '純頂點色 RGB', file: 'vertex-color-only' },
 ];
 
 async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
@@ -169,6 +171,17 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
     const status = await targetPage.locator('#status').innerText();
     assert.ok(status.includes('GND 診斷模式：' + mode.label),
       mapSlug + ' 未切換到 GND 診斷模式：' + mode.label + '；' + status);
+    if (mode.value === '7' || mode.value === '8') {
+      const box = await targetPage.locator('#stage').boundingBox();
+      assert.ok(box && box.width > 0 && box.height > 0, mapSlug + ' 缺少有效地表檢視範圍。');
+      await targetPage.mouse.move(box.x + box.width / 2 + 3, box.y + box.height / 2 + 3);
+      await targetPage.locator('#gnd-surface-inspector').waitFor({ state: 'visible', timeout: 5000 });
+      await targetPage.waitForFunction(() => {
+        const text = document.getElementById('gnd-surface-inspector-content')?.textContent || '';
+        return text.includes('Surface #') && text.includes('真實材質路徑')
+          && text.includes('原始四角 UV') && text.includes('GPU 最終畫面取樣');
+      }, null, { timeout: 5000 });
+    }
     await targetPage.screenshot({
       path: path.join(artifactDir, mapSlug + '-gnd-debug-' + mode.file + '.png'),
       clip: { x: stageBox.x, y: stageBox.y, width: stageBox.width, height: stageBox.height },
@@ -178,6 +191,8 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
   await selector.selectOption('0');
   assert.ok((await targetPage.locator('#status').innerText()).includes('GND 診斷模式：完整合成'),
     mapSlug + ' 無法切回完整 GND 合成畫面。');
+  assert.equal(await targetPage.locator('#gnd-surface-inspector').isVisible(), false,
+    mapSlug + ' 切回完整合成後仍顯示除錯取樣面板。');
 }
 
 async function run() {
