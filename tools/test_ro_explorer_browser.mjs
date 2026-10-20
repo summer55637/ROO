@@ -307,7 +307,7 @@ async function run() {
   }, null, { timeout: 150000 });
   await page.waitForFunction(() => {
     const stats = document.getElementById('stats')?.textContent || '';
-    const match = stats.match(/GND 地表貼圖：已解析 (\\d+)\\/(\\d+)；載入成功 (\\d+)；失敗 (\\d+)；缺少匹配 (\\d+)/);
+    const match = stats.match(/GND 地表貼圖：已解析 (\d+)\/(\d+)；載入成功 (\d+)；失敗 (\d+)；缺少匹配 (\d+)/);
     return match && Number(match[1]) > 0 && Number(match[3]) > 0;
   }, null, { timeout: 30000 });
   await page.locator('#recenter').click();
@@ -339,7 +339,7 @@ async function run() {
   }, null, { timeout: 150000 });
   await page.waitForFunction(() => {
     const stats = document.getElementById('stats')?.textContent || '';
-    const match = stats.match(/GND 地表貼圖：已解析 (\\d+)\\/(\\d+)；載入成功 (\\d+)；失敗 (\\d+)；缺少匹配 (\\d+)/);
+    const match = stats.match(/GND 地表貼圖：已解析 (\d+)\/(\d+)；載入成功 (\d+)；失敗 (\d+)；缺少匹配 (\d+)/);
     return match && Number(match[1]) > 0 && Number(match[3]) > 0;
   }, null, { timeout: 30000 });
   await page.locator('#recenter').click();
