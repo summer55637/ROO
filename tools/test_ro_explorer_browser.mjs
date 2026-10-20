@@ -115,10 +115,15 @@ async function clickMinimapUntilMoving(targetPage, useTouch, label) {
       const element = document.elementFromPoint(x, y);
       return element ? { tag: element.tagName, id: element.id, className: String(element.className || '') } : null;
     }, { x, y });
+    if (!hitTarget || hitTarget.id !== 'minimap') {
+      attempted.push({ cellX: cell.x, cellY: cell.y, radius: cell.radius,
+        hitTarget, blocked: true });
+      break;
+    }
     try {
       const clicksBefore = await targetPage.evaluate(() => window.__rooMinimapAcceptanceClicks.count);
-      if (useTouch) await minimap.tap({ position: { x: localX, y: localY }, timeout: 1500 });
-      else await minimap.click({ position: { x: localX, y: localY }, timeout: 1500 });
+      if (useTouch) await minimap.tap({ position: { x: localX, y: localY }, timeout: 700 });
+      else await minimap.click({ position: { x: localX, y: localY }, timeout: 700 });
       const clickInfo = await targetPage.evaluate(() => window.__rooMinimapAcceptanceClicks);
       if (await stopButton.isVisible()) {
         moved = true;
