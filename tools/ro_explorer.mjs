@@ -97,6 +97,10 @@ let activeCombatTarget = null;
 let pendingCombatRequest = null;
 let combatRequestCounter = 0;
 let pendingStatusTickId = null;
+let pendingVitalsRequestId = null;
+let nextVitalsRequestAt = 0;
+let vitalsPollTimer = null;
+let activeExplorerMode = 'public';
 let statusTickCursor = 0;
 const timedStatusEntries = new Set();
 let nextCombatAt = 0;
@@ -133,6 +137,8 @@ const pointer = new THREE.Vector2();
 const normalMatrix = new THREE.Matrix3();
 const textureLoader = new THREE.TextureLoader();
 const explorerParams = new URLSearchParams(window.location.search);
+activeExplorerMode = explorerParams.get('mode') === 'native'
+  ? 'native' : (explorerParams.get('mode') === 'local' ? 'local' : 'public');
 function readVitalsParam(key) {
   const raw = explorerParams.get(key);
   if (raw === null || raw.trim() === '') return null;
@@ -171,10 +177,20 @@ function updatePlayerVitals(values) {
   }
   renderPlayerVitals();
 }
-if (playerVitalsPanel) playerVitalsPanel.hidden = explorerParams.get('mode') !== 'native';
-window.addEventListener('roo-explorer-mode', event => {
-  if (playerVitalsPanel) playerVitalsPanel.hidden = event.detail !== 'native';
-});
+function setVitalsPollingMode(mode) {
+  activeExplorerMode = mode === 'native' ? 'native' : (mode === 'local' ? 'local' : 'public');
+  if (playerVitalsPanel) playerVitalsPanel.hidden = activeExplorerMode !== 'native';
+  if (activeExplorerMode === 'native') {
+    requestRoExplorerVitals();
+    if (vitalsPollTimer === null) vitalsPollTimer = window.setInterval(requestRoExplorerVitals, 1000);
+    return;
+  }
+  if (vitalsPollTimer !== null) window.clearInterval(vitalsPollTimer);
+  vitalsPollTimer = null;
+  pendingVitalsRequestId = null;
+  nextVitalsRequestAt = 0;
+}
+window.addEventListener('roo-explorer-mode', event => setVitalsPollingMode(event.detail));
 renderPlayerVitals();
 const explorerSpriteKey = resolveRoExplorerSpriteKey(explorerParams.get('sprite'));
 const monsterMapIdFromUrl = String(explorerParams.get('map') || '').trim().toLowerCase();
@@ -2053,11 +2069,45 @@ function requestNextRoExplorerStatusTick() {
     entry.nextStatusTickAt = performance.now() + 1500;
   }, 4000);
 }
+function requestRoExplorerVitals() {
+  if (activeExplorerMode !== 'native' || !playerVitalsPanel || playerVitalsPanel.hidden
+    || pendingVitalsRequestId) return;
+  const now = performance.now();
+  if (now < nextVitalsRequestAt) return;
+  const requestId = combatSessionId + '-vitals-' + (++combatRequestCounter).toString(36);
+  const command = {
+    type: 'vitals', requestId, sessionId: combatSessionId,
+    spawnKey: 'vitals', mapId: monsterMapIdFromUrl || 'prontera', defId: 'vitals'
+  };
+  pendingVitalsRequestId = requestId;
+  nextVitalsRequestAt = now + 1000;
+  try {
+    localStorage.setItem(RO_EXPLORER_COMBAT_COMMAND_KEY, JSON.stringify(command));
+  } catch (error) {
+    pendingVitalsRequestId = null;
+    nextVitalsRequestAt = performance.now() + 2500;
+    return;
+  }
+  window.setTimeout(() => {
+    if (pendingVitalsRequestId !== requestId) return;
+    pendingVitalsRequestId = null;
+    nextVitalsRequestAt = performance.now() + 500;
+  }, 3000);
+}
 function handleRoExplorerCombatStorage(event) {
   if (!event || event.key !== combatResultKey || !event.newValue) return;
   let result;
   try { result = JSON.parse(event.newValue); } catch (error) { return; }
   if (!result) return;
+  if (result.requestType === 'vitals') {
+    if (result.requestId !== pendingVitalsRequestId) return;
+    pendingVitalsRequestId = null;
+    if (result.ok && result.accepted) updatePlayerVitals({
+      hp: result.playerHp, maxHp: result.playerMaxHp,
+      sp: result.playerSp, maxSp: result.playerMaxSp,
+    });
+    return;
+  }
   updatePlayerVitals({
     hp: result.playerHp,
     maxHp: result.playerMaxHp,
@@ -2198,13 +2248,18 @@ function handleRoExplorerCombatStorage(event) {
 }
 window.addEventListener('storage', handleRoExplorerCombatStorage);
 let statusTickTimer = window.setInterval(requestNextRoExplorerStatusTick, 100);
+if (activeExplorerMode === 'native') setVitalsPollingMode('native');
 window.addEventListener('pagehide', () => {
   if (statusTickTimer !== null) window.clearInterval(statusTickTimer);
+  if (vitalsPollTimer !== null) window.clearInterval(vitalsPollTimer);
   statusTickTimer = null;
+  vitalsPollTimer = null;
   pendingStatusTickId = null;
+  pendingVitalsRequestId = null;
 });
 window.addEventListener('pageshow', () => {
   if (statusTickTimer === null) statusTickTimer = window.setInterval(requestNextRoExplorerStatusTick, 100);
+  if (activeExplorerMode === 'native' && vitalsPollTimer === null) setVitalsPollingMode('native');
 });
 attackMonsterButton.addEventListener('click', startRoExplorerCombat);
 stopMonsterAttackButton.addEventListener('click', () => stopRoExplorerCombat());
