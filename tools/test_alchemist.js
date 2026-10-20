@@ -280,12 +280,21 @@ const give = (g, id, n) => g.addItem(id, n);
     }
     return total / 300;
   };
-  const plain = avgHit();
-  g.state.cooldowns = {};
-  g.castSkill('am_cp_weapon');
-  g.recomputeDerived(false);
-  t.eq('推的是 weaponatk buff', g.buffMult('weaponatk').mult, 1.2);
-  t.ok('武器傷害真的上升', avgHit() > plain, `${plain.toFixed(0)} → ${avgHit().toFixed(0)}`);
+  // 固定測試用 RNG，避免武器浮動、暴擊與命中隨機性蓋過小比例的武器 ATK 增幅。
+  // weaponatk 只放大武器 ATK 桶，不會把整包總 ATK 都乘 1.2，因此測試應比較同一浮動值。
+  const originalRandom = g.Math.random;
+  g.Math.random = () => 0.5;
+  try {
+    const plain = avgHit();
+    g.state.cooldowns = {};
+    g.castSkill('am_cp_weapon');
+    g.recomputeDerived(false);
+    t.eq('推的是 weaponatk buff', g.buffMult('weaponatk').mult, 1.2);
+    const buffed = avgHit();
+    t.ok('武器傷害真的上升', buffed > plain, `${plain.toFixed(0)} → ${buffed.toFixed(0)}`);
+  } finally {
+    g.Math.random = originalRandom;
+  }
 
   // 盾牌：要有盾才放得出來
   const g2 = mk();
