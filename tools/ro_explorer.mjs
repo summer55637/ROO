@@ -59,6 +59,10 @@ import {
   formatRoExplorerGaugeValue,
   getRoExplorerGaugePercent,
 } from './ro_explorer_hud.mjs';
+import {
+  buildRoExplorerCameraSnapshot,
+  resolveRoExplorerCameraSnapshot,
+} from './ro_explorer_camera.mjs';
 
 const stage = document.getElementById('stage');
 const status = document.getElementById('status');
@@ -761,7 +765,44 @@ function updateStats() {
   updateMinimap();
 }
 
-function fitCamera() {
+const RO_EXPLORER_CAMERA_STORAGE_PREFIX = 'roo_explorer_camera_';
+
+function saveCameraView() {
+  if (!mapInfo || !mapInfo.mapId) return;
+  const maxDimension = Math.max(mapInfo.size.x, mapInfo.size.y, mapInfo.size.z, 10);
+  const snapshot = buildRoExplorerCameraSnapshot(camera.position, controls.target, maxDimension);
+  if (!snapshot) return;
+  try {
+    localStorage.setItem(RO_EXPLORER_CAMERA_STORAGE_PREFIX + mapInfo.mapId, JSON.stringify(snapshot));
+  } catch (error) {
+    // 無法使用本機儲存時，仍可正常探索。
+  }
+}
+
+function restoreCameraView(maxDimension) {
+  if (!mapInfo || !mapInfo.mapId) return false;
+  const key = RO_EXPLORER_CAMERA_STORAGE_PREFIX + mapInfo.mapId;
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(key) || 'null');
+  } catch (error) {
+    saved = null;
+  }
+  const view = resolveRoExplorerCameraSnapshot(saved, maxDimension);
+  if (!view) {
+    try {
+      localStorage.removeItem(key);
+    } catch (error) {
+      // 儲存被停用時略過清理。
+    }
+    return false;
+  }
+  camera.position.set(view.position.x, view.position.y, view.position.z);
+  controls.target.set(view.target.x, view.target.y, view.target.z);
+  return true;
+}
+
+function fitCamera(restoreSaved = true) {
   if (!mapInfo) return;
   const maxDimension = Math.max(mapInfo.size.x, mapInfo.size.y, mapInfo.size.z, 10);
   camera.near = Math.max(maxDimension / 10000, 0.01);
@@ -772,8 +813,13 @@ function fitCamera() {
   controls.maxDistance = maxDimension * 20;
   controls.minDistance = Math.max(maxDimension * 0.01, 0.1);
   axes.scale.setScalar(Math.max(maxDimension / 80, 0.1));
+  if (restoreSaved) restoreCameraView(maxDimension);
   controls.update();
+  saveCameraView();
 }
+
+controls.addEventListener('end', saveCameraView);
+window.addEventListener('pagehide', saveCameraView);
 
 function disposeNativeWaterAnimationTextures(animations) {
   const activeTextures = new Set();
@@ -2537,7 +2583,7 @@ showCellsInput.addEventListener('change', () => {
   if (showCellsInput.checked) setStatus('顯示通行格：綠色可走、紅色阻擋、橘色懸崖、藍色水域。');
 });
 document.getElementById('recenter').addEventListener('click', () => {
-  fitCamera();
+  fitCamera(false);
   setStatus('已重置視角。');
 });
 let pointerOrigin = null;
