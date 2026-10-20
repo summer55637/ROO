@@ -19,6 +19,7 @@ import {
   parseRsmBuffer,
   parseRswBuffer,
   resolveRagassetsMapUrls,
+  resolveMapTextureUrl,
   resolveWaterFramesForType,
   sampleGndHeightAtGatCell,
   sampleRsmAnimationPose,
@@ -836,3 +837,29 @@ assert.throws(() => sampleRsmTextureAnimation([], NaN, 20), /有限數值/);
 assert.throws(() => sampleRsmTextureAnimation([], 0, 0), /長度/);
 
 console.log('RO 原生 GND 解析、幾何、素材 URL 與 RSM 變換／UV 動畫取樣測試通過');
+
+
+const terrainTextureManifest = {
+  'field/grass.bmp': 'https://assets.example/maps/_t/1234567890abcdef.png',
+  'field/stone.bmp': 'https://assets.example/maps/_t/abcdef1234567890.png',
+};
+assert.equal(
+  resolveMapTextureUrl(terrainTextureManifest, 'field/grass.bmp'),
+  terrainTextureManifest['field/grass.bmp'],
+  '地表貼圖優先精確匹配完整路徑'
+);
+assert.equal(
+  resolveMapTextureUrl(terrainTextureManifest, 'another-folder/grass.bmp'),
+  terrainTextureManifest['field/grass.bmp'],
+  '地表貼圖路徑不同時可使用唯一檔名回退'
+);
+assert.equal(
+  resolveMapTextureUrl({
+    'field/grass.bmp': 'https://assets.example/maps/_t/1234567890abcdef.png',
+    'dungeon/grass.bmp': 'https://assets.example/maps/_t/abcdef1234567890.png',
+  }, 'another-folder/grass.bmp'),
+  null,
+  '同名地表貼圖有多個候選時不應任意挑選'
+);
+assert.equal(resolveMapTextureUrl(terrainTextureManifest, ''),
+  null, '空白貼圖名稱不會解析到任意材質');

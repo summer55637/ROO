@@ -21,6 +21,7 @@ import {
   parseRsmBuffer,
   parseRswBuffer,
   resolveRagassetsMapUrls,
+  resolveMapTextureUrl,
   resolveWaterFramesForType,
   sampleGndHeightAtGatCell,
   sampleRsmAnimationPose,
@@ -322,6 +323,7 @@ let gatInfo = null;
 let gndInfo = null;
 let rswInfo = null;
 let nativeRenderStats = null;
+let terrainTextureDiagnostics = null;
 let nativeWaterAnimations = [];
 let activeRsmAnimations = [];
 const nativeMapLoadGate = createLatestRequestGate();
@@ -824,6 +826,15 @@ function updateStats() {
     rows.push('GND lightmap：' + (nativeRenderStats.lightmapSlices || 0) + ' slices；'
       + (nativeRenderStats.lightmapLayout || '無') + '；貼圖合成 '
       + (nativeRenderStats.lightmapAtlas ? '已啟用' : '未啟用'));
+    if (terrainTextureDiagnostics) {
+      const textures = terrainTextureDiagnostics;
+      rows.push('GND 地表貼圖：已解析 ' + textures.resolved + '/' + textures.total
+        + '；載入成功 ' + textures.loaded + '；失敗 ' + textures.failed
+        + '；缺少匹配 ' + textures.missing.length);
+      if (textures.missing.length) {
+        rows.push('缺少地表貼圖名稱：' + textures.missing.slice(0, 3).join('、'));
+      }
+    }
     if (nativeRenderStats.heightAlignment) {
       const alignment = nativeRenderStats.heightAlignment;
       rows.push('GND/GAT 高度差：平均 ' + (alignment.meanAbsoluteError === null
@@ -994,16 +1005,7 @@ function disposeObject(object) {
 }
 
 function getModelTextureUrl(urls, textureName) {
-  const normalized = normalizeTextureName(textureName);
-  if (!normalized) return null;
-  if (urls.textures[normalized]) return urls.textures[normalized];
-
-  const basename = normalized.slice(normalized.lastIndexOf('/') + 1);
-  if (!basename) return null;
-  const candidates = Object.entries(urls.textures)
-    .filter(([name]) => name === basename || name.endsWith('/' + basename))
-    .map(([, url]) => url);
-  return candidates.length === 1 ? candidates[0] : null;
+  return resolveMapTextureUrl(urls.textures, textureName);
 }
 
 function loadModelTexture(url, textureCache) {
@@ -1601,6 +1603,17 @@ async function loadRagassetsMap(mapName) {
     if (!nextScale) throw new Error('世界比例必須大於 0，且不可大於 10。');
     const lightmapAtlas = buildGndLightmapAtlasData(parsedGnd);
     const meshData = buildGndMeshData(parsedGnd, nextScale, lightmapAtlas);
+    const texturedBuckets = meshData.buckets.filter(bucket => bucket.textureIndex >= 0);
+    const nextTerrainTextureDiagnostics = {
+      mapId,
+      total: texturedBuckets.length,
+      resolved: 0,
+      loaded: 0,
+      failed: 0,
+      missing: [],
+    };
+    terrainTextureDiagnostics = nextTerrainTextureDiagnostics;
+    updateStats();
     const lightmapTexture = lightmapAtlas
       ? createLightmapDataTexture(lightmapAtlas.lightMapPixels, lightmapAtlas.width, lightmapAtlas.height)
       : null;
@@ -1623,8 +1636,9 @@ async function loadRagassetsMap(mapName) {
       let material;
       let texture = null;
       const textureName = bucket.textureIndex >= 0 ? parsedGnd.textures[bucket.textureIndex] : '';
-      const textureUrl = urls.textures[normalizeTextureName(textureName)];
+      const textureUrl = resolveMapTextureUrl(urls.textures, textureName);
       if (textureUrl) {
+        nextTerrainTextureDiagnostics.resolved++;
         texture = textureLoader.load(textureUrl, loadedTexture => {
           loadedTexture.colorSpace = THREE.SRGBColorSpace;
           loadedTexture.wrapS = THREE.RepeatWrapping;
@@ -1637,13 +1651,22 @@ async function loadRagassetsMap(mapName) {
             uvAttribute.needsUpdate = true;
           }
           loadedTexture.needsUpdate = true;
+          nextTerrainTextureDiagnostics.loaded++;
+          if (terrainTextureDiagnostics === nextTerrainTextureDiagnostics) updateStats();
         }, undefined, () => {
+          nextTerrainTextureDiagnostics.failed++;
+          if (terrainTextureDiagnostics === nextTerrainTextureDiagnostics) updateStats();
           if (material) {
             material.map = null;
             material.color.set('#9cb68c');
             material.needsUpdate = true;
           }
         });
+      } else if (bucket.textureIndex >= 0) {
+        const missingName = textureName || '(空白材質名稱)';
+        if (!nextTerrainTextureDiagnostics.missing.includes(missingName)) {
+          nextTerrainTextureDiagnostics.missing.push(missingName);
+        }
       }
       if (lightmapAtlas) {
         material = new THREE.MeshBasicMaterial({
@@ -1728,6 +1751,7 @@ async function loadRagassetsMap(mapName) {
       lightmapSlices: parsedGnd.lightmapCount,
       lightmapLayout: parsedGnd.lightmapLayout,
       lightmapAtlas: !!lightmapAtlas,
+      terrainTextures: nextTerrainTextureDiagnostics,
       heightAlignment: compareGndGatHeights(parsedGnd, parsedGat, nextScale),
       placementBounds: analyzeRswPlacementBounds(parsedGnd, parsedRsw, nextScale),
     };

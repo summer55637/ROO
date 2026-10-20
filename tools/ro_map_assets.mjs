@@ -1922,6 +1922,27 @@ export function buildGndWaterMeshDataByPlane(gat, waterConfig, worldScale = 0.2)
   return { planes: results, waterTileCount };
 }
 
+/**
+ * Resolve a map diffuse texture by exact normalized path, then by a unique basename.
+ * Ambiguous basenames intentionally return null instead of choosing the wrong asset.
+ */
+export function resolveMapTextureUrl(textureUrls, textureName) {
+  const normalized = normalizeTextureName(textureName);
+  if (!normalized || !textureUrls || typeof textureUrls !== 'object' || Array.isArray(textureUrls)) {
+    return null;
+  }
+  const direct = textureUrls[normalized];
+  if (typeof direct === 'string' && direct) return direct;
+
+  const basename = normalized.slice(normalized.lastIndexOf('/') + 1);
+  if (!basename) return null;
+  const candidates = Object.entries(textureUrls)
+    .filter(([name, url]) => typeof url === 'string' && url
+      && (name === basename || name.endsWith('/' + basename)))
+    .map(([, url]) => url);
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
 export function resolveRagassetsMapUrls(mapId, manifest, baseUrl = RAGASSETS_BASE_URL) {
   const id = String(mapId || '').toLowerCase();
   if (!MAP_ID_PATTERN.test(id)) throw new Error('地圖 ID 格式無效。');

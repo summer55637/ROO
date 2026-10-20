@@ -246,6 +246,16 @@ async function run() {
     const text = document.getElementById('stats')?.textContent || '';
     return text.includes('GAT：tra_fild') && text.includes('目前格：') && text.includes('角色素材：');
   }, null, { timeout: 15000 });
+  // A scene can report loaded while terrain has fallen back to a flat tint.
+  // Require real GND diffuse textures to resolve and finish at least one image load.
+  await page.waitForFunction(() => {
+    const text = document.getElementById('stats')?.textContent || '';
+    const match = text.match(/GND 地表貼圖：已解析 (\d+)\/(\d+)；載入成功 (\d+)；失敗 (\d+)；缺少匹配 (\d+)/);
+    return match && Number(match[1]) > 0 && Number(match[2]) > 0 && Number(match[3]) > 0;
+  }, null, { timeout: 30000 });
+  const terrainTextureStats = await page.locator('#stats').innerText();
+  assert.match(terrainTextureStats, /GND 地表貼圖：已解析 [1-9]\d*\/[1-9]\d*；載入成功 [1-9]\d*/);
+
 
   await page.waitForFunction(() => document.getElementById('player-base-level')?.textContent === '基礎 Lv. 18',
     null, { timeout: 7000 });
