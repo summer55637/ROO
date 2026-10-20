@@ -261,7 +261,7 @@ async function validateMap(mapId) {
       + ', surfaces ' + gnd.surfaces.length
       + ', lightmaps ' + gnd.lightmapCount + ' (' + gnd.lightmapLayout
       + ', ' + lightmapAtlas.sliceWidth + '×' + lightmapAtlas.sliceHeight + ' per slice, '
-      + (gnd.lightmapLayout === 'standard-split' ? 'RGB + separate AO' : 'RGBA + AO alpha')
+      + 'RGB + separate AO'
       + ', excluded inner border ' + lightmapAtlas.sourceGutter + 'px)'
       + ', atlas ' + lightmapAtlas.width + '×' + lightmapAtlas.height
       + ', RSW ' + rsw.version + ' with ' + rsw.models.length + ' model placements'
