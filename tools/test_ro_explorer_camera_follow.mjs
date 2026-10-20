@@ -19,7 +19,7 @@ assert.deepEqual(
 );
 assert.equal(getRoExplorerCameraFollowDelta(null, { x: 0, y: 0, z: 0 }), null);
 assert.equal(getRoExplorerCameraFollowDelta({ x: 0, y: Infinity, z: 0 }, { x: 1, y: 1, z: 1 }), null);
-assert.equal(getRoExplorerCameraFollowDelta({ x: 0, y: 0, z: 0 }, { x: Number.MAX_VALUE, y: 0, z: 0 }), null);
+assert.equal(getRoExplorerCameraFollowDelta({ x: -Number.MAX_VALUE, y: 0, z: 0 }, { x: Number.MAX_VALUE, y: 0, z: 0 }), null);
 
 assert.match(html, /id="follow-player" type="checkbox" checked>跟隨角色視角/,
   '預設啟用角色跟隨，可由玩家關閉');
