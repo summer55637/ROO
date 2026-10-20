@@ -63,6 +63,7 @@ import {
   buildRoExplorerCameraSnapshot,
   resolveRoExplorerCameraSnapshot,
 } from './ro_explorer_camera.mjs';
+import { getRoExplorerCameraFollowDelta } from './ro_explorer_camera_follow.mjs';
 
 const stage = document.getElementById('stage');
 const status = document.getElementById('status');
@@ -95,6 +96,7 @@ const clearMonsterTargetButton = document.getElementById('clear-monster-target')
 const attackMonsterButton = document.getElementById('attack-monster');
 const stopMonsterAttackButton = document.getElementById('stop-monster-attack');
 const stopMovementButton = document.getElementById('stop-movement');
+const followPlayerInput = document.getElementById('follow-player');
 const monsterSkillInput = document.getElementById('monster-skill');
 const castMonsterSkillButton = document.getElementById('cast-monster-skill');
 const RO_EXPLORER_COMBAT_COMMAND_KEY = 'roo_explorer_combat_command';
@@ -662,6 +664,7 @@ function startAtSavedOrCenter() {
   playerSprite.visible = true;
   fallbackPlayer.visible = playerMaterial.map == null;
   savePosition();
+  if (followPlayerInput.checked) focusCameraOnPlayer();
 }
 
 function updateRouteLine() {
@@ -2404,6 +2407,7 @@ if (castMonsterSkillButton) castMonsterSkillButton.addEventListener('click', () 
 
 function stopRoExplorerMovement() {
   if (!movementPath || !gatInfo || !currentCell) return;
+  const previousPlayerPosition = followPlayerInput.checked ? playerRoot.position.clone() : null;
   const stoppedCell = roMapCellFromWorldPoint(
     gatInfo, playerRoot.position.x, playerRoot.position.z, worldScale
   );
@@ -2415,6 +2419,7 @@ function stopRoExplorerMovement() {
   queuedCombatSkill = null;
   stopRoExplorerCombat(false);
   updatePlayerPosition();
+  if (syncFollowCamera(previousPlayerPosition)) saveCameraView();
   savePosition();
   removeRoute();
   setPlayerMotion('idle', currentFacing);
@@ -2513,8 +2518,35 @@ function requestMinimapWalk(event) {
   if (target) requestWalkToCell(target);
 }
 
+function syncFollowCamera(previousPosition) {
+  if (!followPlayerInput.checked || !previousPosition) return false;
+  const delta = getRoExplorerCameraFollowDelta(previousPosition, playerRoot.position);
+  if (!delta || (!delta.x && !delta.y && !delta.z)) return false;
+  camera.position.x += delta.x;
+  camera.position.y += delta.y;
+  camera.position.z += delta.z;
+  controls.target.x += delta.x;
+  controls.target.y += delta.y;
+  controls.target.z += delta.z;
+  return true;
+}
+
+function focusCameraOnPlayer() {
+  if (!followPlayerInput.checked || !currentCell || !gatInfo || !mapInfo) return false;
+  const delta = getRoExplorerCameraFollowDelta(controls.target, playerRoot.position);
+  if (!delta) return false;
+  camera.position.x += delta.x;
+  camera.position.y += delta.y;
+  camera.position.z += delta.z;
+  controls.target.copy(playerRoot.position);
+  controls.update();
+  saveCameraView();
+  return true;
+}
+
 function advanceMovement(deltaSeconds) {
   if (!movementPath || !gatInfo || !currentCell) return;
+  const previousPlayerPosition = followPlayerInput.checked ? playerRoot.position.clone() : null;
   let budget = Number(speedInput.value) * tileSize() * deltaSeconds;
   let changedCell = false;
   while (budget > 0 && movementPath && pathIndex < movementPath.length) {
@@ -2546,6 +2578,7 @@ function advanceMovement(deltaSeconds) {
       budget = 0;
     }
   }
+  const followed = syncFollowCamera(previousPlayerPosition);
   if (fallbackPlayer.visible) {
     fallbackPlayer.position.set(
       playerRoot.position.x,
@@ -2556,6 +2589,7 @@ function advanceMovement(deltaSeconds) {
   if (changedCell) {
     savePosition();
     updateStats();
+    if (followed) saveCameraView();
   }
 }
 
@@ -2606,6 +2640,15 @@ scaleInput.addEventListener('change', () => {
 });
 speedInput.addEventListener('input', () => { speedValue.textContent = speedInput.value; });
 showMinimapInput.addEventListener('change', updateMinimap);
+followPlayerInput.addEventListener('change', () => {
+  if (followPlayerInput.checked) {
+    focusCameraOnPlayer();
+    setStatus('視角會跟隨角色移動；取消勾選即可自由查看地圖。');
+  } else {
+    saveCameraView();
+    setStatus('已切換自由視角；角色移動時相機不跟隨。');
+  }
+});
 clearMonsterTargetButton.addEventListener('click', clearSelectedRoExplorerMonster);
 populateRoExplorerSkillPicker();
 updateRoExplorerCombatButtons();

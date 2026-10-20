@@ -64,6 +64,7 @@ const SUITES = [
   'test_ro_explorer_sprites.mjs', // 原生探索使用安全的 RO 職業影格素材
   'test_ro_explorer_hud.mjs', // 原生探索 HP／SP 狀態條邊界與格式
   'test_ro_explorer_camera.mjs', // 原生探索視角本機保存與還原
+  'test_ro_explorer_camera_follow.mjs', // 原生探索角色跟隨與自由視角
   'test_ro_explorer_movement_controls.mjs', // 原生探索停止移動與接近
   'test_ro_explorer_vitals_bridge.mjs', // 原生探索 HP／SP 即時同步橋接
   'test_ro_explorer_feedback.mjs', // 原生探索戰鬥傷害跳字

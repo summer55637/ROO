@@ -152,12 +152,13 @@
       <button id="stop-movement" type="button" hidden>停止移動／接近</button>
       <label><input id="show-cells" type="checkbox">顯示通行格</label>
       <label><input id="show-minimap" type="checkbox" checked>小地圖</label>
+      <label><input id="follow-player" type="checkbox" checked>跟隨角色視角</label>
       <button id="recenter" type="button">重置視角</button>
     </div>
     <div id="stage">
       <div id="status">選取同一張 RO 地圖的 GLB 與 GAT。建議使用 ragx 轉換：<br>
 ragx maps prontera --client "C:/Gravity/Ragnarok" --format glb --world-scale 0.2 --out ./tmp/roo-map<br>
-先選 GLB，再選相同地圖的原始 GAT。點擊 3D 地面或小地圖行走；拖曳旋轉視角、滾輪縮放。</div>
+先選 GLB，再選相同地圖的原始 GAT。點擊 3D 地面或小地圖行走；預設跟隨角色視角，也可取消勾選自由查看；拖曳旋轉、滾輪縮放。</div>
       <div id="stats">尚未載入地圖</div>
       <div id="combat-feedback-layer" aria-hidden="true"></div>
       <section id="monster-panel" class="monster-panel" hidden aria-live="polite" aria-label="選取的 RO 怪物">
