@@ -82,12 +82,14 @@ t.eq('光耀之堂未更動放置怪物 HP', g.state.monsters[0].hp, 777);
 
 g.state.cooldowns = {};
 g.state.sp = g.state.maxSp;
+const atkBeforeBlessing = g.state.atk;
 const blessing = g.castRoExplorerSupportSkill('ex-support-session', map.id, 'blessing');
 t.eq('探索可施放天使之賜福', blessing.accepted, true);
 t.ok('天使之賜福寫入主引擎能力值增益',
   g.state.buffs.some(buff => buff.type === 'blessing' && buff.skillId === 'blessing'));
 t.ok('天使之賜福也套用命中增益',
   g.state.buffs.some(buff => buff.type === 'hit' && buff.flatBonus > 0));
+t.ok('天使之賜福施放後立即刷新攻擊力', g.state.atk > atkBeforeBlessing);
 
 g.state.cooldowns = {};
 g.state.sp = g.state.maxSp;
@@ -108,10 +110,12 @@ t.ok('霸邪之陣沿用主引擎護盾資料',
 
 g.state.cooldowns = {};
 g.state.sp = g.state.maxSp;
+const critBeforeGloria = g.state.critRate;
 const gloria = g.castRoExplorerSupportSkill('ex-support-session', map.id, 'gloria');
 t.eq('探索可施放幸運之頌歌', gloria.accepted, true);
 t.ok('幸運之頌歌寫入 LUK 增益',
   g.state.buffs.some(buff => buff.type === 'lukflat' && buff.skillId === 'gloria' && buff.flatBonus > 0));
+t.ok('幸運之頌歌立即刷新衍生數值', g.state.critRate > critBeforeGloria);
 
 g.state.cooldowns = {};
 g.state.sp = g.state.maxSp;
@@ -129,6 +133,7 @@ const armor = g.castRoExplorerSupportSkill('ex-support-session', map.id, 'sanctu
 t.eq('探索可施放聖之祈福', armor.accepted, true);
 t.ok('聖之祈福寫入防禦屬性增益',
   g.state.buffs.some(buff => buff.type === 'elearmor' && buff.element === 'holy'));
+t.eq('聖之祈福立即改變玩家防禦屬性', g.state.playerElement, 'holy');
 
 g.state.cooldowns = {};
 g.state.sp = g.state.maxSp;

@@ -10224,6 +10224,7 @@ function castSkillInner(skillId, opts) {
       const hitBonus = Array.isArray(sk.hitBonus) ? sk.hitBonus[lv - 1] : sk.hitBonus;
       state.buffs.push({ type: 'blessing', strBonus: statBonus, intBonus: statBonus, dexBonus: statBonus, msRemaining: dur * 1000, skillId: sk.id });
       state.buffs.push({ type: 'hit', mult: 1, flatBonus: hitBonus, msRemaining: dur * 1000 });
+      recomputeDerived(false);
       logMsg(`✨ 「${sk.name}」Lv${lv} 發動，STR/INT/DEX與HIT上升！`);
       break;
     }
@@ -10237,6 +10238,7 @@ function castSkillInner(skillId, opts) {
       const dur = Array.isArray(sk.duration) ? sk.duration[lv - 1] : sk.duration;
       const lukBonus = Array.isArray(sk.lukBonus) ? sk.lukBonus[lv - 1] : sk.lukBonus;
       state.buffs.push({ type: 'lukflat', mult: 1, flatBonus: lukBonus, msRemaining: dur * 1000, skillId: sk.id });
+      recomputeDerived(false);
       logMsg(`🍀 「${sk.name}」Lv${lv} 發動，LUK上升！`);
       break;
     }
@@ -10255,6 +10257,7 @@ function castSkillInner(skillId, opts) {
       const el = sk.element || 'holy';
       state.buffs = state.buffs.filter(b => b.type !== 'elearmor');
       state.buffs.push({ type: 'elearmor', element: el, mult: 1, msRemaining: dur * 1000, skillId: sk.id });
+      recomputeDerived(false);
       logMsg(`✨ 「${sk.name}」Lv${lv} 發動，防禦屬性變為${ELEMENT_NAMES[el] || el}屬性，持續 ${dur} 秒！`);
       break;
     }
@@ -10267,6 +10270,7 @@ function castSkillInner(skillId, opts) {
       const hf = Array.isArray(sk.maxHpFlat) ? sk.maxHpFlat[lv - 1] : sk.maxHpFlat;
       state.buffs.push({ type: 'def', mult: 1 + dp / 100, msRemaining: dur * 1000, skillId: sk.id });
       state.buffs.push({ type: 'maxhpflat', mult: 1, flatBonus: hf, msRemaining: dur * 1000, skillId: sk.id });
+      recomputeDerived(false);
       logMsg(`🛡️ 「${sk.name}」Lv${lv} 發動，防禦力 +${dp}%、最大HP +${hf}，持續 ${dur} 秒！`);
       break;
     }
