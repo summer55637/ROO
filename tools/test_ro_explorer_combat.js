@@ -73,6 +73,7 @@ g.state.jobId = 'knight';
 g.state.jobLevel = 30;
 g.state.jobLevelHistory = Object.assign({}, g.state.jobLevelHistory, { knight: 30 });
 g.state.learnedSkills.lk_concentration = 5;
+g.state.maxSp = Math.max(100, g.state.maxSp);
 g.state.sp = g.state.maxSp;
 g.state.cooldowns = {};
 g.saveGame();
