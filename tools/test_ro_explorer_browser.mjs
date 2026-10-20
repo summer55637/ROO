@@ -165,6 +165,7 @@ const GND_DEBUG_SCREENSHOT_MODES = [
 async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
   const selector = targetPage.locator('#gnd-debug-mode');
   await selector.waitFor({ state: 'visible', timeout: 5000 });
+  const sampledPixels = {};
   for (const mode of GND_DEBUG_SCREENSHOT_MODES) {
     await selector.selectOption(mode.value);
     await sleep(220);
@@ -179,8 +180,13 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
       await targetPage.waitForFunction(() => {
         const text = document.getElementById('gnd-surface-inspector-content')?.textContent || '';
         return text.includes('Surface #') && text.includes('真實材質路徑')
-          && text.includes('原始四角 UV') && text.includes('GPU 最終畫面取樣');
+          && text.includes('原始四角 UV')
+          && /GPU 最終畫面取樣 RGBA：\(\d+,\s*\d+,\s*\d+,\s*\d+\)/.test(text);
       }, null, { timeout: 5000 });
+      const diagnosticText = await targetPage.locator('#gnd-surface-inspector-content').innerText();
+      const pixelMatch = diagnosticText.match(/GPU 最終畫面取樣 RGBA：\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)/);
+      assert.ok(pixelMatch, mapSlug + ' 沒有取得真正的 GPU 畫面像素。');
+      sampledPixels[mode.value] = pixelMatch.slice(1, 4).join(',');
     }
     await targetPage.screenshot({
       path: path.join(artifactDir, mapSlug + '-gnd-debug-' + mode.file + '.png'),
@@ -188,6 +194,8 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
       animations: 'disabled',
     });
   }
+  assert.notEqual(sampledPixels['7'], sampledPixels['8'],
+    mapSlug + ' 純 Diffuse 與純頂點色的 GPU 畫面像素相同，診斷分離可能未生效。');
   await selector.selectOption('0');
   assert.ok((await targetPage.locator('#status').innerText()).includes('GND 診斷模式：完整合成'),
     mapSlug + ' 無法切回完整 GND 合成畫面。');
