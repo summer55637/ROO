@@ -24,7 +24,7 @@ assert.equal(buildRoExplorerCombatFeedback(-1, 'skill'), null);
 assert.match(html, /id="combat-feedback-layer"/,
   '探索場景有獨立的跳字顯示層');
 assert.match(explorer,
-  /function showRoExplorerCombatFeedback\(entry, damage, action\)[\s\S]*?buildRoExplorerCombatFeedback\(damage, action\)[\s\S]*?combatFeedbackEntries\.add/,
+  /function showRoExplorerWorldFeedback\(worldPosition, damage, action\)[\s\S]*?buildRoExplorerCombatFeedback\(damage, action\)[\s\S]*?combatFeedbackEntries\.add/,
   '建立跳字時使用安全的傷害顯示資料');
 
 assert.match(explorer,
