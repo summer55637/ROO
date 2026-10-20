@@ -318,6 +318,16 @@ try {
 
   await explorerPage.close();
   await mainPage.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+  // Verify persisted bytes before continueGame can apply legitimate idle regeneration.
+  const persistedBeforeContinue = await mainPage.evaluate(
+    key => JSON.parse(localStorage.getItem(key)), setup.saveSlotKey
+  );
+  assert.ok(persistedBeforeContinue, '重新整理後找不到角色存檔。');
+  assertSaveMatches('重新整理後讀取前', saveAfterSkill, persistedBeforeContinue);
+  for (const key of ['hp', 'maxHp', 'sp', 'maxSp', 'baseLevel', 'baseExp', 'jobLevel', 'jobExp', 'gold']) {
+    assert.equal(persistedBeforeContinue[key], saveAfterSkill[key],
+      '重新整理後原始存檔欄位 ' + key + ' 不一致。');
+  }
   await mainPage.locator('button[onclick="showSlotSelect()"]').click();
   await mainPage.locator('.has-save').first().click();
   await mainPage.locator('#screen-game.active').waitFor({ state: 'visible', timeout: 15000 });
@@ -326,11 +336,16 @@ try {
     onTickUI();
   });
   const reloaded = await readLiveState(mainPage);
-  for (const key of ['mapId', 'hp', 'maxHp', 'sp', 'maxSp', 'baseLevel', 'baseExp', 'jobLevel', 'jobExp', 'gold']) {
-    assert.equal(reloaded[key], saveAfterSkill[key], '重新讀取存檔後欄位 ' + key + ' 不一致。');
+  for (const key of ['mapId', 'baseLevel', 'baseExp', 'jobLevel', 'jobExp', 'gold']) {
+    assert.equal(reloaded[key], persistedBeforeContinue[key],
+      '重新讀取後角色進度欄位 ' + key + ' 不一致。');
   }
-  assert.deepEqual(reloaded.monsters, saveAfterSkill.monsters);
-  assert.deepEqual(reloaded.monster, saveAfterSkill.monster);
+  assert.ok(reloaded.hp >= persistedBeforeContinue.hp && reloaded.hp <= reloaded.maxHp,
+    '重新讀取時 HP 不在存檔值與最大 HP 之間。');
+  assert.ok(reloaded.sp >= persistedBeforeContinue.sp && reloaded.sp <= reloaded.maxSp,
+    '重新讀取時 SP 不在存檔值與最大 SP 之間。');
+  assert.deepEqual(reloaded.monsters, persistedBeforeContinue.monsters);
+  assert.deepEqual(reloaded.monster, persistedBeforeContinue.monster);
   assert.deepEqual(mainPageErrors, [], '主遊戲產生未處理的 JavaScript 錯誤：' + mainPageErrors.join(' | '));
 
   console.log('主遊戲 ↔ 原生探索端到端驗收通過：實際開啟探索頁、普攻擊殺與 Bash 擊殺、HP/SP／基礎與職業經驗／鋅幣、兩次存檔一致性、無探索怪物污染與重新載入續玩。');
