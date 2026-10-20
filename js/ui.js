@@ -2066,10 +2066,10 @@ function handleRoExplorerCombatStorage(event) {
   if (!event || event.key !== RO_EXPLORER_COMBAT_COMMAND_KEY || !event.newValue) return;
   let command;
   try { command = JSON.parse(event.newValue); } catch (error) { return; }
-  if (!command || !['attack', 'skill', 'status_tick', 'vitals'].includes(command.type)
+  if (!command || !['attack', 'skill', 'support_skill', 'status_tick', 'vitals'].includes(command.type)
     || typeof command.sessionId !== 'string' || !/^[a-z0-9_-]{4,80}$/i.test(command.sessionId)
     || typeof command.requestId !== 'string' || !/^[a-z0-9_-]{1,100}$/i.test(command.requestId)) return;
-  if (command.type === 'skill'
+  if (['skill', 'support_skill'].includes(command.type)
     && (typeof command.skillId !== 'string' || !/^[a-z0-9_]{1,48}$/i.test(command.skillId))) return;
   let result;
   try {
@@ -2084,6 +2084,10 @@ function handleRoExplorerCombatStorage(event) {
       result = typeof tickRoExplorerMonsterStatus === 'function'
         ? tickRoExplorerMonsterStatus(command.sessionId, command.spawnKey, command.mapId, command.defId)
         : { ok: false, accepted: false, error: '主遊戲狀態計時尚未載入。' };
+    } else if (command.type === 'support_skill') {
+      result = typeof castRoExplorerSupportSkill === 'function'
+        ? castRoExplorerSupportSkill(command.sessionId, command.mapId, command.skillId)
+        : { ok: false, accepted: false, error: '主遊戲輔助／恢復引擎尚未載入。' };
     } else if (command.type === 'skill') {
       result = typeof castRoExplorerSkill === 'function'
         ? castRoExplorerSkill(command.sessionId, command.spawnKey, command.mapId, command.defId, command.skillId)
@@ -2146,9 +2150,16 @@ function openRoExplorer() {
   const selfBuffSkillTypes = new Set([
     'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd', 'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
   ]);
+  const supportSkillTypes = new Set([
+  'heal', 'heal_over_time', 'field_heal', 'cure', 'buff_sprate', 'buff_def', 'buff_block',
+  'buff_reflect', 'buff_providence', 'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd',
+  'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+]);
   const explorerSkillTypes = new Set([
     'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc',
-    'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd', 'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+    'heal', 'heal_over_time', 'field_heal', 'cure', 'buff_sprate', 'buff_def', 'buff_block',
+    'buff_reflect', 'buff_providence', 'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd',
+    'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
   ]);
   const combatSkills = typeof usableSkillEntries === 'function'
     ? usableSkillEntries()
@@ -2157,7 +2168,8 @@ function openRoExplorer() {
       .map(entry => ({
         id: entry.sk.id, name: entry.sk.name, level: entry.lv,
         spCost: typeof skillSpCost === 'function' ? skillSpCost(entry.sk, entry.lv) : 0,
-        type: entry.sk.type, isSelfBuff: selfBuffSkillTypes.has(entry.sk.type)
+        type: entry.sk.type, isSelfBuff: selfBuffSkillTypes.has(entry.sk.type),
+        isSupport: supportSkillTypes.has(entry.sk.type)
       }))
     : [];
   if (combatSkills.length) url.searchParams.set('skills', JSON.stringify(combatSkills));

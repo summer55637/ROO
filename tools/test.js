@@ -75,6 +75,7 @@ const SUITES = [
   'test_ro_explorer_combat_ui.mjs', // 原生探索戰鬥 UI 目標隔離
   'test_ro_explorer_combat.js', // 原生探索普攻、技能與持續狀態接回主引擎
   'test_ro_explorer_kill_rewards.js', // 原生探索擊殺獎勵、升級與存檔一致
+  'test_ro_explorer_support.js', // 原生探索恢復／輔助技能沿用主引擎
   'test_saveio.js',      // 存檔匯出/匯入：序列化、遷移、覆寫與失敗還原
 ];
 

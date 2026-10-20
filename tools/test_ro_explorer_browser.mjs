@@ -223,6 +223,8 @@ async function run() {
   });
   await page.locator('#native-toolbar').waitFor({ state: 'visible', timeout: 30000 });
   await page.locator('#player-vitals-panel').waitFor({ state: 'visible', timeout: 30000 });
+  await page.locator('#support-skill').waitFor({ state: 'visible', timeout: 30000 });
+  await page.locator('#cast-support-skill').waitFor({ state: 'visible', timeout: 30000 });
   await page.waitForFunction(() => {
     const text = document.getElementById('status')?.textContent || '';
     return text.includes('原生地圖已載入') || text.includes('公開原生地圖載入失敗');
@@ -295,7 +297,7 @@ async function run() {
     '手機版狀態提示與怪物面板重疊：' + JSON.stringify(boxes));
   await page.screenshot({ path: path.join(artifactDir, 'mobile.png'), fullPage: true, animations: 'disabled' });
   assert.deepEqual(pageErrors, [], '瀏覽器出現未處理的 JavaScript 錯誤：' + pageErrors.join(' | '));
-  console.log('原生探索瀏覽器驗收通過：公開 tra_fild 3D 地圖、角色素材狀態、HP/SP、基礎／職業經驗、鋅幣、桌面與手機版面、小地圖移動／停止、視角跟隨、通行格切換。');
+  console.log('原生探索瀏覽器驗收通過：公開 tra_fild 3D 地圖、角色素材狀態、HP/SP、基礎／職業經驗、鋅幣、恢復／輔助操作面板、桌面與手機版面、小地圖移動／停止、視角跟隨、通行格切換。');
   console.log('桌面與手機截圖：' + artifactDir);
 }
 

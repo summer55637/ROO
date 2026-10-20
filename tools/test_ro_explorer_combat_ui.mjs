@@ -44,4 +44,16 @@ assert.match(explorer,
 assert.match(explorer,
   /const note = result\.isSelfBuff\s*\? skillName \+ ' 已施放，自身增益已生效。'/,
   '自身增益顯示施放成功訊息');
-console.log('原生探索自身增益 UI 接線測試通過。');
+const html = fs.readFileSync(path.join(root, 'tools/ro_explorer.html'), 'utf8');
+const ui = fs.readFileSync(path.join(root, 'js/ui.js'), 'utf8');
+assert.match(html, /id="support-skill"/, '探索角色狀態面板提供獨立恢復／輔助清單');
+assert.match(html, /id="cast-support-skill"/, '探索角色狀態面板提供無目標施放按鈕');
+assert.match(explorer,
+  /function requestRoExplorerSupportSkill\(skill\)[\s\S]*?type: 'support_skill'[\s\S]*?mapId: mapInfo\.mapId, skillId: skill\.id/,
+  '恢復／輔助命令不需要怪物目標');
+assert.match(ui, /'support_skill'[\s\S]*?castRoExplorerSupportSkill\(command\.sessionId, command\.mapId, command\.skillId\)/,
+  '主遊戲橋接把無目標輔助技能交給主引擎');
+assert.match(explorer,
+  /if \(result\.requestType === 'support_skill'\)[\s\S]*?updatePlayerVitals\([\s\S]*?updatePlayerProgress\(result\)[\s\S]*?return;/,
+  '恢復／輔助回覆更新 HP／SP 與進度 HUD，不讀取怪物目標');
+console.log('原生探索自身增益與恢復／輔助 UI 接線測試通過。');

@@ -53,6 +53,11 @@
     #stop-movement[hidden] { display: none; }
     .vitals-panel { display: grid; flex: 0 1 300px; min-width: 260px; max-width: 100%; gap: 5px; padding: 8px 10px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .92); color: #d7e3f2; }
     .vitals-panel[hidden] { display: none; }
+    .support-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 6px; padding-top: 5px; border-top: 1px solid #273549; }
+    .support-actions label { display: flex; flex-direction: column; align-items: stretch; gap: 3px; font-size: 10px; }
+    #support-skill { width: 100%; min-width: 0; max-width: 100%; padding: 5px; font-size: 11px; }
+    #cast-support-skill { align-self: end; padding: 5px 8px; white-space: nowrap; }
+    .support-actions button:disabled { opacity: .45; cursor: not-allowed; }
     .vitals-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
     .vitals-row { display: grid; grid-template-columns: 24px minmax(70px, 1fr) minmax(74px, auto); align-items: center; gap: 7px; font-size: 11px; }
     .vitals-gauge { height: 9px; overflow: hidden; border: 1px solid #526176; border-radius: 999px; background: #172233; }
@@ -135,7 +140,7 @@
     <div id="native-toolbar" hidden>
       <label>地圖 ID <input id="native-map" type="text" value="prontera" maxlength="64" autocapitalize="none" spellcheck="false"></label>
       <button id="load-native-map" type="button">載入原生地圖</button>
-      <span class="hint">支援原生 GND/GAT/RSW 與部分 RSM/RSM2 模型、lightmap/AO、水面和動畫，仍待真實瀏覽器畫面校驗。角色優先使用 RO 八方向動畫，失敗時退回本機立繪。野外怪物可接回主遊戲普攻、已學直接攻擊技能及施毒持續傷害；必須保持同源主遊戲分頁開啟。其他異常／輔助技能、官方逐地圖重生規則與完整技能特效仍未完成。</span>
+      <span class="hint">支援原生 GND/GAT/RSW 與部分 RSM/RSM2 模型、lightmap/AO、水面和動畫，仍待真實瀏覽器畫面校驗。角色優先使用 RO 八方向動畫，失敗時退回本機立繪。野外怪物可接回主遊戲普攻、直接攻擊技能與持續傷害；角色狀態面板也有獨立恢復／輔助選單，必須保持同源主遊戲分頁開啟。指定怪物、定位場域及完整技能特效仍未全部接通。</span>
       <section id="player-vitals-panel" class="vitals-panel" hidden aria-label="角色 HP 與 SP">
         <div class="vitals-heading"><strong>角色狀態</strong><span>主遊戲同步</span></div>
         <div class="vitals-row">
@@ -159,6 +164,14 @@
           <span id="player-job-exp-value" class="vitals-value">— / —</span>
         </div>
         <div id="player-zeny-value">鋅幣 —</div>
+        <div class="support-actions" aria-label="恢復與輔助技能">
+          <label for="support-skill">恢復／輔助
+            <select id="support-skill" name="support-skill" aria-label="選擇恢復或輔助技能" disabled>
+              <option value="">載入已學技能…</option>
+            </select>
+          </label>
+          <button id="cast-support-skill" type="button" disabled>施放</button>
+        </div>
       </section>
     </div>
     <div id="local-toolbar">

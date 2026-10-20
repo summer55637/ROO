@@ -59,6 +59,7 @@ jobs:
           node --check tools/ro_explorer_monsters.mjs
           node --check tools/test_ro_explorer_monsters.mjs
           node --check tools/test_ro_explorer_combat.js
+          node --check tools/test_ro_explorer_support.js
           node --check js/engine.js
           node --check tools/visibility_frame_loop.mjs
           node --check tools/test_visibility_frame_loop.mjs
@@ -73,6 +74,11 @@ jobs:
         run: node tools/test_ro_explorer_minimap.mjs
       - name: Test native exploration monster spawns
         run: node tools/test_ro_explorer_monsters.mjs
+      - name: Test native exploration support and recovery skills
+        run: |
+          node tools/test_ro_explorer_support.js
+          node tools/test_ro_explorer_skill_catalog.mjs
+          node tools/test_ro_explorer_combat_ui.mjs
       - name: Test native exploration combat bridge
         run: node tools/test_ro_explorer_combat.js
       - name: Test native exploration combat feedback

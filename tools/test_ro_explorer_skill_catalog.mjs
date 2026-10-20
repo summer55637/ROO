@@ -21,6 +21,12 @@ const explorerTypes = extractTypes(explorer,
   /const RO_EXPLORER_SUPPORTED_SKILL_TYPES = new Set\(\[([\s\S]*?)\]\);/, '探索頁');
 const engineTypes = extractTypes(engine,
   /const RO_EXPLORER_SUPPORTED_SKILL_TYPES = new Set\(\[([\s\S]*?)\]\);/, '主引擎');
+const uiSupportTypes = extractTypes(ui,
+  /const supportSkillTypes = new Set\(\[([\s\S]*?)\]\);/, '主遊戲恢復／輔助');
+const explorerSupportTypes = extractTypes(explorer,
+  /const RO_EXPLORER_SUPPORT_SKILL_TYPES = new Set\(\[([\s\S]*?)\]\);/, '探索頁恢復／輔助');
+const engineSupportTypes = extractTypes(engine,
+  /const RO_EXPLORER_SUPPORT_SKILL_TYPES = new Set\(\[([\s\S]*?)\]\);/, '主引擎恢復／輔助');
 const uiSelfBuffTypes = extractTypes(ui,
   /const selfBuffSkillTypes = new Set\(\[([\s\S]*?)\]\);/, '主遊戲自身增益');
 const explorerSelfBuffTypes = extractTypes(explorer,
@@ -47,6 +53,23 @@ for (const type of uiSelfBuffTypes) {
 for (const type of engineSelfBuffTypes) {
   assert.ok(explorerTypes.has(type), '主引擎自身增益受探索目錄允許：' + type);
 }
+for (const type of explorerSupportTypes) {
+  assert.ok(uiSupportTypes.has(type), '主遊戲入口會傳入恢復／輔助類型：' + type);
+  assert.ok(engineSupportTypes.has(type), '主引擎支援恢復／輔助類型：' + type);
+}
+for (const type of uiSupportTypes) {
+  assert.ok(explorerSupportTypes.has(type), '探索頁恢復／輔助清單同步：' + type);
+}
+for (const type of engineSupportTypes) {
+  assert.ok(uiSupportTypes.has(type), '主引擎恢復／輔助清單同步到入口：' + type);
+}
+for (const type of ['heal', 'field_heal', 'cure', 'buff_sprate']) {
+  assert.ok(explorerSupportTypes.has(type), '關鍵恢復／輔助類型已接通：' + type);
+}
+assert.match(ui, /isSupport: supportSkillTypes\.has\(entry\.sk\.type\)/,
+  '主遊戲將恢復／輔助技能分流傳入探索頁');
+assert.match(explorer, /isSupport: RO_EXPLORER_SUPPORT_SKILL_TYPES\.has\(skill\.type\)/,
+  '探索頁會辨識恢復／輔助技能');
 assert.match(ui, /searchParams\.set\('skills',\s*JSON\.stringify\(combatSkills\)\)/,
   '主遊戲會把技能清單送入探索網址');
 assert.match(ui, /isSelfBuff: selfBuffSkillTypes\.has\(entry\.sk\.type\)/,

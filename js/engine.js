@@ -6541,6 +6541,11 @@ let roExplorerCombatTransactionDepth = 0;
 const RO_EXPLORER_SELF_BUFF_TYPES = new Set([
   'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd', 'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
 ]);
+const RO_EXPLORER_SUPPORT_SKILL_TYPES = new Set([
+  'heal', 'heal_over_time', 'field_heal', 'cure', 'buff_sprate', 'buff_def', 'buff_block',
+  'buff_reflect', 'buff_providence', 'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd',
+  'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+]);
 const RO_EXPLORER_SUPPORTED_SKILL_TYPES = new Set([
   'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc',
   'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd', 'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
@@ -6796,6 +6801,59 @@ function castRoExplorerSkill(sessionId, spawnKey, mapId, defId, skillId) {
   };
 }
 
+
+
+/* 原生探索恢復／輔助：不用選怪物，仍由正式技能流程管理 SP、冷卻與狀態。 */
+function castRoExplorerSupportSkill(sessionId, mapId, skillId) {
+  const reject = message => ({ ok: false, accepted: false, error: message });
+  if (typeof sessionId !== 'string' || !/^[a-z0-9_-]{4,80}$/i.test(sessionId)) {
+    return reject('探索輔助識別碼無效。');
+  }
+  if (typeof mapId !== 'string' || !/^[a-z0-9_@-]{1,64}$/i.test(mapId)) return reject('地圖識別碼無效。');
+  if (typeof skillId !== 'string' || !/^[a-z0-9_]{1,48}$/i.test(skillId)) return reject('技能識別碼無效。');
+  if (!state || String(state.mapId || '') !== mapId) return reject('主遊戲目前不在這張地圖；請重新開啟探索。');
+  if (state.hp <= 0) return reject('角色已倒下，暫時無法施放技能。');
+  if (typeof playerImmobile === 'function' && playerImmobile()) return reject('角色目前無法行動。');
+  if (!Array.isArray(MAPS) || !MAPS.some(item => item && item.id === mapId)) return reject('地圖資料不存在。');
+
+  const sk = findSkillForUse(skillId);
+  const lv = skillLv(skillId);
+  if (!sk || !lv || !RO_EXPLORER_SUPPORT_SKILL_TYPES.has(sk.type)) {
+    return reject('這個技能尚未接通原生探索的恢復／輔助流程。');
+  }
+  const spCost = skillSpCost(sk, lv);
+  if (!skillReady(skillId)) {
+    return { ok: true, accepted: false, isSupportSkill: true, skillName: sk.name, skillType: sk.type,
+      error: '技能冷卻中。', playerHp: state.hp, playerMaxHp: state.maxHp,
+      playerSp: state.sp, playerMaxSp: state.maxSp };
+  }
+  if (state.sp < spCost) {
+    return { ok: true, accepted: false, isSupportSkill: true, skillName: sk.name, skillType: sk.type,
+      error: 'SP 不足，無法施放「' + sk.name + '」。', playerHp: state.hp, playerMaxHp: state.maxHp,
+      playerSp: state.sp, playerMaxSp: state.maxSp };
+  }
+
+  const hpBefore = Number(state.hp) || 0;
+  const spBefore = Number(state.sp) || 0;
+  let accepted = false;
+  roExplorerCombatTransactionDepth++;
+  try {
+    accepted = castSkill(skillId);
+  } catch (error) {
+    return reject('輔助技能結算失敗：' + (error && error.message ? error.message : '未知錯誤'));
+  } finally {
+    roExplorerCombatTransactionDepth = Math.max(0, roExplorerCombatTransactionDepth - 1);
+  }
+  if (accepted) saveGame();
+  return {
+    ok: true, accepted, isSupportSkill: true, skillName: sk.name, skillLevel: lv, skillType: sk.type,
+    isSelfBuff: RO_EXPLORER_SELF_BUFF_TYPES.has(sk.type),
+    hpRestored: Math.max(0, (Number(state.hp) || 0) - hpBefore),
+    spRestored: Math.max(0, (Number(state.sp) || 0) - spBefore),
+    spCost: Math.max(0, spBefore - (Number(state.sp) || 0)),
+    playerHp: state.hp, playerMaxHp: state.maxHp, playerSp: state.sp, playerMaxSp: state.maxSp,
+  };
+}
 
 /* 探索目標沿用引擎的中毒／出血 tick，不另造傷害公式。 */
 function tickRoExplorerMonsterStatus(sessionId, spawnKey, mapId, defId) {

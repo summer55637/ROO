@@ -110,6 +110,8 @@ const stopMovementButton = document.getElementById('stop-movement');
 const followPlayerInput = document.getElementById('follow-player');
 const monsterSkillInput = document.getElementById('monster-skill');
 const castMonsterSkillButton = document.getElementById('cast-monster-skill');
+const supportSkillInput = document.getElementById('support-skill');
+const castSupportSkillButton = document.getElementById('cast-support-skill');
 const RO_EXPLORER_COMBAT_COMMAND_KEY = 'roo_explorer_combat_command';
 const combatSessionId = 'ex-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 const combatResultKey = 'roo_explorer_combat_result_' + combatSessionId;
@@ -280,6 +282,11 @@ const explorerMonsterCatalog = parseRoExplorerMonsterCatalog(explorerParams.get(
 const RO_EXPLORER_SELF_BUFF_TYPES = new Set([
   'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd', 'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
 ]);
+const RO_EXPLORER_SUPPORT_SKILL_TYPES = new Set([
+  'heal', 'heal_over_time', 'field_heal', 'cure', 'buff_sprate', 'buff_def', 'buff_block',
+  'buff_reflect', 'buff_providence', 'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd',
+  'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+]);
 const RO_EXPLORER_SUPPORTED_SKILL_TYPES = new Set([
   'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc',
   'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd', 'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
@@ -292,11 +299,13 @@ function parseRoExplorerSkillCatalog(raw) {
       && typeof skill.id === 'string' && /^[a-z0-9_]{1,48}$/i.test(skill.id)
       && typeof skill.name === 'string' && skill.name.length > 0 && skill.name.length <= 80
       && Number.isInteger(skill.level) && skill.level >= 1 && skill.level <= 200
-      && RO_EXPLORER_SUPPORTED_SKILL_TYPES.has(skill.type))
+      && (RO_EXPLORER_SUPPORTED_SKILL_TYPES.has(skill.type)
+        || RO_EXPLORER_SUPPORT_SKILL_TYPES.has(skill.type)))
       .map(skill => ({
         id: skill.id, name: skill.name, level: skill.level,
         spCost: Number.isFinite(Number(skill.spCost)) ? Math.max(0, Math.floor(Number(skill.spCost))) : 0,
-        type: skill.type, isSelfBuff: RO_EXPLORER_SELF_BUFF_TYPES.has(skill.type)
+        type: skill.type, isSelfBuff: RO_EXPLORER_SELF_BUFF_TYPES.has(skill.type),
+        isSupport: RO_EXPLORER_SUPPORT_SKILL_TYPES.has(skill.type)
       }));
   } catch (error) {
     return [];
@@ -1821,32 +1830,56 @@ async function loadGatFile(file) {
 
 function updateRoExplorerCombatButtons() {
   updateRoExplorerMovementControls();
+  const combatSkills = explorerSkillCatalog.filter(skill => !skill.isSupport);
+  const supportSkills = explorerSkillCatalog.filter(skill => skill.isSupport);
   if (attackMonsterButton) {
-    attackMonsterButton.disabled = !selectedMonsterEntry || !!selectedMonsterEntry.dead;
+    attackMonsterButton.disabled = !selectedMonsterEntry || !!selectedMonsterEntry.dead || !!pendingCombatRequest;
     attackMonsterButton.hidden = !!activeCombatTarget && activeCombatTarget === selectedMonsterEntry;
   }
   if (stopMonsterAttackButton) stopMonsterAttackButton.hidden = !activeCombatTarget || activeCombatTarget !== selectedMonsterEntry;
-  if (monsterSkillInput) monsterSkillInput.disabled = !explorerSkillCatalog.length || !!pendingCombatRequest;
+  if (monsterSkillInput) monsterSkillInput.disabled = !combatSkills.length || !!pendingCombatRequest;
   if (castMonsterSkillButton) {
     castMonsterSkillButton.disabled = !selectedMonsterEntry || !!selectedMonsterEntry.dead
-      || !explorerSkillCatalog.some(skill => skill.id === (monsterSkillInput && monsterSkillInput.value))
+      || !combatSkills.some(skill => skill.id === (monsterSkillInput && monsterSkillInput.value))
+      || !!pendingCombatRequest;
+  }
+  if (supportSkillInput) supportSkillInput.disabled = !supportSkills.length || !!pendingCombatRequest;
+  if (castSupportSkillButton) {
+    castSupportSkillButton.disabled = !supportSkills.some(skill => skill.id === (supportSkillInput && supportSkillInput.value))
       || !!pendingCombatRequest;
   }
 }
 function populateRoExplorerSkillPicker() {
-  if (!monsterSkillInput) return;
-  monsterSkillInput.replaceChildren();
-  const placeholder = document.createElement('option');
-  placeholder.value = '';
-  placeholder.textContent = explorerSkillCatalog.length ? '選擇主動技能' : '沒有已學攻擊技能';
-  monsterSkillInput.appendChild(placeholder);
-  explorerSkillCatalog.forEach(skill => {
-    const option = document.createElement('option');
-    option.value = skill.id;
-    option.textContent = skill.name + ' Lv.' + skill.level + '（SP ' + skill.spCost + '）';
-    monsterSkillInput.appendChild(option);
-  });
-  monsterSkillInput.disabled = !explorerSkillCatalog.length;
+  const combatSkills = explorerSkillCatalog.filter(skill => !skill.isSupport);
+  const supportSkills = explorerSkillCatalog.filter(skill => skill.isSupport);
+  if (monsterSkillInput) {
+    monsterSkillInput.replaceChildren();
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = combatSkills.length ? '選擇攻擊技能' : '沒有已學攻擊技能';
+    monsterSkillInput.appendChild(placeholder);
+    combatSkills.forEach(skill => {
+      const option = document.createElement('option');
+      option.value = skill.id;
+      option.textContent = skill.name + ' Lv.' + skill.level + '（SP ' + skill.spCost + '）';
+      monsterSkillInput.appendChild(option);
+    });
+    monsterSkillInput.disabled = !combatSkills.length;
+  }
+  if (supportSkillInput) {
+    supportSkillInput.replaceChildren();
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = supportSkills.length ? '選擇恢復／輔助技能' : '沒有已學恢復／輔助技能';
+    supportSkillInput.appendChild(placeholder);
+    supportSkills.forEach(skill => {
+      const option = document.createElement('option');
+      option.value = skill.id;
+      option.textContent = skill.name + ' Lv.' + skill.level + '（SP ' + skill.spCost + '）';
+      supportSkillInput.appendChild(option);
+    });
+    supportSkillInput.disabled = !supportSkills.length;
+  }
   updateRoExplorerCombatButtons();
 }
 function clearSelectedRoExplorerMonster() {
@@ -2143,6 +2176,37 @@ function sendRoExplorerSkillRequest(entry, skill) {
     setStatus('未收到技能回覆。請保持同源的主遊戲分頁開啟，再重新嘗試。', true);
   }, 5000);
 }
+
+function requestRoExplorerSupportSkill(skill) {
+  if (!skill || !skill.isSupport || pendingCombatRequest) return;
+  if (!mapInfo || !mapInfo.mapId || mapInfo.mapId !== monsterMapIdFromUrl) {
+    setStatus('請先載入與主遊戲相同的地圖。', true);
+    return;
+  }
+  const requestId = combatSessionId + '-' + (++combatRequestCounter).toString(36);
+  pendingCombatRequest = { requestId, entry: null, action: 'support_skill', skill };
+  const command = {
+    type: 'support_skill', requestId, sessionId: combatSessionId,
+    mapId: mapInfo.mapId, skillId: skill.id
+  };
+  updateRoExplorerCombatButtons();
+  try {
+    localStorage.setItem(RO_EXPLORER_COMBAT_COMMAND_KEY, JSON.stringify(command));
+    setStatus('正在由主遊戲引擎施放「' + skill.name + '」…');
+  } catch (error) {
+    pendingCombatRequest = null;
+    updateRoExplorerCombatButtons();
+    setStatus('無法傳送輔助指令；請允許此網站使用本機儲存。', true);
+    return;
+  }
+  window.setTimeout(() => {
+    if (!pendingCombatRequest || pendingCombatRequest.requestId !== requestId) return;
+    pendingCombatRequest = null;
+    updateRoExplorerCombatButtons();
+    setStatus('未收到輔助／恢復技能回覆。請保持同源的主遊戲分頁開啟，再重新嘗試。', true);
+  }, 5000);
+}
+
 function requestRoExplorerSkill(entry, skill) {
   if (!entry || entry.dead || !skill || pendingCombatRequest) return;
   if (!mapInfo || !gatInfo || mapInfo.mapId !== gatInfo.mapId
@@ -2355,6 +2419,36 @@ function handleRoExplorerCombatStorage(event) {
     updateStats();
     return;
   }
+  if (result.requestType === 'support_skill') {
+    if (!pendingCombatRequest || result.requestId !== pendingCombatRequest.requestId
+      || pendingCombatRequest.action !== 'support_skill') return;
+    const request = pendingCombatRequest;
+    pendingCombatRequest = null;
+    updatePlayerVitals({
+      hp: result.playerHp, maxHp: result.playerMaxHp,
+      sp: result.playerSp, maxSp: result.playerMaxSp,
+    }, { showDamage: true });
+    updatePlayerProgress(result);
+    updateRoExplorerCombatButtons();
+    if (!result.ok || !result.accepted) {
+      setStatus(result.error || '恢復／輔助技能未能施放；請檢查 SP、冷卻、沉默與裝備條件。', true);
+      return;
+    }
+    const skillName = result.skillName || request.skill.name;
+    let note = skillName + ' 已施放，輔助效果已生效。';
+    if (result.skillType === 'field_heal') note = skillName + ' 已啟動持續恢復效果。';
+    else if (result.skillType === 'cure') note = skillName + ' 已施放，已處理可解除的異常狀態。';
+    else if (result.skillType === 'buff_sprate') note = skillName + ' 已施放，SP 自然恢復增益已生效。';
+    if (Number(result.hpRestored) > 0) note += ' HP +' + Math.floor(result.hpRestored).toLocaleString() + '。';
+    if (Number(result.spRestored) > 0) note += ' SP +' + Math.floor(result.spRestored).toLocaleString() + '。';
+    else if (Number(result.spCost) > 0) note += ' 消耗 SP ' + Math.floor(result.spCost).toLocaleString() + '。';
+    note += ' 目前 HP ' + Math.floor(result.playerHp).toLocaleString()
+      + ' / ' + Math.floor(result.playerMaxHp).toLocaleString()
+      + '，SP ' + Math.floor(result.playerSp).toLocaleString()
+      + ' / ' + Math.floor(result.playerMaxSp).toLocaleString() + '。';
+    setStatus(note);
+    return;
+  }
   if (!pendingCombatRequest || result.requestId !== pendingCombatRequest.requestId) return;
   const request = pendingCombatRequest;
   const entry = request.entry;
@@ -2476,8 +2570,15 @@ stopMonsterAttackButton.addEventListener('click', () => stopRoExplorerCombat());
 if (stopMovementButton) stopMovementButton.addEventListener('click', stopRoExplorerMovement);
 if (monsterSkillInput) monsterSkillInput.addEventListener('change', updateRoExplorerCombatButtons);
 if (castMonsterSkillButton) castMonsterSkillButton.addEventListener('click', () => {
-  const skill = explorerSkillCatalog.find(item => item.id === (monsterSkillInput && monsterSkillInput.value));
+  const skill = explorerSkillCatalog.find(item => !item.isSupport
+    && item.id === (monsterSkillInput && monsterSkillInput.value));
   requestRoExplorerSkill(selectedMonsterEntry, skill);
+});
+if (supportSkillInput) supportSkillInput.addEventListener('change', updateRoExplorerCombatButtons);
+if (castSupportSkillButton) castSupportSkillButton.addEventListener('click', () => {
+  const skill = explorerSkillCatalog.find(item => item.isSupport
+    && item.id === (supportSkillInput && supportSkillInput.value));
+  requestRoExplorerSupportSkill(skill);
 });
 
 function stopRoExplorerMovement() {
