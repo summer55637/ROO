@@ -60,6 +60,11 @@
     .vitals-fill.sp-fill { background: #5ca8f4; }
     .vitals-fill.is-low { background: #ff3f4f; }
     .vitals-value { color: #cbd8e8; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+    .progression-row { display: grid; grid-template-columns: 78px minmax(48px, 1fr) minmax(70px, auto); align-items: center; gap: 6px; font-size: 10px; }
+    .progression-row .vitals-gauge { height: 7px; }
+    .progression-fill--base { background: #e6c56a; }
+    .progression-fill--job { background: #a39cff; }
+    #player-zeny-value { color: #e8d79e; font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }
     .monster-hp-row { margin: 0 0 8px; }
     .monster-hp-row .vitals-gauge { height: 8px; }
     #combat-feedback-layer { position: absolute; inset: 0; z-index: 4; overflow: hidden; pointer-events: none; }
@@ -142,6 +147,17 @@
           <div id="player-sp-gauge" class="vitals-gauge" role="progressbar" aria-label="角色 SP" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="player-sp-bar" class="vitals-fill sp-fill"></span></div>
           <span id="player-sp-value" class="vitals-value">— / —</span>
         </div>
+        <div class="progression-row">
+          <span id="player-base-level">基礎 Lv. —</span>
+          <div id="player-base-exp-gauge" class="vitals-gauge" role="progressbar" aria-label="基礎經驗進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="無資料"><span id="player-base-exp-bar" class="vitals-fill progression-fill--base"></span></div>
+          <span id="player-base-exp-value" class="vitals-value">— / —</span>
+        </div>
+        <div class="progression-row">
+          <span id="player-job-level">職業 Lv. —</span>
+          <div id="player-job-exp-gauge" class="vitals-gauge" role="progressbar" aria-label="職業經驗進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="無資料"><span id="player-job-exp-bar" class="vitals-fill progression-fill--job"></span></div>
+          <span id="player-job-exp-value" class="vitals-value">— / —</span>
+        </div>
+        <div id="player-zeny-value">鋅幣 —</div>
       </section>
     </div>
     <div id="local-toolbar">

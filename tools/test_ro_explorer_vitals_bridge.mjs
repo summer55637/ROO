@@ -13,12 +13,21 @@ assert.match(ui,
 assert.match(ui,
   /if \(command\.type === 'vitals'\) \{\s*result = state \? \{\s*ok: true, accepted: true,\s*playerHp: state\.hp,\s*playerMaxHp: state\.maxHp,\s*playerSp: state\.sp,\s*playerMaxSp: state\.maxSp(?:,|\s*\})/,
   '生命值快照必須讀取主遊戲當前 HP／SP');
+assert.match(ui,
+  /function buildRoExplorerProgressSnapshot\(playerState\)[\s\S]*?playerBaseLevel:[\s\S]*?playerBaseExpNeed:[\s\S]*?playerJobLevel:[\s\S]*?playerJobExpNeed:[\s\S]*?playerZeny:/,
+  '探索進度快照沿用主遊戲等級、經驗曲線與鋅幣');
+assert.match(ui,
+  /\['pbaselevel', progression\.playerBaseLevel\][\s\S]*?\['pzeny', progression\.playerZeny\]/,
+  '開啟探索時會傳入角色初始進度');
 assert.match(explorer,
   /function requestRoExplorerVitals\(\)[\s\S]*?type: 'vitals',[\s\S]*?localStorage\.setItem\(RO_EXPLORER_COMBAT_COMMAND_KEY, JSON\.stringify\(command\)\)/,
   '探索頁定時向同源主遊戲請求新快照');
 assert.match(explorer,
   /if \(result\.requestType === 'vitals'\) \{\s*if \(result\.requestId !== pendingVitalsRequestId\) return;\s*pendingVitalsRequestId = null;\s*if \(result\.ok && result\.accepted\) updatePlayerVitals\(/,
   '探索頁只接受本次輪詢的回覆並更新狀態條');
+assert.match(explorer,
+  /if \(result\.ok && result\.accepted\) updatePlayerProgress\(result\)/,
+  '探索頁將主遊戲進度快照更新到 HUD');
 assert.match(explorer,
   /vitalsPollTimer = window\.setInterval\(requestRoExplorerVitals, 1000\)/,
   '生命值輪詢頻率限制為每秒一次');

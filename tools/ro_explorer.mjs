@@ -57,6 +57,8 @@ import {
 } from './ro_explorer_lifecycle.mjs';
 import {
   formatRoExplorerGaugeValue,
+  formatRoExplorerLevelProgress,
+  formatRoExplorerZeny,
   getRoExplorerGaugePercent,
 } from './ro_explorer_hud.mjs';
 import {
@@ -92,6 +94,15 @@ const playerHpValue = document.getElementById('player-hp-value');
 const playerSpGauge = document.getElementById('player-sp-gauge');
 const playerSpBar = document.getElementById('player-sp-bar');
 const playerSpValue = document.getElementById('player-sp-value');
+const playerBaseLevelLabel = document.getElementById('player-base-level');
+const playerBaseExpGauge = document.getElementById('player-base-exp-gauge');
+const playerBaseExpBar = document.getElementById('player-base-exp-bar');
+const playerBaseExpValue = document.getElementById('player-base-exp-value');
+const playerJobLevelLabel = document.getElementById('player-job-level');
+const playerJobExpGauge = document.getElementById('player-job-exp-gauge');
+const playerJobExpBar = document.getElementById('player-job-exp-bar');
+const playerJobExpValue = document.getElementById('player-job-exp-value');
+const playerZenyValue = document.getElementById('player-zeny-value');
 const clearMonsterTargetButton = document.getElementById('clear-monster-target');
 const attackMonsterButton = document.getElementById('attack-monster');
 const stopMonsterAttackButton = document.getElementById('stop-monster-attack');
@@ -162,6 +173,15 @@ const playerVitals = {
   sp: readVitalsParam('psp'),
   maxSp: readVitalsParam('pmaxsp'),
 };
+const playerProgress = {
+  baseLevel: readVitalsParam('pbaselevel'),
+  baseExp: readVitalsParam('pbaseexp'),
+  baseExpNeed: readVitalsParam('pbaseexpneed'),
+  jobLevel: readVitalsParam('pjoblevel'),
+  jobExp: readVitalsParam('pjobexp'),
+  jobExpNeed: readVitalsParam('pjobexpneed'),
+  zeny: readVitalsParam('pzeny'),
+};
 function updateRoExplorerGauge(gauge, fill, valueLabel, current, maximum) {
   const percent = getRoExplorerGaugePercent(current, maximum);
   const valueText = formatRoExplorerGaugeValue(current, maximum);
@@ -178,6 +198,41 @@ function updateRoExplorerGauge(gauge, fill, valueLabel, current, maximum) {
 function renderPlayerVitals() {
   updateRoExplorerGauge(playerHpGauge, playerHpBar, playerHpValue, playerVitals.hp, playerVitals.maxHp);
   updateRoExplorerGauge(playerSpGauge, playerSpBar, playerSpValue, playerVitals.sp, playerVitals.maxSp);
+}
+function renderPlayerProgressGauge(gauge, fill, levelLabel, valueLabel, label, level, current, needed) {
+  const view = formatRoExplorerLevelProgress(label, level, current, needed);
+  if (levelLabel) levelLabel.textContent = view.levelLabel;
+  if (valueLabel) valueLabel.textContent = view.valueLabel;
+  if (fill) {
+    fill.style.width = view.percent + '%';
+    fill.classList.toggle('is-low', !view.maxed && view.valueLabel !== '— / —' && view.percent <= 25);
+  }
+  if (gauge) {
+    gauge.setAttribute('aria-valuenow', String(view.percent));
+    gauge.setAttribute('aria-valuetext', view.valueLabel === '— / —' ? '無資料' : view.valueLabel);
+  }
+}
+function renderPlayerProgress() {
+  renderPlayerProgressGauge(playerBaseExpGauge, playerBaseExpBar, playerBaseLevelLabel,
+    playerBaseExpValue, '基礎', playerProgress.baseLevel, playerProgress.baseExp, playerProgress.baseExpNeed);
+  renderPlayerProgressGauge(playerJobExpGauge, playerJobExpBar, playerJobLevelLabel,
+    playerJobExpValue, '職業', playerProgress.jobLevel, playerProgress.jobExp, playerProgress.jobExpNeed);
+  if (playerZenyValue) playerZenyValue.textContent = formatRoExplorerZeny(playerProgress.zeny);
+}
+function updatePlayerProgress(values) {
+  if (!values || typeof values !== 'object') return;
+  const fields = [
+    ['baseLevel', 'playerBaseLevel'], ['baseExp', 'playerBaseExp'], ['baseExpNeed', 'playerBaseExpNeed'],
+    ['jobLevel', 'playerJobLevel'], ['jobExp', 'playerJobExp'], ['jobExpNeed', 'playerJobExpNeed'],
+    ['zeny', 'playerZeny'],
+  ];
+  for (const [localKey, resultKey] of fields) {
+    const raw = values[resultKey];
+    if (raw === null || raw === undefined || raw === '') continue;
+    const value = Number(raw);
+    if (Number.isFinite(value) && value >= 0) playerProgress[localKey] = value;
+  }
+  renderPlayerProgress();
 }
 function updatePlayerVitals(values, options = {}) {
   if (!values || typeof values !== 'object') return;
@@ -217,6 +272,7 @@ function setVitalsPollingMode(mode) {
 window.addEventListener('roo-explorer-mode', event => setVitalsPollingMode(event.detail));
 document.addEventListener('visibilitychange', refreshVitalsPolling);
 renderPlayerVitals();
+renderPlayerProgress();
 const explorerSpriteKey = resolveRoExplorerSpriteKey(explorerParams.get('sprite'));
 const monsterMapIdFromUrl = String(explorerParams.get('map') || '').trim().toLowerCase();
 const explorerMonsterCatalog = parseRoExplorerMonsterCatalog(explorerParams.get('mobs'));
@@ -2233,6 +2289,7 @@ function handleRoExplorerCombatStorage(event) {
       hp: result.playerHp, maxHp: result.playerMaxHp,
       sp: result.playerSp, maxSp: result.playerMaxSp,
     }, { showDamage: true });
+    if (result.ok && result.accepted) updatePlayerProgress(result);
     return;
   }
   if (result.requestType === 'status_tick') {

@@ -2033,6 +2033,33 @@ function renderMapYieldBox(mapObj) {
   </div>`;
 }
 
+/* 探索頁進度 HUD：直接讀主引擎已有等級／經驗曲線，不另造公式。 */
+function buildRoExplorerProgressSnapshot(playerState) {
+  if (!playerState || typeof playerState !== 'object') return {};
+  const baseLevel = Math.max(1, Math.floor(Number(playerState.baseLevel) || 1));
+  const jobLevel = Math.max(1, Math.floor(Number(playerState.jobLevel) || 1));
+  const jobDef = typeof JOB_TREE !== 'undefined' ? JOB_TREE[playerState.jobId] : null;
+  const baseCap = typeof baseLevelCapOf === 'function' ? Number(baseLevelCapOf(playerState.jobId)) : 0;
+  const baseExpNeed = baseCap > 0 && baseLevel >= baseCap
+    ? 0
+    : (typeof expToNextBaseLevel === 'function'
+      ? Math.max(0, Math.floor(Number(expToNextBaseLevel(baseLevel)) || 0)) : 0);
+  const jobLevelMax = Number(jobDef && jobDef.jobLevelMax);
+  const jobExpNeed = jobDef && Number.isFinite(jobLevelMax) && jobLevel >= jobLevelMax
+    ? 0
+    : (jobDef && typeof expToNextJobLevel === 'function'
+      ? Math.max(0, Math.floor(Number(expToNextJobLevel(jobLevel, jobDef.tier)) || 0)) : 0);
+  return {
+    playerBaseLevel: baseLevel,
+    playerBaseExp: Math.max(0, Math.floor(Number(playerState.baseExp) || 0)),
+    playerBaseExpNeed: baseExpNeed,
+    playerJobLevel: jobLevel,
+    playerJobExp: Math.max(0, Math.floor(Number(playerState.jobExp) || 0)),
+    playerJobExpNeed: jobExpNeed,
+    playerZeny: Math.max(0, Math.floor(Number(playerState.gold) || 0)),
+  };
+}
+
 /* 探索頁透過同源 localStorage 呼叫主遊戲引擎，不新增後端或傷害公式。 */
 const RO_EXPLORER_COMBAT_COMMAND_KEY = 'roo_explorer_combat_command';
 function handleRoExplorerCombatStorage(event) {
@@ -2050,7 +2077,8 @@ function handleRoExplorerCombatStorage(event) {
       result = state ? {
         ok: true, accepted: true,
         playerHp: state.hp, playerMaxHp: state.maxHp,
-        playerSp: state.sp, playerMaxSp: state.maxSp
+        playerSp: state.sp, playerMaxSp: state.maxSp,
+        ...buildRoExplorerProgressSnapshot(state)
       } : { ok: false, accepted: false, error: '目前沒有載入角色。' };
     } else if (command.type === 'status_tick') {
       result = typeof tickRoExplorerMonsterStatus === 'function'
@@ -2081,12 +2109,17 @@ function openRoExplorer() {
   if (!state) return;
   const url = new URL('tools/ro_explorer.html', window.location.href);
   const mapId = String(state.mapId || 'prontera');
+  const progression = buildRoExplorerProgressSnapshot(state);
   url.searchParams.set('mode', 'native');
   url.searchParams.set('map', mapId);
   url.searchParams.set('sprite', getAnimKey());
   for (const [key, value] of [
     ['php', state.hp], ['pmaxhp', state.maxHp],
     ['psp', state.sp], ['pmaxsp', state.maxSp],
+    ['pbaselevel', progression.playerBaseLevel], ['pbaseexp', progression.playerBaseExp],
+    ['pbaseexpneed', progression.playerBaseExpNeed],
+    ['pjoblevel', progression.playerJobLevel], ['pjobexp', progression.playerJobExp],
+    ['pjobexpneed', progression.playerJobExpNeed], ['pzeny', progression.playerZeny],
   ]) {
     if (value !== null && value !== undefined && Number.isFinite(Number(value))) {
       url.searchParams.set(key, String(Number(value)));
