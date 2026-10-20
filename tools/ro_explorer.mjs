@@ -1688,7 +1688,9 @@ async function loadRagassetsMap(mapName) {
 
     const nextScale = safeScale();
     if (!nextScale) throw new Error('世界比例必須大於 0，且不可大於 10。');
-    const lightmapAtlas = buildGndLightmapAtlasData(parsedGnd);
+    // The classic RO renderer uses 16-level RGB lightmap posterization; keep the
+    // browser render and public-asset pixel validation on the same source values.
+    const lightmapAtlas = buildGndLightmapAtlasData(parsedGnd, 16);
     const meshData = buildGndMeshData(parsedGnd, nextScale, lightmapAtlas);
     const texturedBuckets = meshData.buckets.filter(bucket => bucket.textureIndex >= 0);
     const mappedTextureIndexes = [...new Set(texturedBuckets.map(bucket => bucket.textureIndex))];

@@ -161,7 +161,7 @@ async function validateMap(mapId) {
   mapId + (gnd.lightmapLayout === 'standard-split'
     ? ' standard layout stores separate RGB lightmap and grayscale AO'
     : ' global-dimension layout stores 64 AO bytes followed by 192 RGB lightmap bytes'));
-  const lightmapAtlas = buildGndLightmapAtlasData(gnd);
+  const lightmapAtlas = buildGndLightmapAtlasData(gnd, 16);
   assert.equal(lightmapAtlas.sourceGutter, 1,
     mapId + ' atlas excludes the source lightmap/AO border ring');
   assert.ok(lightmapAtlas, mapId + ' lightmap atlas was built');
