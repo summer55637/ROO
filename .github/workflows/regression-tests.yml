@@ -39,6 +39,8 @@ jobs:
           node --check tools/ro_explorer_hud.mjs
           node --check tools/test_ro_explorer_hud.mjs
           node --check tools/test_ro_explorer_vitals_bridge.mjs
+          node --check tools/ro_explorer_feedback.mjs
+          node --check tools/test_ro_explorer_feedback.mjs
           node --check tools/latest_request_gate.mjs
           node --check tools/test_latest_request_gate.mjs
           node --check tools/ro_explorer_bootstrap.js
@@ -66,6 +68,8 @@ jobs:
         run: node tools/test_ro_explorer_monsters.mjs
       - name: Test native exploration combat bridge
         run: node tools/test_ro_explorer_combat.js
+      - name: Test native exploration combat feedback
+        run: node tools/test_ro_explorer_feedback.mjs
       - name: Run complete regression suite
         run: node tools/test.js
       - name: Run full-game smoke test

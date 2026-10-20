@@ -61,6 +61,17 @@
     .vitals-value { color: #cbd8e8; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
     .monster-hp-row { margin: 0 0 8px; }
     .monster-hp-row .vitals-gauge { height: 8px; }
+    #combat-feedback-layer { position: absolute; inset: 0; z-index: 4; overflow: hidden; pointer-events: none; }
+    .combat-feedback { position: absolute; display: block; transform: translate(-50%, -50%); font-size: 19px; font-weight: 900; font-variant-numeric: tabular-nums; line-height: 1; white-space: nowrap; text-shadow: 0 2px 2px #05080d, 0 0 6px rgba(0, 0, 0, .9); pointer-events: none; animation: ro-combat-feedback-rise 820ms ease-out forwards; will-change: transform, opacity; }
+    .combat-feedback--attack { color: #fff0a3; }
+    .combat-feedback--skill { color: #9cecff; font-size: 22px; }
+    .combat-feedback--dot { color: #c5ff7d; font-size: 17px; }
+    .combat-feedback--miss { color: #d7e3f2; font-size: 14px; }
+    @keyframes ro-combat-feedback-rise {
+      0% { opacity: 0; transform: translate(-50%, -35%) scale(.72); }
+      14% { opacity: 1; transform: translate(-50%, -50%) scale(1.12); }
+      100% { opacity: 0; transform: translate(-50%, calc(-50% - 28px)) scale(.94); }
+    }
     footer { padding: 8px 16px; border-top: 1px solid #273549; }
     a { color: #8cc8ff; }
     @media (max-width: 700px) {
@@ -145,6 +156,7 @@
 ragx maps prontera --client "C:/Gravity/Ragnarok" --format glb --world-scale 0.2 --out ./tmp/roo-map<br>
 先選 GLB，再選相同地圖的原始 GAT。點擊 3D 地面或小地圖行走；拖曳旋轉視角、滾輪縮放。</div>
       <div id="stats">尚未載入地圖</div>
+      <div id="combat-feedback-layer" aria-hidden="true"></div>
       <section id="monster-panel" class="monster-panel" hidden aria-live="polite" aria-label="選取的 RO 怪物">
         <strong id="monster-title">目標怪物</strong>
         <div class="vitals-row monster-hp-row">

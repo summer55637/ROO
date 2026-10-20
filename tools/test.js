@@ -64,6 +64,7 @@ const SUITES = [
   'test_ro_explorer_sprites.mjs', // 原生探索使用安全的 RO 職業影格素材
   'test_ro_explorer_hud.mjs', // 原生探索 HP／SP 狀態條邊界與格式
   'test_ro_explorer_vitals_bridge.mjs', // 原生探索 HP／SP 即時同步橋接
+  'test_ro_explorer_feedback.mjs', // 原生探索戰鬥傷害跳字
   'test_ro_explorer_minimap.mjs', // 原生探索小地圖地形與座標
   'test_ro_explorer_monsters.mjs', // 原生探索怪物生成與選取資料
   'test_ro_explorer_lifecycle.mjs', // 原生探索怪物死亡與重生週期

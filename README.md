@@ -89,7 +89,7 @@ about.js → hp_sp_tables.js → img_alias.js → aspd_data.js → skills.js
 → exploration.js → ui.js → ro_water.js → ro_prontera_3d.js
 ```
 
-**測試**：`node tools/test.js` 跑 57 個測試檔。治具會把整個遊戲載進 Node 真的跑起來
+**測試**：`node tools/test.js` 跑 58 個測試檔。治具會把整個遊戲載進 Node 真的跑起來
 （不是靜態分析），但**不載入 `js/ui.js`**——畫面的部分要開瀏覽器看。
 改完 JS 記得 `node --check`，語法錯誤測試抓不到。
 

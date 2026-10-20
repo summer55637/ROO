@@ -31,6 +31,7 @@ import {
 } from './ro_map_assets.mjs';
 import { createLatestRequestGate } from './latest_request_gate.mjs';
 import { createVisibilityAwareFrameLoop } from './visibility_frame_loop.mjs';
+import { buildRoExplorerCombatFeedback } from './ro_explorer_feedback.mjs';
 import {
   buildRoExplorerSpriteLayout,
   resolveRoExplorerSpriteKey,
@@ -62,6 +63,7 @@ import {
 const stage = document.getElementById('stage');
 const status = document.getElementById('status');
 const stats = document.getElementById('stats');
+const combatFeedbackLayer = document.getElementById('combat-feedback-layer');
 const modelInput = document.getElementById('model-file');
 const gatInput = document.getElementById('gat-file');
 const scaleInput = document.getElementById('world-scale');
@@ -104,6 +106,7 @@ let explorerPageActive = true;
 let activeExplorerMode = 'public';
 let statusTickCursor = 0;
 const timedStatusEntries = new Set();
+const combatFeedbackEntries = new Set();
 let nextCombatAt = 0;
 let combatAttackIntervalMs = 1000;
 const nativeMapInput = document.getElementById('native-map');
@@ -1777,6 +1780,45 @@ function loadRoExplorerMonsterTexture(imageId) {
   monsterTextureCache.set(imageId, promise);
   return promise;
 }
+function showRoExplorerCombatFeedback(entry, damage, action) {
+  if (!entry || !entry.cell || !combatFeedbackLayer) return;
+  const feedback = buildRoExplorerCombatFeedback(damage, action);
+  if (!feedback) return;
+
+  const element = document.createElement('span');
+  element.className = 'combat-feedback combat-feedback--' + feedback.kind;
+  element.textContent = feedback.text;
+  element.style.animationDuration = feedback.durationMs + 'ms';
+  combatFeedbackLayer.appendChild(element);
+  combatFeedbackEntries.add({
+    element,
+    worldPosition: cellWorldPosition(entry.cell, 1.55),
+    startedAt: performance.now(),
+    durationMs: feedback.durationMs,
+  });
+}
+function updateRoExplorerCombatFeedback(now) {
+  const width = stage.clientWidth;
+  const height = stage.clientHeight;
+  if (width <= 0 || height <= 0) return;
+  camera.updateMatrixWorld();
+  combatFeedbackEntries.forEach(item => {
+    if (now - item.startedAt >= item.durationMs) {
+      item.element.remove();
+      combatFeedbackEntries.delete(item);
+      return;
+    }
+    const projected = item.worldPosition.clone().project(camera);
+    const onScreen = projected.z >= -1 && projected.z <= 1
+      && projected.x >= -1.1 && projected.x <= 1.1
+      && projected.y >= -1.1 && projected.y <= 1.1;
+    item.element.hidden = !onScreen;
+    if (!onScreen) return;
+    item.element.style.left = ((projected.x * 0.5 + 0.5) * width) + 'px';
+    item.element.style.top = ((-projected.y * 0.5 + 0.5) * height) + 'px';
+  });
+}
+
 function renderSelectedRoExplorerMonster(entry, note) {
   if (!entry || entry !== selectedMonsterEntry) return;
   const hp = Number.isFinite(entry.currentHp) ? entry.currentHp : entry.monster.hp;
@@ -2132,6 +2174,7 @@ function handleRoExplorerCombatStorage(event) {
       entry.statusLabels = [];
       return;
     }
+    if (result.accepted && Number(result.damageDealt) > 0) showRoExplorerCombatFeedback(entry, result.damageDealt, 'dot');
     if (Number.isFinite(result.hp)) entry.currentHp = Math.max(0, result.hp);
     if (Number.isFinite(result.maxHp)) entry.maxHp = Math.max(1, result.maxHp);
     if (result.killed || entry.currentHp <= 0) {
@@ -2173,6 +2216,7 @@ function handleRoExplorerCombatStorage(event) {
   updateRoExplorerCombatButtons();
   if (Number.isFinite(result.hp)) entry.currentHp = Math.max(0, result.hp);
   if (Number.isFinite(result.maxHp)) entry.maxHp = Math.max(1, result.maxHp);
+  if (result.accepted) showRoExplorerCombatFeedback(entry, result.damageDealt, request.action === 'skill' ? 'skill' : 'attack');
   if (result.killed || entry.currentHp <= 0) {
     timedStatusEntries.delete(entry);
     scheduleRoExplorerMonsterRespawn(entry, performance.now());
@@ -2530,6 +2574,7 @@ const stopRenderLoop = createVisibilityAwareFrameLoop(
     refreshAnimatedPlayerTexture(now);
     refreshAnimatedMonsterTextures(now);
     controls.update();
+    updateRoExplorerCombatFeedback(now);
     renderer.render(scene, camera);
   },
   callback => window.requestAnimationFrame(callback),
@@ -2540,6 +2585,8 @@ function handleRenderPageHide(event) {
   // BFCache pages must keep their visibility listener so rendering resumes on pageshow.
   if (event.persisted) return;
   stopRenderLoop();
+  combatFeedbackEntries.forEach(item => item.element.remove());
+  combatFeedbackEntries.clear();
   window.removeEventListener('pagehide', handleRenderPageHide);
 }
 window.addEventListener('pagehide', handleRenderPageHide);
