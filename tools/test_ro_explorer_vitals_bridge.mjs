@@ -11,7 +11,7 @@ assert.match(ui,
   /!\['attack', 'skill', 'status_tick', 'vitals'\]\.includes\(command\.type\)/,
   '主遊戲允許原生探索讀取生命值快照');
 assert.match(ui,
-  /if \(command\.type === 'vitals'\) \{\s*result = state \? \{\s*ok: true, accepted: true,\s*playerHp: state\.hp,\s*playerMaxHp: state\.maxHp,\s*playerSp: state\.sp,\s*playerMaxSp: state\.maxSp,/,
+  /if \(command\.type === 'vitals'\) \{\s*result = state \? \{\s*ok: true, accepted: true,\s*playerHp: state\.hp,\s*playerMaxHp: state\.maxHp,\s*playerSp: state\.sp,\s*playerMaxSp: state\.maxSp(?:,|\s*\})/,
   '生命值快照必須讀取主遊戲當前 HP／SP');
 assert.match(explorer,
   /function requestRoExplorerVitals\(\)[\s\S]*?type: 'vitals',[\s\S]*?localStorage\.setItem\(RO_EXPLORER_COMBAT_COMMAND_KEY, JSON\.stringify\(command\)\)/,
