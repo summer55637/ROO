@@ -97,6 +97,9 @@ async function clickMinimapUntilMoving(targetPage, useTouch, label) {
   const canvas = targetPage.locator('#minimap');
   const box = await canvas.boundingBox();
   assert.ok(box, label + ' 小地圖沒有可點擊的畫面區域。');
+  const viewport = await targetPage.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight, scrollY: window.scrollY }));
+  assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= viewport.width + 1 && box.y + box.height <= viewport.height + 1,
+    label + ' 小地圖超出瀏覽器可見範圍：' + JSON.stringify({ box, viewport }));
   await targetPage.evaluate(() => {
     const slider = document.getElementById('move-speed');
     slider.value = '1';
