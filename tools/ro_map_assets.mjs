@@ -1712,15 +1712,57 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
     return surfaces[neighbor.topSurface].color || fallback;
   }
 
+  function diffuseUvRectForSurface(surface) {
+    if (!surface || !Array.isArray(surface.uv) || surface.uv.length !== 4
+      || !surface.uv.every(uv => Array.isArray(uv) && uv.length >= 2
+        && Number.isFinite(uv[0]) && Number.isFinite(uv[1]))) return null;
+    const us = surface.uv.map(uv => uv[0]);
+    const vs = surface.uv.map(uv => uv[1]);
+    const rect = {
+      minU: Math.min(...us),
+      maxU: Math.max(...us),
+      minV: Math.min(...vs),
+      maxV: Math.max(...vs),
+    };
+    if (![rect.minU, rect.maxU, rect.minV, rect.maxV].every(Number.isFinite)
+      || rect.minU < 0 || rect.minV < 0 || rect.maxU > 1 || rect.maxV > 1
+      || rect.maxU - rect.minU <= 1e-7 || rect.maxV - rect.minV <= 1e-7) return null;
+    return rect;
+  }
+
+  function diffuseUvRectKey(rect) {
+    if (!rect) return 'source';
+    return [rect.minU, rect.maxU, rect.minV, rect.maxV]
+      .map(value => Math.round(value * 1000000)).join(':');
+  }
+
   function addQuad(surfaceIndex, corners, vertexColors = null) {
     if (surfaceIndex < 0 || surfaceIndex >= surfaces.length) return;
     const surface = surfaces[surfaceIndex];
     const textureIndex = surface.textureIndex;
     if (textureIndex === -1) return;
-    const bucketKey = textureIndex >= 0 && textureIndex < gnd.textures.length ? textureIndex : -1;
+    const hasTexture = textureIndex >= 0 && textureIndex < gnd.textures.length;
+    const diffuseUvRect = hasTexture ? diffuseUvRectForSurface(surface) : null;
+    // Split packed GND texture-atlas regions into separate buckets. Each source
+    // UV rectangle can then get an isolated texture with its own mip chain,
+    // avoiding both minification aliasing and bleed from neighboring atlas cells.
+    const bucketKey = hasTexture
+      ? textureIndex + '|' + diffuseUvRectKey(diffuseUvRect)
+      : '-1';
     let bucket = buckets.get(bucketKey);
     if (!bucket) {
-      bucket = { textureIndex: bucketKey, positions: [], uvs: [], lightmapUvs: [], lightmapEnabled: [], colors: [], indices: [], surfaceIndices: [] };
+      bucket = {
+        textureIndex: hasTexture ? textureIndex : -1,
+        diffuseUvRect,
+        positions: [],
+        uvs: [],
+        sourceUvs: [],
+        lightmapUvs: [],
+        lightmapEnabled: [],
+        colors: [],
+        indices: [],
+        surfaceIndices: [],
+      };
       buckets.set(bucketKey, bucket);
     }
     const base = bucket.positions.length / 3;
@@ -1732,7 +1774,17 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
         -(corner.z * 10 - height * 5) * worldScale
       );
       const uv = surface.uv[corner.uvIndex];
-      bucket.uvs.push(uv[0], uv[1]);
+      bucket.sourceUvs.push(uv[0], uv[1]);
+      if (bucket.diffuseUvRect) {
+        const spanU = bucket.diffuseUvRect.maxU - bucket.diffuseUvRect.minU;
+        const spanV = bucket.diffuseUvRect.maxV - bucket.diffuseUvRect.minV;
+        bucket.uvs.push(
+          Math.max(0, Math.min(1, (uv[0] - bucket.diffuseUvRect.minU) / spanU)),
+          Math.max(0, Math.min(1, (uv[1] - bucket.diffuseUvRect.minV) / spanV))
+        );
+      } else {
+        bucket.uvs.push(uv[0], uv[1]);
+      }
       const lightmapIndex = surface.lightmapIndex;
       const lightmapUvs = lightmapAtlas && Number.isInteger(lightmapIndex)
         && lightmapIndex >= 0 && lightmapIndex < lightmapAtlas.uvsBySlice.length
