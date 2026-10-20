@@ -29,4 +29,15 @@ assert.match(explorer,
   /window\.addEventListener\('pageshow',[\s\S]*?setVitalsPollingMode\('native'\)/,
   '從 BFCache 返回會恢復生命值同步');
 
+assert.match(explorer,
+  /function refreshVitalsPolling\(\) \{[\s\S]*?activeExplorerMode === 'native'[\s\S]*?!document\.hidden[\s\S]*?setInterval\(requestRoExplorerVitals, 1000\)/,
+  '背景分頁不進行 HP／SP 輪詢');
+assert.match(explorer,
+  /document\.addEventListener\('visibilitychange', refreshVitalsPolling\)/,
+  '切回前景時恢復 HP／SP 輪詢');
+assert.match(explorer,
+  /function requestRoExplorerVitals\(\) \{[\s\S]*?\|\| document\.hidden \|\| !explorerPageActive \|\| pendingVitalsRequestId/,
+  '隱藏或離開中的頁面不可發出新的生命值請求');
+
+
 console.log('原生探索 HP／SP 即時同步橋接測試通過。');

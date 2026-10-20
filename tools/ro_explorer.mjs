@@ -100,6 +100,7 @@ let pendingStatusTickId = null;
 let pendingVitalsRequestId = null;
 let nextVitalsRequestAt = 0;
 let vitalsPollTimer = null;
+let explorerPageActive = true;
 let activeExplorerMode = 'public';
 let statusTickCursor = 0;
 const timedStatusEntries = new Set();
@@ -177,10 +178,10 @@ function updatePlayerVitals(values) {
   }
   renderPlayerVitals();
 }
-function setVitalsPollingMode(mode) {
-  activeExplorerMode = mode === 'native' ? 'native' : (mode === 'local' ? 'local' : 'public');
-  if (playerVitalsPanel) playerVitalsPanel.hidden = activeExplorerMode !== 'native';
-  if (activeExplorerMode === 'native') {
+function refreshVitalsPolling() {
+  const shouldPoll = activeExplorerMode === 'native' && playerVitalsPanel
+    && !playerVitalsPanel.hidden && !document.hidden && explorerPageActive;
+  if (shouldPoll) {
     requestRoExplorerVitals();
     if (vitalsPollTimer === null) vitalsPollTimer = window.setInterval(requestRoExplorerVitals, 1000);
     return;
@@ -190,7 +191,13 @@ function setVitalsPollingMode(mode) {
   pendingVitalsRequestId = null;
   nextVitalsRequestAt = 0;
 }
+function setVitalsPollingMode(mode) {
+  activeExplorerMode = mode === 'native' ? 'native' : (mode === 'local' ? 'local' : 'public');
+  if (playerVitalsPanel) playerVitalsPanel.hidden = activeExplorerMode !== 'native';
+  refreshVitalsPolling();
+}
 window.addEventListener('roo-explorer-mode', event => setVitalsPollingMode(event.detail));
+document.addEventListener('visibilitychange', refreshVitalsPolling);
 renderPlayerVitals();
 const explorerSpriteKey = resolveRoExplorerSpriteKey(explorerParams.get('sprite'));
 const monsterMapIdFromUrl = String(explorerParams.get('map') || '').trim().toLowerCase();
@@ -2071,7 +2078,7 @@ function requestNextRoExplorerStatusTick() {
 }
 function requestRoExplorerVitals() {
   if (activeExplorerMode !== 'native' || !playerVitalsPanel || playerVitalsPanel.hidden
-    || pendingVitalsRequestId) return;
+    || document.hidden || !explorerPageActive || pendingVitalsRequestId) return;
   const now = performance.now();
   if (now < nextVitalsRequestAt) return;
   const requestId = combatSessionId + '-vitals-' + (++combatRequestCounter).toString(36);
@@ -2250,6 +2257,7 @@ window.addEventListener('storage', handleRoExplorerCombatStorage);
 let statusTickTimer = window.setInterval(requestNextRoExplorerStatusTick, 100);
 if (activeExplorerMode === 'native') setVitalsPollingMode('native');
 window.addEventListener('pagehide', () => {
+  explorerPageActive = false;
   if (statusTickTimer !== null) window.clearInterval(statusTickTimer);
   if (vitalsPollTimer !== null) window.clearInterval(vitalsPollTimer);
   statusTickTimer = null;
@@ -2258,6 +2266,7 @@ window.addEventListener('pagehide', () => {
   pendingVitalsRequestId = null;
 });
 window.addEventListener('pageshow', () => {
+  explorerPageActive = true;
   if (statusTickTimer === null) statusTickTimer = window.setInterval(requestNextRoExplorerStatusTick, 100);
   if (activeExplorerMode === 'native' && vitalsPollTimer === null) setVitalsPollingMode('native');
 });
