@@ -8,8 +8,11 @@ const ui = fs.readFileSync(path.join(root, 'js/ui.js'), 'utf8');
 const explorer = fs.readFileSync(path.join(root, 'tools/ro_explorer.mjs'), 'utf8');
 
 assert.match(ui,
-  /!\['attack', 'skill', 'status_tick', 'vitals'\]\.includes\(command\.type\)/,
-  '主遊戲允許原生探索讀取生命值快照');
+  /!\['attack', 'skill', 'support_skill', 'status_tick', 'vitals'\]\.includes\(command\.type\)/,
+  '主遊戲允許原生探索讀取生命值快照及恢復／輔助命令');
+assert.match(ui,
+  /if \(command\.type === 'support_skill'\) \{\s*result = typeof castRoExplorerSupportSkill === 'function'/,
+  '恢復／輔助命令只會走專用主引擎橋接');
 assert.match(ui,
   /if \(command\.type === 'vitals'\) \{\s*result = state \? \{\s*ok: true, accepted: true,\s*playerHp: state\.hp,\s*playerMaxHp: state\.maxHp,\s*playerSp: state\.sp,\s*playerMaxSp: state\.maxSp(?:,|\s*\})/,
   '生命值快照必須讀取主遊戲當前 HP／SP');
