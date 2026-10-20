@@ -3052,6 +3052,88 @@ function sampleGndLightmapSourceCorner(surface, corner) {
   return 'RGB (' + rgb.join(', ') + '); AO ' + ao + ' @ (' + x + ', ' + y + ')';
 }
 
+
+function sampleGndAttributeAtHit(hit, attributeName) {
+  const object = hit && hit.object;
+  const geometry = object && object.geometry;
+  const attribute = geometry && geometry.getAttribute(attributeName);
+  const position = geometry && geometry.getAttribute('position');
+  const face = hit && hit.face;
+  if (!object || !attribute || !position || !face || !hit.point
+    || ![face.a, face.b, face.c].every(Number.isInteger)) return null;
+
+  object.updateWorldMatrix(true, false);
+  const vertices = [face.a, face.b, face.c].map(index => {
+    const vertex = new THREE.Vector3().fromBufferAttribute(position, index);
+    return object.localToWorld(vertex);
+  });
+  const [a, b, c] = vertices;
+  const v0 = b.clone().sub(a);
+  const v1 = c.clone().sub(a);
+  const v2 = hit.point.clone().sub(a);
+  const d00 = v0.dot(v0);
+  const d01 = v0.dot(v1);
+  const d11 = v1.dot(v1);
+  const d20 = v2.dot(v0);
+  const d21 = v2.dot(v1);
+  const denominator = d00 * d11 - d01 * d01;
+  if (!Number.isFinite(denominator) || Math.abs(denominator) < 1e-12) return null;
+  const weightB = (d11 * d20 - d01 * d21) / denominator;
+  const weightC = (d00 * d21 - d01 * d20) / denominator;
+  const weights = [1 - weightB - weightC, weightB, weightC];
+  if (!weights.every(Number.isFinite)) return null;
+
+  const indexes = [face.a, face.b, face.c];
+  return Array.from({ length: attribute.itemSize }, (_, channel) =>
+    weights.reduce((sum, weight, index) => {
+      const vertexIndex = indexes[index];
+      const value = channel === 0 ? attribute.getX(vertexIndex)
+        : channel === 1 ? attribute.getY(vertexIndex)
+          : channel === 2 ? attribute.getZ(vertexIndex)
+            : channel === 3 ? attribute.getW(vertexIndex) : 0;
+      return sum + weight * value;
+    }, 0)
+  );
+}
+
+function sampleGndLightmapSourceAtUv(surface, atlasUv) {
+  const slices = gndInfo && gndInfo.lightmapSlices;
+  const index = surface && surface.lightmapIndex;
+  if (!Number.isInteger(index) || index < 0 || !Array.isArray(slices) || index >= slices.length
+    || !Array.isArray(atlasUv) || atlasUv.length < 2
+    || !atlasUv.every(Number.isFinite)) return null;
+  const slice = slices[index];
+  const width = slice.width;
+  const height = slice.height;
+  if (!width || !height || !slice.colorPixels) return null;
+
+  // Convert the interpolated GPU atlas UV back to this surface's original GND slice.
+  // Round to the nearest source texel and clamp to the six interior pixels; the
+  // outer ring is a filtering border, not valid surface light data.
+  const columns = Math.ceil(Math.sqrt(slices.length));
+  const rows = Math.ceil(slices.length / columns);
+  const gutter = 4;
+  const cellWidth = width + gutter * 2;
+  const cellHeight = height + gutter * 2;
+  const atlasWidth = columns * cellWidth;
+  const atlasHeight = rows * cellHeight;
+  const baseX = (index % columns) * cellWidth + gutter;
+  const baseY = Math.floor(index / columns) * cellHeight + gutter;
+  const x = Math.max(width >= 4 ? 1 : 0,
+    Math.min(width >= 4 ? width - 2 : width - 1,
+      Math.round(atlasUv[0] * atlasWidth - baseX - 0.5)));
+  const y = Math.max(height >= 4 ? 1 : 0,
+    Math.min(height >= 4 ? height - 2 : height - 1,
+      Math.round(atlasUv[1] * atlasHeight - baseY - 0.5)));
+  const channels = slice.channels || 4;
+  const pixelOffset = (y * width + x) * channels;
+  const rgb = Array.from(slice.colorPixels.slice(pixelOffset, pixelOffset + 3));
+  const ao = slice.shadowPixels
+    ? slice.shadowPixels[y * width + x]
+    : channels === 4 ? slice.colorPixels[pixelOffset + 3] : 255;
+  return { x, y, rgb, ao };
+}
+
 function describeGndTextureFilters(texture) {
   if (!texture) return '無已載入貼圖';
   const filterName = value => value === THREE.LinearFilter ? 'LinearFilter'
@@ -3130,6 +3212,10 @@ function updateGndSurfaceInspector(event) {
     '  ' + ['SW', 'SE', 'NW', 'NE'][corner] + ': '
       + sampleGndLightmapSourceCorner(surface, corner)
   ));
+  const cursorLightmapUv = sampleGndAttributeAtHit(hit, 'uv2');
+  const cursorVertexColor = sampleGndAttributeAtHit(hit, 'color');
+  const cursorLightmapSample = cursorLightmapUv
+    ? sampleGndLightmapSourceAtUv(surface, cursorLightmapUv) : null;
   const samplerDescription = sampler => {
     if (!sampler) return '未啟用';
     const filterName = value => value === THREE.LinearFilter ? 'LinearFilter'
@@ -3154,6 +3240,16 @@ function updateGndSurfaceInspector(event) {
     ...uvLines,
     '實際傳入 GPU 的逐角頂點色 RGB：',
     ...colorLines,
+    '游標處插值頂點色 RGB：' + (cursorVertexColor
+      ? '(' + formatGndDiagnosticVector(cursorVertexColor.slice(0, 3)) + ')'
+      : '無法取得'),
+    '游標處 Lightmap atlas UV2：' + (cursorLightmapUv
+      ? '(' + formatGndDiagnosticVector(cursorLightmapUv) + ')' : '無法取得'),
+    '游標處來源 RGB lightmap / AO 最近像素（原始 GND bytes）：'
+      + (cursorLightmapSample
+        ? 'RGB (' + cursorLightmapSample.rgb.join(', ') + '); AO ' + cursorLightmapSample.ao
+          + ' @ (' + cursorLightmapSample.x + ', ' + cursorLightmapSample.y + ')'
+        : '無法取樣'),
     '游標處插值 UV：(' + formatGndDiagnosticVector([hit.uv.x, hit.uv.y]) + ')',
     '游標處原貼圖像素近似值：' + sampleGndSourceTexturePixel(texture, [hit.uv.x, hit.uv.y]),
     'GPU 最終畫面取樣 RGBA：等待下一個渲染影格。',
