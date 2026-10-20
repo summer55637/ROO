@@ -560,6 +560,7 @@ assert.equal(mesh.buckets[0].textureIndex, 0);
 assert.deepEqual(mesh.buckets[0].indices, [0, 1, 2, 2, 1, 3]);
 assert.deepEqual(mesh.buckets[0].positions.slice(0, 3), [-1, 0, 1]);
 assert.deepEqual(mesh.buckets[0].uvs.slice(0, 2), [0, 0]);
+assert.deepEqual(mesh.buckets[0].surfaceIndices, [0]);
 
 assert.throws(() => parseGndBuffer(makeGnd(56)), /40-byte surface/);
 
