@@ -107,8 +107,6 @@ const clearMonsterTargetButton = document.getElementById('clear-monster-target')
 const attackMonsterButton = document.getElementById('attack-monster');
 const stopMonsterAttackButton = document.getElementById('stop-monster-attack');
 const stopMovementButton = document.getElementById('stop-movement');
-const stopMovementLocalButton = document.getElementById('stop-movement-local');
-const stopMovementButtons = [stopMovementButton, stopMovementLocalButton].filter(Boolean);
 const followPlayerInput = document.getElementById('follow-player');
 const monsterSkillInput = document.getElementById('monster-skill');
 const castMonsterSkillButton = document.getElementById('cast-monster-skill');
@@ -407,10 +405,10 @@ function setStatus(message, isError = false) {
 }
 
 function updateRoExplorerMovementControls() {
-  if (!stopMovementButtons.length) return;
+  if (!stopMovementButton) return;
   const canStop = !!movementPath && movementPath.length > 1 && !!gatInfo && !!mapRoot
     && !!mapInfo && mapInfo.mapId === gatInfo.mapId;
-  stopMovementButtons.forEach(button => { button.hidden = !canStop; });
+  stopMovementButton.hidden = !canStop;
 }
 
 function mapIdFromName(name) {
@@ -2460,7 +2458,7 @@ window.addEventListener('pageshow', () => {
 });
 attackMonsterButton.addEventListener('click', startRoExplorerCombat);
 stopMonsterAttackButton.addEventListener('click', () => stopRoExplorerCombat());
-stopMovementButtons.forEach(button => button.addEventListener('click', stopRoExplorerMovement));
+if (stopMovementButton) stopMovementButton.addEventListener('click', stopRoExplorerMovement);
 if (monsterSkillInput) monsterSkillInput.addEventListener('change', updateRoExplorerCombatButtons);
 if (castMonsterSkillButton) castMonsterSkillButton.addEventListener('click', () => {
   const skill = explorerSkillCatalog.find(item => item.id === (monsterSkillInput && monsterSkillInput.value));
