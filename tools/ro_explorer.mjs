@@ -753,7 +753,7 @@ function finishOrRefreshScene() {
     fallbackPlayer.visible = false;
     updateStats();
     setStatus('兩個檔案名稱不一致：地圖=' + mapInfo.mapId + '，GAT=' + gatInfo.mapId + '。請選同一張地圖。', true);
-    return;
+    return false;
   }
   makeGrid();
   if (!gatInfo || !mapRoot) {
@@ -762,7 +762,7 @@ function finishOrRefreshScene() {
     playerSprite.visible = false;
     fallbackPlayer.visible = false;
     updateStats();
-    return;
+    return false;
   }
   try {
     startAtSavedOrCenter();
@@ -770,9 +770,12 @@ function finishOrRefreshScene() {
     syncRoExplorerMonsters();
     setStatus('地圖已就緒：點地面或小地圖行走，點選怪物查看資料；拖曳旋轉、滾輪縮放。');
   } catch (error) {
-    setStatus(error.message, true);
+    setStatus('場景初始化失敗：' + (error && error.message ? error.message : '未知錯誤'), true);
+    updateStats();
+    return false;
   }
   updateStats();
+  return !!currentCell;
 }
 
 function updateStats() {
@@ -1715,7 +1718,7 @@ async function loadRagassetsMap(mapName) {
     };
     applyRswLighting(parsedRsw, mapInfo.size);
     fitCamera();
-    finishOrRefreshScene();
+    if (!finishOrRefreshScene()) return;
     setStatus('原生地圖已載入：地表＋RSM 模型 ' + modelRenderStats.renderedPlacements
       + ' 個／' + parsedRsw.models.length + ' 個擺放位置；水域 ' + nextWaterStats.waterTileCount
       + ' 格、動畫影格 ' + nextWaterStats.waterFrameCount + ' 張。GND lightmap/AO 與頂點水波已啟用，實際畫面仍待校驗。');

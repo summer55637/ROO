@@ -3,6 +3,11 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('./ro_explorer_bootstrap.js', import.meta.url), 'utf8');
+const htmlSource = readFileSync(new URL('./ro_explorer.html', import.meta.url), 'utf8');
+const pathfindingScriptIndex = htmlSource.indexOf('<script src="../js/map_pathfinding.js"></script>');
+const bootstrapScriptIndex = htmlSource.indexOf('<script src="./ro_explorer_bootstrap.js"></script>');
+assert.ok(pathfindingScriptIndex >= 0 && bootstrapScriptIndex > pathfindingScriptIndex,
+  '獨立探索頁必須先載入共用 GAT/A* 尋路，再啟動原生探索模組。');
 const ids = [
   'public-mode', 'local-mode', 'show-public', 'show-native', 'show-local',
   'native-toolbar', 'local-toolbar', 'status',
