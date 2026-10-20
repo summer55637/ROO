@@ -34,3 +34,14 @@ assert.match(explorer,
   /updateRoExplorerGauge\(monsterHpGauge, monsterHpBar, monsterHpValue, hp, maxHp\)/,
   '目前目標 HP 會轉成可見血條');
 console.log('原生探索戰鬥 UI 目標隔離與 HP／SP 狀態列接線測試通過。');
+
+assert.match(explorer,
+  /if \(skill\.isSelfBuff\) \{\s*queuedCombatSkill = null;\s*sendRoExplorerSkillRequest\(entry, skill\);\s*return;\s*\}/,
+  '自身增益不需要先走到怪物附近');
+assert.match(explorer,
+  /if \(result\.accepted && \(!result\.isSelfBuff \|\| Number\(result\.damageDealt\) > 0\)\) \{/,
+  '自身增益不會因零傷害被畫成 MISS');
+assert.match(explorer,
+  /const note = result\.isSelfBuff\s*\? skillName \+ ' 已施放，自身增益已生效。'/,
+  '自身增益顯示施放成功訊息');
+console.log('原生探索自身增益 UI 接線測試通過。');
