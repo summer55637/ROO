@@ -19,7 +19,7 @@ assert.match(explorer,
   /if \(selectedMonsterEntry === entry\) \{\s*setStatus\(result\.error/,
   '舊目標的錯誤回報不會覆蓋新目標狀態');
 assert.match(explorer,
-  /function updatePlayerVitals\(values\)/,
+  /function updatePlayerVitals\\(values, options = \\(\{\}\\)\\)/,
   '探索頁提供角色 HP／SP 狀態同步入口');
 assert.match(explorer,
   /updatePlayerVitals\(\{\s*hp: result\.playerHp,\s*maxHp: result\.playerMaxHp,\s*sp: result\.playerSp,\s*maxSp: result\.playerMaxSp,/,
