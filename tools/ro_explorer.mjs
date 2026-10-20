@@ -2302,6 +2302,7 @@ function handleRoExplorerCombatStorage(event) {
       hp: result.playerHp, maxHp: result.playerMaxHp,
       sp: result.playerSp, maxSp: result.playerMaxSp,
     });
+    updatePlayerProgress(result);
     const entry = monsterEntries.find(item => item.spawnKey === result.spawnKey);
     if (!entry) return;
     entry.nextStatusTickAt = performance.now() + 900;
@@ -2355,6 +2356,7 @@ function handleRoExplorerCombatStorage(event) {
     sp: result.playerSp,
     maxSp: result.playerMaxSp,
   }, { showDamage: true });
+  updatePlayerProgress(result);
   updateRoExplorerCombatButtons();
   if (Number.isFinite(result.hp)) entry.currentHp = Math.max(0, result.hp);
   if (Number.isFinite(result.maxHp)) entry.maxHp = Math.max(1, result.maxHp);
