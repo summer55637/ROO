@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { inflateSync } from 'node:zlib';
 import {
   RAGASSETS_BASE_URL,
   analyzeRswPlacementBounds,
@@ -24,6 +25,108 @@ async function fetchResponse(url, label) {
   const response = await fetch(url, { signal: AbortSignal.timeout(25000) });
   if (!response.ok) throw new Error(label + ' HTTP ' + response.status + ': ' + url);
   return response;
+}
+
+
+ // Decode public 8-bit PNG diffuse textures for real source-pixel sampling.
+function decodePngPixels(input) {
+  const png = Buffer.from(input);
+  if (png.length < 33 || !png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    throw new Error('Diffuse texture is not a valid PNG.');
+  }
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  let interlace = 0;
+  let palette = null;
+  let transparency = null;
+  const imageData = [];
+  for (let offset = 8; offset + 12 <= png.length;) {
+    const size = png.readUInt32BE(offset);
+    const type = png.toString('ascii', offset + 4, offset + 8);
+    const start = offset + 8;
+    const end = start + size;
+    if (end + 4 > png.length) throw new Error('Diffuse PNG chunk is truncated: ' + type);
+    const chunk = png.subarray(start, end);
+    if (type === 'IHDR') {
+      width = chunk.readUInt32BE(0);
+      height = chunk.readUInt32BE(4);
+      bitDepth = chunk[8];
+      colorType = chunk[9];
+      interlace = chunk[12];
+    } else if (type === 'PLTE') {
+      palette = Buffer.from(chunk);
+    } else if (type === 'tRNS') {
+      transparency = Buffer.from(chunk);
+    } else if (type === 'IDAT') {
+      imageData.push(chunk);
+    } else if (type === 'IEND') {
+      break;
+    }
+    offset = end + 4;
+  }
+  const sourceChannels = ({ 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 })[colorType];
+  if (!width || !height || bitDepth !== 8 || interlace !== 0 || !sourceChannels
+    || (colorType === 3 && (!palette || palette.length % 3 !== 0))) {
+    throw new Error('Unsupported diffuse PNG format: ' + width + '×' + height
+      + ', bit depth ' + bitDepth + ', color type ' + colorType + ', interlace ' + interlace);
+  }
+  const stride = width * sourceChannels;
+  const inflated = inflateSync(Buffer.concat(imageData));
+  if (inflated.length !== height * (stride + 1)) {
+    throw new Error('Diffuse PNG scanline data length is invalid.');
+  }
+  const pixels = Buffer.alloc(height * stride);
+  function paeth(a, b, c) {
+    const p = a + b - c;
+    const pa = Math.abs(p - a);
+    const pb = Math.abs(p - b);
+    const pc = Math.abs(p - c);
+    return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+  }
+  for (let y = 0; y < height; y++) {
+    const sourceRow = y * (stride + 1);
+    const destinationRow = y * stride;
+    const filter = inflated[sourceRow];
+    for (let i = 0; i < stride; i++) {
+      const raw = inflated[sourceRow + 1 + i];
+      const left = i >= sourceChannels ? pixels[destinationRow + i - sourceChannels] : 0;
+      const up = y > 0 ? pixels[destinationRow - stride + i] : 0;
+      const upperLeft = y > 0 && i >= sourceChannels
+        ? pixels[destinationRow - stride + i - sourceChannels] : 0;
+      let predictor = 0;
+      if (filter === 1) predictor = left;
+      else if (filter === 2) predictor = up;
+      else if (filter === 3) predictor = Math.floor((left + up) / 2);
+      else if (filter === 4) predictor = paeth(left, up, upperLeft);
+      else if (filter !== 0) throw new Error('Unsupported diffuse PNG filter: ' + filter);
+      pixels[destinationRow + i] = (raw + predictor) & 255;
+    }
+  }
+  return {
+    width,
+    height,
+    pixelAt(x, y) {
+      const ix = Math.max(0, Math.min(width - 1, Math.floor(x)));
+      const iy = Math.max(0, Math.min(height - 1, Math.floor(y)));
+      const at = (iy * width + ix) * sourceChannels;
+      if (colorType === 6) return [...pixels.subarray(at, at + 4)];
+      if (colorType === 2) return [...pixels.subarray(at, at + 3), 255];
+      if (colorType === 0) return [pixels[at], pixels[at], pixels[at], 255];
+      if (colorType === 4) return [pixels[at], pixels[at], pixels[at], pixels[at + 1]];
+      const colorIndex = pixels[at];
+      const paletteAt = colorIndex * 3;
+      return [
+        palette[paletteAt], palette[paletteAt + 1], palette[paletteAt + 2],
+        transparency && colorIndex < transparency.length ? transparency[colorIndex] : 255,
+      ];
+    },
+  };
+}
+
+function wrapUv(value) {
+  return value - Math.floor(value);
 }
 
 async function validateMap(mapId) {
@@ -248,12 +351,79 @@ async function validateMap(mapId) {
     .filter(name => name && urls.textures[name]);
   assert.ok(usedTextures.length > 0, mapId + ' at least one used ground texture resolves');
 
-  const sampleTextureUrl = urls.textures[usedTextures[0]];
+  const referencedSurfaceIndexes = new Set();
+  for (const cube of gnd.cubes) {
+    for (const index of [cube.topSurface, cube.northSurface, cube.eastSurface]) {
+      if (index >= 0 && index < gnd.surfaces.length) referencedSurfaceIndexes.add(index);
+    }
+  }
+  const sampleSurfaceIndex = [...referencedSurfaceIndexes].find(index => {
+    const surface = gnd.surfaces[index];
+    const name = normalizeTextureName(gnd.textures[surface.textureIndex]);
+    return name && urls.textures[name] && surface.lightmapIndex >= 0
+      && surface.lightmapIndex < gnd.lightmapCount;
+  });
+  assert.ok(Number.isInteger(sampleSurfaceIndex), mapId + ' has a referenced surface with diffuse and lightmap');
+  const sampleSurface = gnd.surfaces[sampleSurfaceIndex];
+  const sampleTextureName = normalizeTextureName(gnd.textures[sampleSurface.textureIndex]);
+  const sampleTextureUrl = urls.textures[sampleTextureName];
+  assert.ok(sampleTextureUrl, mapId + ' sample surface diffuse texture resolves');
   const textureResponse = await fetchResponse(sampleTextureUrl, mapId + ' sample texture');
   const pngBytes = new Uint8Array(await textureResponse.arrayBuffer());
   assert.ok(pngBytes.length > 8, mapId + ' sample texture has a PNG payload');
   assert.deepEqual([...pngBytes.slice(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10],
     mapId + ' sample texture PNG signature');
+
+  const diffuse = decodePngPixels(pngBytes);
+  const diffuseUv = [
+    sampleSurface.uv.reduce((sum, uv) => sum + uv[0], 0) / sampleSurface.uv.length,
+    sampleSurface.uv.reduce((sum, uv) => sum + uv[1], 0) / sampleSurface.uv.length,
+  ];
+  const diffuseX = Math.min(diffuse.width - 1, Math.floor(wrapUv(diffuseUv[0]) * diffuse.width));
+  // TextureLoader flips source images into Three.js UV space; V=0 is the PNG bottom row.
+  const diffuseY = diffuse.height - 1
+    - Math.min(diffuse.height - 1, Math.floor(wrapUv(diffuseUv[1]) * diffuse.height));
+  const diffuseRgba = diffuse.pixelAt(diffuseX, diffuseY);
+
+  const sampleSlice = gnd.lightmapSlices[sampleSurface.lightmapIndex];
+  const sampleX = Math.min(3, sampleSlice.width - 2);
+  const sampleY = Math.min(3, sampleSlice.height - 2);
+  const samplePixelIndex = sampleY * sampleSlice.width + sampleX;
+  const aoValue = sampleSlice.shadowPixels[samplePixelIndex];
+  const rawLightRgb = [...sampleSlice.colorPixels.slice(samplePixelIndex * 3, samplePixelIndex * 3 + 3)];
+  const posterizedLightRgb = rawLightRgb.map(value => Math.floor(value / 16) * 16);
+  const atlasColumn = sampleSurface.lightmapIndex % lightmapAtlas.columns;
+  const atlasRow = Math.floor(sampleSurface.lightmapIndex / lightmapAtlas.columns);
+  const atlasX = atlasColumn * (lightmapAtlas.sliceWidth + 8) + 4 + sampleX;
+  const atlasY = atlasRow * (lightmapAtlas.sliceHeight + 8) + 4 + sampleY;
+  const atlasOffset = (atlasY * lightmapAtlas.width + atlasX) * 4;
+  assert.deepEqual(
+    [...lightmapAtlas.lightMapPixels.slice(atlasOffset, atlasOffset + 3)],
+    posterizedLightRgb,
+    mapId + ' real RGB lightmap sample follows the documented RO 16-level posterization'
+  );
+  assert.deepEqual(
+    [...lightmapAtlas.aoMapPixels.slice(atlasOffset, atlasOffset + 3)],
+    [aoValue, aoValue, aoValue],
+    mapId + ' real AO sample is copied as independent grayscale data'
+  );
+  const sampleLightmapUvs = lightmapAtlas.uvsBySlice[sampleSurface.lightmapIndex];
+  const expectedUvSpan = (sampleSlice.width - 2) / lightmapAtlas.width;
+  assert.ok(Math.abs(sampleLightmapUvs[1][0] - sampleLightmapUvs[0][0] - expectedUvSpan) < 1e-12,
+    mapId + ' real lightmap UV spans six visible texels between inner borders');
+
+  console.log(
+    mapId + ' GND pixel trace: diffuse=' + gnd.textures[sampleSurface.textureIndex]
+      + ' PNG ' + diffuse.width + '×' + diffuse.height
+      + ' UV center ' + JSON.stringify(diffuseUv)
+      + ' source RGBA ' + JSON.stringify(diffuseRgba)
+      + '; surface #' + sampleSurfaceIndex + ' lightmap slice ' + sampleSurface.lightmapIndex
+      + ' sample texel (' + sampleX + ',' + sampleY + ') AO=' + aoValue
+      + ' RGB raw=' + JSON.stringify(rawLightRgb)
+      + ' RGB RO-level16=' + JSON.stringify(posterizedLightRgb)
+      + ' atlas UV=' + JSON.stringify(sampleLightmapUvs)
+      + ' (official shader: diffuse×vertexColor×AO + RGB lightmap)'
+  );
 
   console.log(
     mapId + ': GND ' + gnd.version + ' ' + gnd.width + '×' + gnd.height

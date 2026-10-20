@@ -557,6 +557,17 @@ assert.deepEqual(Array.from(splitLightmapGnd.lightmapSlices[0].colorPixels.slice
   [80, 120, 160, 81, 121, 161, 82, 122, 162],
   'RGB lightmap bytes must not be read as interleaved RGBA');
 const splitLightmapAtlas = buildGndLightmapAtlasData(splitLightmapGnd, 0);
+assert.deepEqual(splitLightmapAtlas.uvsBySlice[0], [
+  [5 / 16, 5 / 16],
+  [11 / 16, 5 / 16],
+  [5 / 16, 11 / 16],
+  [11 / 16, 11 / 16],
+], 'lightmap UVs span the six valid texels between the one-pixel source borders, matching classic RO');
+assert.equal(
+  splitLightmapAtlas.uvsBySlice[0][1][0] - splitLightmapAtlas.uvsBySlice[0][0][0],
+  6 / 16,
+  'the mapped lightmap footprint is six texels wide, not five texels between pixel centers'
+);
 assert.deepEqual(readAtlasRgbaAt(
   splitLightmapAtlas.lightMapPixels, splitLightmapAtlas.width, 4, 4
 ), [80, 120, 160, 255], 'atlas preserves the first RGB lightmap texel');

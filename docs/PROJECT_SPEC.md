@@ -362,3 +362,13 @@
 - GND 40-byte surface 只存左下角一個頂點色；舊版原生預覽先前把北／東牆整面套用單一色值，牆面接到不同頂點色的地表時容易出現突兀色帶。
 - 北牆與東牆改為沿用對應 ground-grid 共享頂點的顏色；GND 56-byte surface 本身已有逐角顏色，仍以檔案記錄為準，不覆蓋原始資料。
 - 新增 2×2 合成地圖測試，確認舊版牆面四角能取得上下／左右地表共享頂點色；不改高度、三角形連接順序、GAT 通行或戰鬥／存檔邏輯。
+
+
+## 2026-10-20 更新：公開 GND 逐像素取樣與 lightmap UV 尺度校正
+
+- 對照 Ragnarok Research Lab 的 GND 格式／Ground Mesh 文件，以及 GRFEditor 的公開 GND fragment shader 與地表 renderer。
+- 逐圖抽樣真實 `prontera`、`tra_fild`、`icecastle`：記錄 diffuse 貼圖 PNG 尺寸、對應 surface 的 diffuse UV 與實際 RGBA 像素、lightmap slice、原始 AO byte、原始 RGB lightmap，以及 RO level-16 處理後的 RGB。
+- 校正 lightmap atlas UV：先前把有效 6×6 texel 映射到第 2–7 個 texel 的中心（座標跨度 5），而參考 renderer 把它映射到內側邊界（+1 到 size−1，跨度 6）。縮短跨度會把光照色塊放大約 20%，令相鄰 surface 的烘焙細節尺度與 RO 不一致。現改回內側邊界 UV，來源最外圈仍保留作線性取樣 buffer。
+- 保留 RO 本身的 RGB level-16 posterization（每通道向下量化至 16 的倍數）；公開 Ground Mesh 文件確認這是原版刻意處理，會產生階梯狀色塊，不應當作程式錯誤直接刪除。
+- 剩餘色塊需區分原始 baked lightmap、AO、vertex color 與真實地形表面邊界；逐像素紀錄只驗證取樣與映射，不宣稱已與官方客戶端整張畫面逐像素一致。
+- 參考：[GND 格式](https://ragnarokresearchlab.github.io/file-formats/gnd/)、[Ground Mesh／AO／posterization](https://ragnarokresearchlab.github.io/rendering/ground-mesh/)、[GRFEditor 原版 GND shader](https://raw.githubusercontent.com/Tokeiburu/GRFEditor/e6508407c1e193dac5252eef788dc0a0c1d9d07f/GRFEditor/Resources/Shaders/map/gnd.frag)、[GRFEditor lightmap UV renderer](https://raw.githubusercontent.com/Tokeiburu/GRFEditor/e6508407c1e193dac5252eef788dc0a0c1d9d07f/GRFEditor/OpenGL/MapRenderers/GndRenderer.cs)。
