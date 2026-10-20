@@ -54,6 +54,10 @@ import {
   reviveRoExplorerMonster,
   scheduleRoExplorerMonsterRespawn,
 } from './ro_explorer_lifecycle.mjs';
+import {
+  formatRoExplorerGaugeValue,
+  getRoExplorerGaugePercent,
+} from './ro_explorer_hud.mjs';
 
 const stage = document.getElementById('stage');
 const status = document.getElementById('status');
@@ -71,6 +75,16 @@ const minimapMapName = document.getElementById('minimap-map-name');
 const monsterPanel = document.getElementById('monster-panel');
 const monsterTitle = document.getElementById('monster-title');
 const monsterDescription = document.getElementById('monster-description');
+const monsterHpGauge = document.getElementById('monster-hp-gauge');
+const monsterHpBar = document.getElementById('monster-hp-bar');
+const monsterHpValue = document.getElementById('monster-hp-value');
+const playerVitalsPanel = document.getElementById('player-vitals-panel');
+const playerHpGauge = document.getElementById('player-hp-gauge');
+const playerHpBar = document.getElementById('player-hp-bar');
+const playerHpValue = document.getElementById('player-hp-value');
+const playerSpGauge = document.getElementById('player-sp-gauge');
+const playerSpBar = document.getElementById('player-sp-bar');
+const playerSpValue = document.getElementById('player-sp-value');
 const clearMonsterTargetButton = document.getElementById('clear-monster-target');
 const attackMonsterButton = document.getElementById('attack-monster');
 const stopMonsterAttackButton = document.getElementById('stop-monster-attack');
@@ -119,6 +133,49 @@ const pointer = new THREE.Vector2();
 const normalMatrix = new THREE.Matrix3();
 const textureLoader = new THREE.TextureLoader();
 const explorerParams = new URLSearchParams(window.location.search);
+function readVitalsParam(key) {
+  const raw = explorerParams.get(key);
+  if (raw === null || raw.trim() === '') return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+const playerVitals = {
+  hp: readVitalsParam('php'),
+  maxHp: readVitalsParam('pmaxhp'),
+  sp: readVitalsParam('psp'),
+  maxSp: readVitalsParam('pmaxsp'),
+};
+function updateRoExplorerGauge(gauge, fill, valueLabel, current, maximum) {
+  const percent = getRoExplorerGaugePercent(current, maximum);
+  const valueText = formatRoExplorerGaugeValue(current, maximum);
+  if (valueLabel) valueLabel.textContent = valueText;
+  if (fill) {
+    fill.style.width = percent + '%';
+    fill.classList.toggle('is-low', valueText !== '— / —' && percent <= 25);
+  }
+  if (gauge) {
+    gauge.setAttribute('aria-valuenow', String(percent));
+    gauge.setAttribute('aria-valuetext', valueText === '— / —' ? '無資料' : valueText);
+  }
+}
+function renderPlayerVitals() {
+  updateRoExplorerGauge(playerHpGauge, playerHpBar, playerHpValue, playerVitals.hp, playerVitals.maxHp);
+  updateRoExplorerGauge(playerSpGauge, playerSpBar, playerSpValue, playerVitals.sp, playerVitals.maxSp);
+}
+function updatePlayerVitals(values) {
+  if (!values || typeof values !== 'object') return;
+  for (const key of ['hp', 'maxHp', 'sp', 'maxSp']) {
+    if (values[key] === null || values[key] === undefined || values[key] === '') continue;
+    const value = Number(values[key]);
+    if (Number.isFinite(value)) playerVitals[key] = value;
+  }
+  renderPlayerVitals();
+}
+if (playerVitalsPanel) playerVitalsPanel.hidden = explorerParams.get('mode') !== 'native';
+window.addEventListener('roo-explorer-mode', event => {
+  if (playerVitalsPanel) playerVitalsPanel.hidden = event.detail !== 'native';
+});
+renderPlayerVitals();
 const explorerSpriteKey = resolveRoExplorerSpriteKey(explorerParams.get('sprite'));
 const monsterMapIdFromUrl = String(explorerParams.get('map') || '').trim().toLowerCase();
 const explorerMonsterCatalog = parseRoExplorerMonsterCatalog(explorerParams.get('mobs'));
@@ -1703,10 +1760,10 @@ function renderSelectedRoExplorerMonster(entry, note) {
   const maxHp = Number.isFinite(entry.maxHp) ? entry.maxHp : entry.monster.hp;
   if (monsterTitle) monsterTitle.textContent = (entry.monster.icon ? entry.monster.icon + ' ' : '') + entry.monster.name
     + '　Lv.' + entry.monster.level + (entry.dead ? '（已擊敗）' : '');
+  updateRoExplorerGauge(monsterHpGauge, monsterHpBar, monsterHpValue, hp, maxHp);
   const statusNote = entry.statusLabels && entry.statusLabels.length
     ? '\n狀態：' + entry.statusLabels.join('、') : '';
-  if (monsterDescription) monsterDescription.textContent = 'HP ' + Math.floor(hp).toLocaleString()
-    + ' / ' + Math.floor(maxHp).toLocaleString() + '　ATK ' + Math.floor(entry.monster.atk).toLocaleString()
+  if (monsterDescription) monsterDescription.textContent = 'ATK ' + Math.floor(entry.monster.atk).toLocaleString()
     + (note ? '\n' + note : '\n可普攻，或選擇已學主動技能施放。') + statusNote;
   if (monsterPanel) monsterPanel.hidden = false;
 }
@@ -2001,6 +2058,12 @@ function handleRoExplorerCombatStorage(event) {
   let result;
   try { result = JSON.parse(event.newValue); } catch (error) { return; }
   if (!result) return;
+  updatePlayerVitals({
+    hp: result.playerHp,
+    maxHp: result.playerMaxHp,
+    sp: result.playerSp,
+    maxSp: result.playerMaxSp,
+  });
   if (result.requestType === 'status_tick') {
     if (result.requestId !== pendingStatusTickId) return;
     pendingStatusTickId = null;
