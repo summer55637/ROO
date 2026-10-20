@@ -44,20 +44,17 @@ async function validateMap(mapId) {
   ]);
 
   const gnd = parseGndBuffer(gndBytes);
-  assert.ok(['standard-split', 'legacy-rgba'].includes(gnd.lightmapLayout), mapId + ' recognized GND lightmap layout');
+  assert.ok(['standard-split', 'legacy-split'].includes(gnd.lightmapLayout),
+    mapId + ' recognized GND lightmap layout');
   assert.equal(gnd.lightmapSlices.length, gnd.lightmapCount, mapId + ' lightmap slice count');
   assert.ok(gnd.lightmapSlices.every(slice => slice.width === 8 && slice.height === 8),
     mapId + ' real RO lightmap slices are 8×8');
-  if (gnd.lightmapLayout === 'standard-split') {
-    assert.ok(gnd.lightmapSlices.every(slice => slice.channels === 3
-      && slice.shadowPixels && slice.shadowPixels.length === 64
-      && slice.colorPixels.length === 8 * 8 * 3),
-    mapId + ' standard lightmap stores RGB color and separate 1-channel AO');
-  } else {
-    assert.ok(gnd.lightmapSlices.every(slice => slice.channels === 4
-      && !slice.shadowPixels && slice.colorPixels.length === 8 * 8 * 4),
-    mapId + ' packed legacy RGBA stores per-pixel AO in alpha');
-  }
+  assert.ok(gnd.lightmapSlices.every(slice => slice.channels === 3
+    && slice.shadowPixels && slice.shadowPixels.length === 64
+    && slice.colorPixels.length === 8 * 8 * 3),
+  mapId + (gnd.lightmapLayout === 'standard-split'
+    ? ' standard layout stores separate RGB lightmap and grayscale AO'
+    : ' global-dimension layout stores 64 AO bytes followed by 192 RGB lightmap bytes'));
   const lightmapAtlas = buildGndLightmapAtlasData(gnd);
   assert.equal(lightmapAtlas.sourceGutter, 1,
     mapId + ' atlas excludes the source lightmap/AO border ring');
