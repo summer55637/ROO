@@ -94,6 +94,7 @@ const playerSpValue = document.getElementById('player-sp-value');
 const clearMonsterTargetButton = document.getElementById('clear-monster-target');
 const attackMonsterButton = document.getElementById('attack-monster');
 const stopMonsterAttackButton = document.getElementById('stop-monster-attack');
+const stopMovementButton = document.getElementById('stop-movement');
 const monsterSkillInput = document.getElementById('monster-skill');
 const castMonsterSkillButton = document.getElementById('cast-monster-skill');
 const RO_EXPLORER_COMBAT_COMMAND_KEY = 'roo_explorer_combat_command';
@@ -345,6 +346,13 @@ function setStatus(message, isError = false) {
   status.classList.toggle('error', isError);
 }
 
+function updateRoExplorerMovementControls() {
+  if (!stopMovementButton) return;
+  const canStop = !!movementPath && movementPath.length > 1 && !!gatInfo && !!mapRoot
+    && !!mapInfo && mapInfo.mapId === gatInfo.mapId;
+  stopMovementButton.hidden = !canStop;
+}
+
 function mapIdFromName(name) {
   return String(name || '').replace(/\.[^.]+$/, '').trim().toLowerCase();
 }
@@ -441,6 +449,7 @@ function removeRoute() {
     routeLine = null;
   }
   targetRing.visible = false;
+  updateRoExplorerMovementControls();
   updateMinimap();
 }
 
@@ -1745,6 +1754,7 @@ async function loadGatFile(file) {
 }
 
 function updateRoExplorerCombatButtons() {
+  updateRoExplorerMovementControls();
   if (attackMonsterButton) {
     attackMonsterButton.disabled = !selectedMonsterEntry || !!selectedMonsterEntry.dead;
     attackMonsterButton.hidden = !!activeCombatTarget && activeCombatTarget === selectedMonsterEntry;
@@ -2385,11 +2395,33 @@ window.addEventListener('pageshow', () => {
 });
 attackMonsterButton.addEventListener('click', startRoExplorerCombat);
 stopMonsterAttackButton.addEventListener('click', () => stopRoExplorerCombat());
+if (stopMovementButton) stopMovementButton.addEventListener('click', stopRoExplorerMovement);
 if (monsterSkillInput) monsterSkillInput.addEventListener('change', updateRoExplorerCombatButtons);
 if (castMonsterSkillButton) castMonsterSkillButton.addEventListener('click', () => {
   const skill = explorerSkillCatalog.find(item => item.id === (monsterSkillInput && monsterSkillInput.value));
   requestRoExplorerSkill(selectedMonsterEntry, skill);
 });
+
+function stopRoExplorerMovement() {
+  if (!movementPath || !gatInfo || !currentCell) return;
+  const stoppedCell = roMapCellFromWorldPoint(
+    gatInfo, playerRoot.position.x, playerRoot.position.z, worldScale
+  );
+  if (stoppedCell && isRoMapCellWalkable(gatInfo, stoppedCell.x, stoppedCell.y)) {
+    currentCell = { x: stoppedCell.x, y: stoppedCell.y };
+  }
+  movementPath = null;
+  pathIndex = 1;
+  queuedCombatSkill = null;
+  stopRoExplorerCombat(false);
+  updatePlayerPosition();
+  savePosition();
+  removeRoute();
+  setPlayerMotion('idle', currentFacing);
+  updateRoExplorerCombatButtons();
+  updateStats();
+  setStatus('已停止移動／接近；角色已停在最近的可走格。');
+}
 
 function requestWalkToCell(requestedTarget) {
   if (!gatInfo || !mapRoot || !currentCell || !mapInfo || mapInfo.mapId !== gatInfo.mapId) {

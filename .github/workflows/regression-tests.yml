@@ -40,6 +40,7 @@ jobs:
           node --check tools/test_ro_explorer_hud.mjs
           node --check tools/ro_explorer_camera.mjs
           node --check tools/test_ro_explorer_camera.mjs
+          node --check tools/test_ro_explorer_movement_controls.mjs
           node --check tools/test_ro_explorer_vitals_bridge.mjs
           node --check tools/ro_explorer_feedback.mjs
           node --check tools/test_ro_explorer_feedback.mjs
@@ -74,6 +75,8 @@ jobs:
         run: node tools/test_ro_explorer_feedback.mjs
       - name: Test native exploration camera persistence
         run: node tools/test_ro_explorer_camera.mjs
+      - name: Test native exploration movement controls
+        run: node tools/test_ro_explorer_movement_controls.mjs
       - name: Run complete regression suite
         run: node tools/test.js
       - name: Run full-game smoke test

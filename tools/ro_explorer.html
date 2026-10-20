@@ -49,6 +49,7 @@
     .monster-skill-picker select { flex: 1; width: 100%; min-width: 0; }
     .monster-panel button { border-color: #8a5b52; background: #402a2b; padding: 5px 8px; font-size: 11px; }
     .monster-panel button:disabled { opacity: .45; cursor: not-allowed; }
+    #stop-movement[hidden] { display: none; }
     .vitals-panel { display: grid; flex: 0 1 300px; min-width: 260px; max-width: 100%; gap: 5px; padding: 8px 10px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .92); color: #d7e3f2; }
     .vitals-panel[hidden] { display: none; }
     .vitals-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
@@ -148,6 +149,7 @@
       <label>地圖 GAT <input id="gat-file" type="file" accept=".gat"></label>
       <label>世界比例 <input id="world-scale" type="number" min="0.01" max="10" step="0.01" value="0.2" inputmode="decimal"></label>
       <label>速度 <input id="move-speed" type="range" min="1" max="8" value="4"><span id="speed-value">4</span></label>
+      <button id="stop-movement" type="button" hidden>停止移動／接近</button>
       <label><input id="show-cells" type="checkbox">顯示通行格</label>
       <label><input id="show-minimap" type="checkbox" checked>小地圖</label>
       <button id="recenter" type="button">重置視角</button>
