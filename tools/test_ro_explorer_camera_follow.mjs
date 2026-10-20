@@ -37,5 +37,8 @@ assert.match(explorer,
 assert.match(explorer,
   /followPlayerInput\.addEventListener\('change',[\s\S]*?focusCameraOnPlayer\(\)[\s\S]*?saveCameraView\(\)/,
   '可以即時切換跟隨與自由視角');
+assert.match(explorer,
+  /getElementById\('recenter'\)\.addEventListener\('click',[\s\S]*?fitCamera\(false\);[\s\S]*?if \(followPlayerInput\.checked\) focusCameraOnPlayer\(\)/,
+  '跟隨模式重置視角後仍聚焦角色');
 
 console.log('原生探索角色跟隨視角測試通過。');

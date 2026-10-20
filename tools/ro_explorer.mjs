@@ -2659,6 +2659,7 @@ showCellsInput.addEventListener('change', () => {
 });
 document.getElementById('recenter').addEventListener('click', () => {
   fitCamera(false);
+  if (followPlayerInput.checked) focusCameraOnPlayer();
   setStatus('已重置視角。');
 });
 let pointerOrigin = null;
