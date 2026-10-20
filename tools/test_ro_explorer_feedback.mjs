@@ -40,8 +40,8 @@ assert.match(explorer,
   /pendingCombatRequest = null;[\s\S]*?updatePlayerVitals\([\s\S]*?\{ showDamage: true \}\)/,
   '普攻與主動技能回覆可觸發玩家受傷回饋');
 assert.match(explorer,
-  /if \(result\.accepted\) showRoExplorerCombatFeedback\(entry, result\.damageDealt, request\.action === 'skill' \? 'skill' : 'attack'\)/,
-  '普攻與主動技能成功時顯示傷害');
+  /if \(result\.accepted && \(!result\.isSelfBuff \|\| Number\(result\.damageDealt\) > 0\)\) \{\s*showRoExplorerCombatFeedback\(entry, result\.damageDealt, request\.action === 'skill' \? 'skill' : 'attack'\);\s*\}/,
+  '普攻與攻擊技能成功時顯示傷害，自身增益不誤顯示 MISS');
 assert.match(explorer,
   /if \(result\.accepted && Number\(result\.damageDealt\) > 0\) showRoExplorerCombatFeedback\(entry, result\.damageDealt, 'dot'\)/,
   '中毒與出血跳傷成功時顯示傷害');
