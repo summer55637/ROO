@@ -80,4 +80,26 @@ const dotTickTooSoon = g.tickRoExplorerMonsterStatus('ex-status-session', 'm0', 
 t.eq('探索狀態計時有節流，不會重複連跳', dotTickTooSoon.rateLimited, true);
 t.eq('狀態跳傷後仍復原放置戰鬥怪物陣列', g.state.monsters, idleMonsters);
 t.eq('狀態跳傷不會污染放置怪物 HP', g.state.monsters[0].hp, 777);
+
+const statusExpiry = Date.now() + 10000;
+const ailmentState = g.roExplorerTimedStatusState({
+  poisonDotEnd: statusExpiry,
+  ail: {
+    stun: statusExpiry,
+    blind: statusExpiry,
+    bleed: statusExpiry,
+    poison: statusExpiry,
+    silence: statusExpiry,
+  },
+});
+t.eq('探索 UI 回報既有引擎狀態且不重複中毒', ailmentState.statusLabels,
+  ['中毒', '昏迷', '黑暗', '出血', '沉默']);
+t.eq('任一有效限時狀態都會排入狀態更新', ailmentState.hasTimedStatus, true);
+const expiredState = g.roExplorerTimedStatusState({
+  poisonDotEnd: Date.now() - 1,
+  ail: { stun: Date.now() - 1, silence: Date.now() - 1 },
+});
+t.eq('所有異常狀態過期後從探索 UI 清除', expiredState.statusLabels, []);
+t.eq('過期狀態不會繼續觸發狀態輪詢', expiredState.hasTimedStatus, false);
+
 process.exit(t.report('原生探索普攻、技能與持續狀態接回主引擎'));

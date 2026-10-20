@@ -6541,7 +6541,12 @@ function roExplorerTimedStatusState(target) {
   const now = Date.now();
   const labels = [];
   if (target && target.poisonDotEnd > now) labels.push('中毒');
-  if (target && typeof ailActive === 'function' && ailActive(target, 'bleed')) labels.push('出血');
+  if (target && typeof ailActive === 'function') {
+    for (const [type, ailment] of Object.entries(MON_AILMENTS)) {
+      if (!ailActive(target, type) || labels.includes(ailment.name)) continue;
+      labels.push(ailment.name);
+    }
+  }
   return { hasTimedStatus: labels.length > 0, statusLabels: labels };
 }
 
