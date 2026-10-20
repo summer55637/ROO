@@ -66,6 +66,7 @@ const SUITES = [
   'test_ro_explorer_monsters.mjs', // 原生探索怪物生成與選取資料
   'test_ro_explorer_lifecycle.mjs', // 原生探索怪物死亡與重生週期
   'test_ro_explorer_skill_catalog.mjs', // 原生探索技能目錄跨檔接線
+  'test_ro_explorer_combat_ui.mjs', // 原生探索戰鬥 UI 目標隔離
   'test_ro_explorer_combat.js', // 原生探索普攻、技能與持續狀態接回主引擎
   'test_saveio.js',      // 存檔匯出/匯入：序列化、遷移、覆寫與失敗還原
 ];

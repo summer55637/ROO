@@ -1698,7 +1698,7 @@ function loadRoExplorerMonsterTexture(imageId) {
   return promise;
 }
 function renderSelectedRoExplorerMonster(entry, note) {
-  if (!entry) return;
+  if (!entry || entry !== selectedMonsterEntry) return;
   const hp = Number.isFinite(entry.currentHp) ? entry.currentHp : entry.monster.hp;
   const maxHp = Number.isFinite(entry.maxHp) ? entry.maxHp : entry.monster.hp;
   if (monsterTitle) monsterTitle.textContent = (entry.monster.icon ? entry.monster.icon + ' ' : '') + entry.monster.name
@@ -2019,10 +2019,13 @@ function handleRoExplorerCombatStorage(event) {
       entry.root.visible = false;
       entry.sprite.raycast = () => {};
       timedStatusEntries.delete(entry);
-      if (selectedMonsterEntry === entry) selectedMonsterRing.visible = false;
+      const wasSelected = selectedMonsterEntry === entry;
+      if (wasSelected) selectedMonsterRing.visible = false;
       if (activeCombatTarget === entry) activeCombatTarget = null;
-      renderSelectedRoExplorerMonster(entry, '已擊敗；持續傷害與獎勵由主遊戲引擎結算。');
-      setStatus('持續傷害擊敗 ' + entry.monster.name + '！獎勵已交由主遊戲結算。');
+      if (wasSelected) {
+        renderSelectedRoExplorerMonster(entry, '已擊敗；持續傷害與獎勵由主遊戲引擎結算。');
+        setStatus('持續傷害擊敗 ' + entry.monster.name + '！獎勵已交由主遊戲結算。');
+      }
       updateRoExplorerCombatButtons();
       updateMinimap();
       updateStats();
@@ -2055,10 +2058,13 @@ function handleRoExplorerCombatStorage(event) {
     scheduleRoExplorerMonsterRespawn(entry, performance.now());
     entry.root.visible = false;
     entry.sprite.raycast = () => {};
-    if (selectedMonsterEntry === entry) selectedMonsterRing.visible = false;
+    const wasSelected = selectedMonsterEntry === entry;
+    if (wasSelected) selectedMonsterRing.visible = false;
     if (activeCombatTarget === entry) activeCombatTarget = null;
-    renderSelectedRoExplorerMonster(entry, '已擊敗；經驗、職業經驗、金幣及掉落由主遊戲引擎結算。');
-    setStatus('擊敗 ' + entry.monster.name + '！獎勵已交由主遊戲結算。');
+    if (wasSelected) {
+      renderSelectedRoExplorerMonster(entry, '已擊敗；經驗、職業經驗、金幣及掉落由主遊戲引擎結算。');
+      setStatus('擊敗 ' + entry.monster.name + '！獎勵已交由主遊戲結算。');
+    }
     updateRoExplorerCombatButtons();
     updateMinimap();
     updateStats();
@@ -2066,8 +2072,10 @@ function handleRoExplorerCombatStorage(event) {
   }
   if (!result.ok) {
     if (request.action !== 'skill') stopRoExplorerCombat(false);
-    setStatus(result.error || (request.action === 'skill' ? '主遊戲拒絕了技能。' : '主遊戲拒絕了這次攻擊。'), true);
-    renderSelectedRoExplorerMonster(entry, result.error || '主遊戲拒絕了這次動作。');
+    if (selectedMonsterEntry === entry) {
+      setStatus(result.error || (request.action === 'skill' ? '主遊戲拒絕了技能。' : '主遊戲拒絕了這次攻擊。'), true);
+      renderSelectedRoExplorerMonster(entry, result.error || '主遊戲拒絕了這次動作。');
+    }
     updateRoExplorerCombatButtons();
     return;
   }
@@ -2080,8 +2088,10 @@ function handleRoExplorerCombatStorage(event) {
     const fallback = request.action === 'skill'
       ? '技能未施放；請檢查 SP、冷卻、沉默狀態與裝備條件。'
       : '攻擊未執行；請檢查角色是否能攻擊及弓箭矢。';
-    setStatus(result.error || fallback, true);
-    renderSelectedRoExplorerMonster(entry, result.error || fallback);
+    if (selectedMonsterEntry === entry) {
+      setStatus(result.error || fallback, true);
+      renderSelectedRoExplorerMonster(entry, result.error || fallback);
+    }
     updateRoExplorerCombatButtons();
     return;
   }
@@ -2105,8 +2115,10 @@ function handleRoExplorerCombatStorage(event) {
       + '，SP ' + Math.floor(result.playerSp).toLocaleString()
       + ' / ' + Math.floor(result.playerMaxSp).toLocaleString() + '。';
     renderSelectedRoExplorerMonster(entry, note + playerInfo);
-    setStatus(note + ' 目標 HP ' + Math.floor(entry.currentHp).toLocaleString()
-      + ' / ' + Math.floor(entry.maxHp).toLocaleString() + '。' + playerInfo);
+    if (selectedMonsterEntry === entry) {
+      setStatus(note + ' 目標 HP ' + Math.floor(entry.currentHp).toLocaleString()
+        + ' / ' + Math.floor(entry.maxHp).toLocaleString() + '。' + playerInfo);
+    }
     updateRoExplorerCombatButtons();
     return;
   }
@@ -2116,8 +2128,10 @@ function handleRoExplorerCombatStorage(event) {
     : '本次未造成傷害。';
   renderSelectedRoExplorerMonster(entry, note + ' 玩家 HP ' + Math.floor(result.playerHp).toLocaleString()
     + ' / ' + Math.floor(result.playerMaxHp).toLocaleString() + '。');
-  setStatus(note + ' 目標 HP ' + Math.floor(entry.currentHp).toLocaleString()
-    + ' / ' + Math.floor(entry.maxHp).toLocaleString() + '。');
+  if (selectedMonsterEntry === entry) {
+    setStatus(note + ' 目標 HP ' + Math.floor(entry.currentHp).toLocaleString()
+      + ' / ' + Math.floor(entry.maxHp).toLocaleString() + '。');
+  }
 }
 window.addEventListener('storage', handleRoExplorerCombatStorage);
 let statusTickTimer = window.setInterval(requestNextRoExplorerStatusTick, 100);
