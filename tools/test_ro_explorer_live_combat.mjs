@@ -191,6 +191,7 @@ try {
     renderAll();
     saveGame();
     stopLoop();
+    showScreen('screen-game');
     Math.random = () => 0;
     return {
       mapId: plan.map.id,
