@@ -2094,6 +2094,9 @@ function handleRoExplorerCombatStorage(event) {
         : { ok: false, accepted: false, error: '主遊戲戰鬥引擎尚未載入。' };
     }
   } catch (error) { result = { ok: false, accepted: false, error: '主遊戲無法完成戰鬥結算。' }; }
+  if (state && command.type !== 'vitals') {
+    result = Object.assign({}, result, buildRoExplorerProgressSnapshot(state));
+  }
   try {
     localStorage.setItem('roo_explorer_combat_result_' + command.sessionId,
       JSON.stringify(Object.assign({
