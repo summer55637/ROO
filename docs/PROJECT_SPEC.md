@@ -351,3 +351,8 @@
 - 修正 Three.js 預覽：diffuse 與頂點色先合成，再乘 AO，最後加上 RGB lightmap。此前錯把 lightmap 當乘數，會把原始地表壓暗並放大不自然的明暗條紋。
 - diffuse UV／lightmap UV 仍按 RO 的 SW、SE、NW、NE 頂點對應；lightmap 只取 8×8 slice 中央 6×6 有效區域，外圈作防滲色緩衝。沒有任意翻轉 UV。
 - 本次 Push／PR 完整 CI 與新桌面／手機截圖驗收以最新提交結果為準；PR 維持草稿且未合併 `main`。
+
+## 2026-10-20 更新：GND 子區域 UV 與多地圖近景驗收
+- diffuse 貼圖半像素內縮改按每個 GND surface 的四角 UV 範圍計算；不再只按整張貼圖的 0–1 範圍內縮，因此像 0.25／0.5 等子區域邊界也能避免取樣到鄰接 texel。
+- 加入子區域 UV 與相鄰範圍測試；保留原始 surface 四角順序、三角形由 SE 連至 NW 的 GND 拓撲，以及 lightmap/AO 中央有效區域。
+- CI 瀏覽器驗收額外載入普隆德拉，與 tra_fild 一樣檢查真實 GND 貼圖成功載入並保存近景截圖；資料驗收仍涵蓋 prontera、tra_fild、icecastle。

@@ -297,6 +297,53 @@ async function run() {
   await page.locator('#recenter').click();
   assert.ok((await page.locator('#status').innerText()).includes('已重置視角'));
 
+  // Validate the same UV and baked-lighting path on a second real RO map.
+  await page.locator('#native-map').fill('prontera');
+  await page.locator('#load-native-map').click();
+  await page.waitForFunction(() => {
+    const status = document.getElementById('status')?.textContent || '';
+    const stats = document.getElementById('stats')?.textContent || '';
+    return status.includes('原生地圖已載入') && stats.includes('GAT：prontera.gat');
+  }, null, { timeout: 150000 });
+  await page.waitForFunction(() => {
+    const stats = document.getElementById('stats')?.textContent || '';
+    const match = stats.match(/GND 地表貼圖：已解析 (\\d+)\\/(\\d+)；載入成功 (\\d+)；失敗 (\\d+)；缺少匹配 (\\d+)/);
+    return match && Number(match[1]) > 0 && Number(match[3]) > 0;
+  }, null, { timeout: 30000 });
+  await page.locator('#recenter').click();
+  const pronteraStage = await page.locator('#stage').boundingBox();
+  assert.ok(pronteraStage && pronteraStage.width > 0 && pronteraStage.height > 0,
+    '普隆德拉原生地圖沒有有效畫面尺寸。');
+  await page.mouse.move(pronteraStage.x + pronteraStage.width / 2,
+    pronteraStage.y + pronteraStage.height / 2);
+  for (let zoomStep = 0; zoomStep < 14; zoomStep++) {
+    await page.mouse.wheel(0, -100);
+    await sleep(35);
+  }
+  await sleep(500);
+  await page.screenshot({
+    path: path.join(artifactDir, 'desktop-prontera-ground-zoom.png'),
+    clip: { x: pronteraStage.x, y: pronteraStage.y,
+      width: pronteraStage.width, height: pronteraStage.height },
+    animations: 'disabled',
+  });
+  await page.locator('#recenter').click();
+
+  // Restore tra_fild for the mobile interaction checks below.
+  await page.locator('#native-map').fill('tra_fild');
+  await page.locator('#load-native-map').click();
+  await page.waitForFunction(() => {
+    const status = document.getElementById('status')?.textContent || '';
+    const stats = document.getElementById('stats')?.textContent || '';
+    return status.includes('原生地圖已載入') && stats.includes('GAT：tra_fild.gat');
+  }, null, { timeout: 150000 });
+  await page.waitForFunction(() => {
+    const stats = document.getElementById('stats')?.textContent || '';
+    const match = stats.match(/GND 地表貼圖：已解析 (\\d+)\\/(\\d+)；載入成功 (\\d+)；失敗 (\\d+)；缺少匹配 (\\d+)/);
+    return match && Number(match[1]) > 0 && Number(match[3]) > 0;
+  }, null, { timeout: 30000 });
+  await page.locator('#recenter').click();
+
   await page.setViewportSize({ width: 390, height: 844 });
   await sleep(350);
   await assertNoHorizontalOverflow(page, '手機');
