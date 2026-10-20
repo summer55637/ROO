@@ -36,6 +36,7 @@ jobs:
           node --check tools/ro_map_assets.mjs
           node --check tools/test_ro_map_assets.mjs
           node --check tools/ro_explorer.mjs
+          node --check tools/test_ro_explorer_browser.mjs
           node --check tools/ro_explorer_hud.mjs
           node --check tools/test_ro_explorer_hud.mjs
           node --check tools/ro_explorer_camera.mjs
@@ -81,6 +82,20 @@ jobs:
         run: node tools/test_ro_explorer_camera_follow.mjs
       - name: Test native exploration movement controls
         run: node tools/test_ro_explorer_movement_controls.mjs
+      - name: Install Chromium browser test dependencies
+        run: |
+          npm install --no-save --no-package-lock --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Run desktop and mobile exploration browser acceptance
+        run: node tools/test_ro_explorer_browser.mjs
+      - name: Upload exploration screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: roo-explorer-browser-screenshots
+          path: artifacts/explorer-browser/*.png
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Run complete regression suite
         run: node tools/test.js
       - name: Run full-game smoke test
