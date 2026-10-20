@@ -462,7 +462,8 @@ const legacyAtlas = buildGndLightmapAtlasData({
   }],
 }, 0);
 assert.deepEqual(Array.from(legacyAtlas.lightMapPixels.slice(0, 4)), [20, 40, 60, 255]);
-assert.equal(legacyAtlas.width, 9);\nassert.deepEqual(readAtlasRgbaAt(legacyAtlas.aoMapPixels, legacyAtlas.width, 4, 4), [90, 90, 90, 255]);
+assert.equal(legacyAtlas.width, 9);
+assert.deepEqual(readAtlasRgbaAt(legacyAtlas.aoMapPixels, legacyAtlas.width, 4, 4), [90, 90, 90, 255]);
 assert.equal(buildGndLightmapAtlasData({ lightmapSlices: [] }), null);
 assert.throws(() => buildGndLightmapAtlasData(null), /lightmap slices/);
 assert.throws(() => buildGndLightmapAtlasData({ lightmapSlices: [] }, -1), /0–255/);
