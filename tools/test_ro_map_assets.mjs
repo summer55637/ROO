@@ -463,9 +463,9 @@ assert.deepEqual(Array.from(lightmapAtlas.aoMapPixels.slice((4 * 16 + 4) * 4, (4
 assert.equal(lightmapAtlas.sourceGutter, 1,
   '真實 RO lightmap slices reserve one source pixel of border');
 assert.deepEqual(lightmapAtlas.uvsBySlice[0], [
-  [0.34375, 0.34375], [0.65625, 0.34375],
-  [0.34375, 0.65625], [0.65625, 0.65625],
-], 'lightmap UV only samples the 6×6 useful inner texels, not the reserved 8×8 border');
+  [0.3125, 0.3125], [0.6875, 0.3125],
+  [0.3125, 0.6875], [0.6875, 0.6875],
+], 'lightmap UV spans six texels between the inner borders, excluding the reserved 8×8 outer ring');
 const standardMesh = buildGndMeshData(standardGnd, 0.2, lightmapAtlas);
 assert.equal(standardMesh.buckets[0].lightmapUvs.length, 8);
 assert.deepEqual(standardMesh.buckets[0].colors.slice(0, 3), [1, 1, 1]);

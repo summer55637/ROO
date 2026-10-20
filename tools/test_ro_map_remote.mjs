@@ -351,23 +351,47 @@ async function validateMap(mapId) {
     .filter(name => name && urls.textures[name]);
   assert.ok(usedTextures.length > 0, mapId + ' at least one used ground texture resolves');
 
-  const referencedSurfaceIndexes = new Set();
+  const topSurfaceIndexes = new Set();
   for (const cube of gnd.cubes) {
-    for (const index of [cube.topSurface, cube.northSurface, cube.eastSurface]) {
-      if (index >= 0 && index < gnd.surfaces.length) referencedSurfaceIndexes.add(index);
+    if (cube.topSurface >= 0 && cube.topSurface < gnd.surfaces.length) {
+      topSurfaceIndexes.add(cube.topSurface);
     }
   }
-  const sampleSurfaceIndex = [...referencedSurfaceIndexes].find(index => {
+  let sampleCandidate = null;
+  for (const index of topSurfaceIndexes) {
     const surface = gnd.surfaces[index];
+    if (surface.textureIndex < 0 || surface.textureIndex >= gnd.textures.length
+      || surface.lightmapIndex < 0 || surface.lightmapIndex >= gnd.lightmapCount) continue;
     const name = normalizeTextureName(gnd.textures[surface.textureIndex]);
-    return name && urls.textures[name] && surface.lightmapIndex >= 0
-      && surface.lightmapIndex < gnd.lightmapCount;
-  });
-  assert.ok(Number.isInteger(sampleSurfaceIndex), mapId + ' has a referenced surface with diffuse and lightmap');
+    if (!name || !urls.textures[name] || /backside/i.test(name)) continue;
+    const slice = gnd.lightmapSlices[surface.lightmapIndex];
+    for (let y = 1; y < slice.height - 1; y++) {
+      for (let x = 1; x < slice.width - 1; x++) {
+        const pixel = y * slice.width + x;
+        const rgb = [...slice.colorPixels.slice(pixel * 3, pixel * 3 + 3)];
+        const ao = slice.shadowPixels[pixel];
+        const score = rgb.reduce((sum, channel) => sum + channel, 0) + (255 - ao) * 3;
+        if (!sampleCandidate || score > sampleCandidate.score) {
+          sampleCandidate = {
+            surfaceIndex: index,
+            textureName: name,
+            lightmapIndex: surface.lightmapIndex,
+            sampleX: x,
+            sampleY: y,
+            aoValue: ao,
+            rawLightRgb: rgb,
+            score,
+          };
+        }
+      }
+    }
+  }
+  assert.ok(sampleCandidate,
+    mapId + ' has a top-surface diffuse texture (not BACKSIDE) with valid real AO/RGB lightmap data');
+  const sampleSurfaceIndex = sampleCandidate.surfaceIndex;
   const sampleSurface = gnd.surfaces[sampleSurfaceIndex];
-  const sampleTextureName = normalizeTextureName(gnd.textures[sampleSurface.textureIndex]);
+  const sampleTextureName = sampleCandidate.textureName;
   const sampleTextureUrl = urls.textures[sampleTextureName];
-  assert.ok(sampleTextureUrl, mapId + ' sample surface diffuse texture resolves');
   const textureResponse = await fetchResponse(sampleTextureUrl, mapId + ' sample texture');
   const pngBytes = new Uint8Array(await textureResponse.arrayBuffer());
   assert.ok(pngBytes.length > 8, mapId + ' sample texture has a PNG payload');
@@ -385,15 +409,15 @@ async function validateMap(mapId) {
     - Math.min(diffuse.height - 1, Math.floor(wrapUv(diffuseUv[1]) * diffuse.height));
   const diffuseRgba = diffuse.pixelAt(diffuseX, diffuseY);
 
-  const sampleSlice = gnd.lightmapSlices[sampleSurface.lightmapIndex];
-  const sampleX = Math.min(3, sampleSlice.width - 2);
-  const sampleY = Math.min(3, sampleSlice.height - 2);
+  const sampleSlice = gnd.lightmapSlices[sampleCandidate.lightmapIndex];
+  const sampleX = sampleCandidate.sampleX;
+  const sampleY = sampleCandidate.sampleY;
   const samplePixelIndex = sampleY * sampleSlice.width + sampleX;
-  const aoValue = sampleSlice.shadowPixels[samplePixelIndex];
-  const rawLightRgb = [...sampleSlice.colorPixels.slice(samplePixelIndex * 3, samplePixelIndex * 3 + 3)];
+  const aoValue = sampleCandidate.aoValue;
+  const rawLightRgb = sampleCandidate.rawLightRgb;
   const posterizedLightRgb = rawLightRgb.map(value => Math.floor(value / 16) * 16);
-  const atlasColumn = sampleSurface.lightmapIndex % lightmapAtlas.columns;
-  const atlasRow = Math.floor(sampleSurface.lightmapIndex / lightmapAtlas.columns);
+  const atlasColumn = sampleCandidate.lightmapIndex % lightmapAtlas.columns;
+  const atlasRow = Math.floor(sampleCandidate.lightmapIndex / lightmapAtlas.columns);
   const atlasX = atlasColumn * (lightmapAtlas.sliceWidth + 8) + 4 + sampleX;
   const atlasY = atlasRow * (lightmapAtlas.sliceHeight + 8) + 4 + sampleY;
   const atlasOffset = (atlasY * lightmapAtlas.width + atlasX) * 4;
@@ -407,7 +431,7 @@ async function validateMap(mapId) {
     [aoValue, aoValue, aoValue],
     mapId + ' real AO sample is copied as independent grayscale data'
   );
-  const sampleLightmapUvs = lightmapAtlas.uvsBySlice[sampleSurface.lightmapIndex];
+  const sampleLightmapUvs = lightmapAtlas.uvsBySlice[sampleCandidate.lightmapIndex];
   const expectedUvSpan = (sampleSlice.width - 2) / lightmapAtlas.width;
   assert.ok(Math.abs(sampleLightmapUvs[1][0] - sampleLightmapUvs[0][0] - expectedUvSpan) < 1e-12,
     mapId + ' real lightmap UV spans six visible texels between inner borders');
@@ -417,7 +441,7 @@ async function validateMap(mapId) {
       + ' PNG ' + diffuse.width + '×' + diffuse.height
       + ' UV center ' + JSON.stringify(diffuseUv)
       + ' source RGBA ' + JSON.stringify(diffuseRgba)
-      + '; surface #' + sampleSurfaceIndex + ' lightmap slice ' + sampleSurface.lightmapIndex
+      + '; top surface #' + sampleSurfaceIndex + ' lightmap slice ' + sampleCandidate.lightmapIndex
       + ' sample texel (' + sampleX + ',' + sampleY + ') AO=' + aoValue
       + ' RGB raw=' + JSON.stringify(rawLightRgb)
       + ' RGB RO-level16=' + JSON.stringify(posterizedLightRgb)
