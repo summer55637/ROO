@@ -215,6 +215,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
               const text = document.getElementById('gnd-surface-inspector-content')?.textContent || '';
               return text.includes('真實材質路徑') && text.includes('原始四角 UV')
                 && text.includes('原始 RGB lightmap / AO 四角取樣')
+                && text.includes('相鄰 TOP surface 對照')
                 && text.includes('Diffuse 貼圖採樣：mipmap=on')
                 && text.includes('Diffuse 貼圖採樣：mipmap=on; min=mipmap filter (')
                 && text.includes('RGB lightmap/AO 採樣：mipmap=off')
@@ -251,6 +252,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
           return text.includes('Surface #') && text.includes('真實材質路徑')
             && text.includes('原始四角 UV')
             && text.includes('原始 RGB lightmap / AO 四角取樣')
+                && text.includes('相鄰 TOP surface 對照')
             && text.includes('Diffuse 貼圖採樣：mipmap=on')
                 && text.includes('Diffuse 貼圖採樣：mipmap=on; min=mipmap filter (')
             && text.includes('RGB lightmap/AO 採樣：mipmap=off')
