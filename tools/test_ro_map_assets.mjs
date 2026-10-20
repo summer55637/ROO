@@ -119,7 +119,10 @@ function makeGnd(surfaceStride = 40, minor = 7, gridU = 1, gridV = 1, lightmapCo
   return buffer;
 }
 
-function makeStandardGnd() {
+function makeStandardGnd(cornerColors = [
+  [255, 255, 255, 255], [255, 255, 255, 255],
+  [255, 255, 255, 255], [255, 255, 255, 255],
+]) {
   const texturePath = Buffer.alloc(80);
   texturePath.write('grass.bmp', 0, 'ascii');
   const buffer = Buffer.alloc(26 + 80 + 4 + 268 + 4 + 56 + 28);
@@ -156,7 +159,7 @@ function makeStandardGnd() {
   buffer.writeInt32LE(0, surfaceAt + 32);
   buffer.writeInt32LE(0, surfaceAt + 36);
   for (let corner = 0; corner < 4; corner++) {
-    buffer.set([255, 255, 255, 255], surfaceAt + 40 + corner * 4);
+    buffer.set(cornerColors[corner], surfaceAt + 40 + corner * 4);
   }
 
   const cubeAt = surfaceAt + 56;
@@ -451,6 +454,23 @@ assert.equal(standardGnd.lightmapCount, 1);
 assert.equal(standardGnd.lightmapSlices[0].colorPixels.length, 192);
 assert.equal(standardGnd.lightmapSlices[0].shadowPixels.length, 64);
 assert.deepEqual(standardGnd.surfaces[0].colors[0], [1, 1, 1, 1]);
+
+const sourceBgraCorners = [
+  [13, 27, 41, 255],
+  [53, 67, 79, 255],
+  [89, 101, 113, 255],
+  [127, 139, 151, 255],
+];
+const expectedRgbaCorners = sourceBgraCorners.map(([b, g, r, a]) => [
+  r / 255, g / 255, b / 255, a / 255,
+]);
+const channelOrderGnd = parseGndBuffer(makeStandardGnd(sourceBgraCorners));
+assert.deepEqual(channelOrderGnd.surfaces[0].colors, expectedRgbaCorners,
+  '56-byte GND surface BGRA bytes must become RGB colors without changing SW/SE/NW/NE corner order');
+const channelOrderMesh = buildGndMeshData(channelOrderGnd, 0.2, null);
+assert.deepEqual(channelOrderMesh.buckets[0].colors,
+  expectedRgbaCorners.flatMap(color => color.slice(0, 3)),
+  'native GND mesh must preserve each source corner tint instead of spreading a tint across neighboring corners');
 
 const lightmapAtlas = buildGndLightmapAtlasData(standardGnd, 0);
 function readAtlasRgbaAt(pixels, width, x, y) {
