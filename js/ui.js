@@ -2039,14 +2039,20 @@ function handleRoExplorerCombatStorage(event) {
   if (!event || event.key !== RO_EXPLORER_COMBAT_COMMAND_KEY || !event.newValue) return;
   let command;
   try { command = JSON.parse(event.newValue); } catch (error) { return; }
-  if (!command || !['attack', 'skill', 'status_tick'].includes(command.type)
+  if (!command || !['attack', 'skill', 'status_tick', 'vitals'].includes(command.type)
     || typeof command.sessionId !== 'string' || !/^[a-z0-9_-]{4,80}$/i.test(command.sessionId)
     || typeof command.requestId !== 'string' || !/^[a-z0-9_-]{1,100}$/i.test(command.requestId)) return;
   if (command.type === 'skill'
     && (typeof command.skillId !== 'string' || !/^[a-z0-9_]{1,48}$/i.test(command.skillId))) return;
   let result;
   try {
-    if (command.type === 'status_tick') {
+    if (command.type === 'vitals') {
+      result = state ? {
+        ok: true, accepted: true,
+        playerHp: state.hp, playerMaxHp: state.maxHp,
+        playerSp: state.sp, playerMaxSp: state.maxSp
+      } : { ok: false, accepted: false, error: '目前沒有載入角色。' };
+    } else if (command.type === 'status_tick') {
       result = typeof tickRoExplorerMonsterStatus === 'function'
         ? tickRoExplorerMonsterStatus(command.sessionId, command.spawnKey, command.mapId, command.defId)
         : { ok: false, accepted: false, error: '主遊戲狀態計時尚未載入。' };
