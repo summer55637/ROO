@@ -60,7 +60,7 @@ async function minimapTargets(targetPage) {
     if (!context) return [];
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
     const candidates = [];
-    for (let radius = 3; radius <= 14; radius++) {
+    for (let radius = 3; radius <= 32; radius++) {
       for (let dy = -radius; dy <= radius; dy++) {
         for (let dx = -radius; dx <= radius; dx++) {
           if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
@@ -77,9 +77,9 @@ async function minimapTargets(targetPage) {
           }
         }
       }
-      if (candidates.length >= 8) break;
+      if (candidates.length >= 80) break;
     }
-    return candidates.slice(0, 24);
+    return candidates.slice(0, 80);
   });
 }
 
@@ -95,19 +95,26 @@ async function clickMinimapUntilMoving(targetPage, useTouch, label) {
     slider.dispatchEvent(new Event('input', { bubbles: true }));
   });
   let moved = false;
+  const attempted = [];
+  const stopButton = targetPage.locator('#stop-movement');
   for (const cell of candidates) {
     const x = box.x + ((cell.x + 0.5) / cell.mapWidth) * box.width;
     const y = box.y + ((cell.y + 0.5) / cell.mapHeight) * box.height;
     try {
       if (useTouch) await targetPage.touchscreen.tap(x, y);
       else await targetPage.mouse.click(x, y);
-      await targetPage.locator('#stop-movement').waitFor({ state: 'visible', timeout: 900 });
-      moved = true;
-      break;
-    } catch (error) {}
+      if (await stopButton.isVisible()) {
+        moved = true;
+        break;
+      }
+      attempted.push({ x: cell.x, y: cell.y, radius: cell.radius,
+        status: (await targetPage.locator('#status').innerText()).slice(0, 90) });
+    } catch (error) {
+      attempted.push({ x: cell.x, y: cell.y, error: String(error).slice(0, 90) });
+    }
   }
-  assert.ok(moved, label + ' 點擊小地圖沒有建立可停止的移動路徑。');
-  const stopBox = await targetPage.locator('#stop-movement').boundingBox();
+  assert.ok(moved, label + ' 點擊小地圖沒有建立可停止的移動路徑；嘗試 ' + JSON.stringify(attempted.slice(-8)));
+  const stopBox = await stopButton.boundingBox();
   assert.ok(stopBox, label + ' 移動按鈕顯示但沒有可點擊位置。');
   if (useTouch) {
     await targetPage.touchscreen.tap(stopBox.x + stopBox.width / 2, stopBox.y + stopBox.height / 2);
