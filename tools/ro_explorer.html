@@ -50,7 +50,7 @@
     .monster-skill-picker select { flex: 1; width: 100%; min-width: 0; }
     .monster-panel button { border-color: #8a5b52; background: #402a2b; padding: 5px 8px; font-size: 11px; }
     .monster-panel button:disabled { opacity: .45; cursor: not-allowed; }
-    #stop-movement[hidden] { display: none; }
+    #stop-movement[hidden], #stop-movement-local[hidden] { display: none; }
     .vitals-panel { display: grid; flex: 0 1 300px; min-width: 260px; max-width: 100%; gap: 5px; padding: 8px 10px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .92); color: #d7e3f2; }
     .vitals-panel[hidden] { display: none; }
     .vitals-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
@@ -135,6 +135,7 @@
     <div id="native-toolbar" hidden>
       <label>地圖 ID <input id="native-map" type="text" value="prontera" maxlength="64" autocapitalize="none" spellcheck="false"></label>
       <button id="load-native-map" type="button">載入原生地圖</button>
+      <button id="stop-movement" type="button" hidden>停止移動／接近</button>
       <span class="hint">支援原生 GND/GAT/RSW 與部分 RSM/RSM2 模型、lightmap/AO、水面和動畫，仍待真實瀏覽器畫面校驗。角色優先使用 RO 八方向動畫，失敗時退回本機立繪。野外怪物可接回主遊戲普攻、已學直接攻擊技能及施毒持續傷害；必須保持同源主遊戲分頁開啟。其他異常／輔助技能、官方逐地圖重生規則與完整技能特效仍未完成。</span>
       <section id="player-vitals-panel" class="vitals-panel" hidden aria-label="角色 HP 與 SP">
         <div class="vitals-heading"><strong>角色狀態</strong><span>主遊戲同步</span></div>
@@ -166,7 +167,7 @@
       <label>地圖 GAT <input id="gat-file" type="file" accept=".gat"></label>
       <label>世界比例 <input id="world-scale" type="number" min="0.01" max="10" step="0.01" value="0.2" inputmode="decimal"></label>
       <label>速度 <input id="move-speed" type="range" min="1" max="8" value="4"><span id="speed-value">4</span></label>
-      <button id="stop-movement" type="button" hidden>停止移動／接近</button>
+      <button id="stop-movement-local" type="button" hidden>停止移動／接近</button>
       <label><input id="show-cells" type="checkbox">顯示通行格</label>
       <label><input id="show-minimap" type="checkbox" checked>小地圖</label>
       <label><input id="follow-player" type="checkbox" checked>跟隨角色視角</label>
