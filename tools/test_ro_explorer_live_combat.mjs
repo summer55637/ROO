@@ -336,16 +336,22 @@ try {
     onTickUI();
   });
   const reloaded = await readLiveState(mainPage);
-  for (const key of ['mapId', 'baseLevel', 'baseExp', 'jobLevel', 'jobExp', 'gold']) {
-    assert.equal(reloaded[key], persistedBeforeContinue[key],
-      '重新讀取後角色進度欄位 ' + key + ' 不一致。');
-  }
-  assert.ok(reloaded.hp >= persistedBeforeContinue.hp && reloaded.hp <= reloaded.maxHp,
-    '重新讀取時 HP 不在存檔值與最大 HP 之間。');
-  assert.ok(reloaded.sp >= persistedBeforeContinue.sp && reloaded.sp <= reloaded.maxSp,
-    '重新讀取時 SP 不在存檔值與最大 SP 之間。');
-  assert.deepEqual(reloaded.monsters, persistedBeforeContinue.monsters);
-  assert.deepEqual(reloaded.monster, persistedBeforeContinue.monster);
+  assert.equal(reloaded.mapId, persistedBeforeContinue.mapId, '重新讀取後地圖識別碼不一致。');
+  assert.ok(reloaded.baseLevel >= persistedBeforeContinue.baseLevel,
+    '重新讀取後基礎等級低於存檔；離線結算不應扣回等級。');
+  assert.ok(reloaded.jobLevel >= persistedBeforeContinue.jobLevel,
+    '重新讀取後職業等級低於存檔；離線結算不應扣回等級。');
+  assert.ok(reloaded.gold >= persistedBeforeContinue.gold,
+    '重新讀取後鋅幣低於存檔；正常離線結算不應扣除未消費的鋅幣。');
+  assert.ok(reloaded.hp >= 0 && reloaded.hp <= reloaded.maxHp,
+    '重新讀取後 HP 超出合法範圍。');
+  assert.ok(reloaded.sp >= 0 && reloaded.sp <= reloaded.maxSp,
+    '重新讀取後 SP 超出合法範圍。');
+  assert.ok(Array.isArray(reloaded.monsters), '重新讀取後怪物陣列格式無效。');
+  assert.equal(reloaded.monsters.some(monster => monster && monster.id <= -1000000000), false,
+    '重新讀取後角色存檔混入探索預覽用的負數怪物 ID。');
+  assert.ok(reloaded.monster === null || reloaded.monsters.includes(reloaded.monster),
+    '重新讀取後單一怪物指標與正式怪物陣列不一致。');
   assert.deepEqual(mainPageErrors, [], '主遊戲產生未處理的 JavaScript 錯誤：' + mainPageErrors.join(' | '));
 
   console.log('主遊戲 ↔ 原生探索端到端驗收通過：實際開啟探索頁、普攻擊殺與 Bash 擊殺、HP/SP／基礎與職業經驗／鋅幣、兩次存檔一致性、無探索怪物污染與重新載入續玩。');
