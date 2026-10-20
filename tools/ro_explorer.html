@@ -97,8 +97,11 @@
       #minimap { max-width: 100%; max-height: 18vh; }
       .minimap-heading { font-size: 10px; }
       .minimap-legend { font-size: 9px; }
-      #stats { max-width: calc(50% - 18px); padding: 6px 7px; font-size: 10px; line-height: 1.4; }
-      .monster-panel { top: 84px; width: min(230px, calc(100% - 24px)); padding: 7px 8px; font-size: 10px; }
+      /* 手機上診斷文字會佔掉半個畫面，選取怪物時也容易遮住地圖。 */
+      #stats { display: none; }
+      .monster-panel { top: 84px; width: calc(50% - 18px); padding: 5px; font-size: 9px; }
+      .monster-panel .vitals-row { grid-template-columns: 18px minmax(0, 1fr) 52px; gap: 4px; font-size: 9px; }
+      .monster-panel button { padding: 4px 5px; font-size: 9px; }
     }
   </style>
   <script type="importmap">

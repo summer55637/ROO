@@ -287,14 +287,27 @@ async function run() {
       const r = element.getBoundingClientRect();
       return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
     };
+    const overlaps = (a, b) => a.left < b.right && a.right > b.left
+      && a.top < b.bottom && a.bottom > b.top;
+    const status = rect(document.getElementById('status'));
+    const monster = rect(document.getElementById('monster-panel'));
+    const minimap = rect(document.getElementById('minimap-panel'));
     return {
-      status: rect(document.getElementById('status')),
-      monster: rect(document.getElementById('monster-panel')),
+      status, monster, minimap,
+      statsDisplay: getComputedStyle(document.getElementById('stats')).display,
+      monsterOverlapsMinimap: overlaps(monster, minimap),
+      viewportWidth: document.documentElement.clientWidth,
     };
   });
   assert.ok(boxes.status.bottom <= boxes.monster.top || boxes.status.right <= boxes.monster.left
     || boxes.monster.right <= boxes.status.left,
     '手機版狀態提示與怪物面板重疊：' + JSON.stringify(boxes));
+  assert.equal(boxes.statsDisplay, 'none',
+    '手機版診斷面板應收起，避免遮擋遊戲操作區：' + JSON.stringify(boxes));
+  assert.equal(boxes.monsterOverlapsMinimap, false,
+    '手機版怪物操作面板遮住小地圖：' + JSON.stringify(boxes));
+  assert.ok(boxes.monster.left >= 0 && boxes.monster.right <= boxes.viewportWidth + 1,
+    '手機版怪物操作面板超出畫面：' + JSON.stringify(boxes));
   await page.screenshot({ path: path.join(artifactDir, 'mobile.png'), fullPage: true, animations: 'disabled' });
   assert.deepEqual(pageErrors, [], '瀏覽器出現未處理的 JavaScript 錯誤：' + pageErrors.join(' | '));
   console.log('原生探索瀏覽器驗收通過：公開 tra_fild 3D 地圖、角色素材狀態、HP/SP、基礎／職業經驗、鋅幣、恢復／輔助操作面板、桌面與手機版面、小地圖移動／停止、視角跟隨、通行格切換。');
