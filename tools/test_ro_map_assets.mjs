@@ -573,6 +573,11 @@ assert.deepEqual(Array.from(splitLightmapGnd.lightmapSlices[0].shadowPixels.slic
 assert.deepEqual(Array.from(splitLightmapGnd.lightmapSlices[0].colorPixels.slice(0, 9)),
   [80, 120, 160, 81, 121, 161, 82, 122, 162],
   'RGB lightmap bytes must not be read as interleaved RGBA');
+const defaultSplitLightmapAtlas = buildGndLightmapAtlasData(splitLightmapGnd);
+assert.deepEqual(readAtlasRgbaAt(
+  defaultSplitLightmapAtlas.lightMapPixels, defaultSplitLightmapAtlas.width, 4, 4
+), [80, 120, 160, 255],
+'default atlas generation preserves the source 8-bit RGB instead of posterizing it');
 const splitLightmapAtlas = buildGndLightmapAtlasData(splitLightmapGnd, 0);
 assert.deepEqual(splitLightmapAtlas.uvsBySlice[0], [
   [5 / 16, 5 / 16],
