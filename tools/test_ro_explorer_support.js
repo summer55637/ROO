@@ -17,6 +17,7 @@ g.state.learnedSkills.bash = 5;
 g.state.mapId = map.id;
 g.state.cooldowns = {};
 g.recomputeDerived(true);
+g.state.maxSp = Math.max(150, g.state.maxSp);
 g.state.hp = Math.max(1, g.state.maxHp - 100);
 g.state.sp = g.state.maxSp;
 const idleMonsters = [{ defId: map.monsters && map.monsters[0] ? map.monsters[0].id : 'poring',
