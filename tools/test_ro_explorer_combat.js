@@ -69,9 +69,9 @@ const unlearnedSkill = g.castRoExplorerSkill('ex-skill-session', 'm2', map.id, s
 t.eq('未學會的技能不得從探索頁施放', unlearnedSkill.ok, false);
 
 /* 自身增益直接套用到角色：不靠怪物距離，不傷害所選目標，也要正常存檔。 */
-g.state.jobId = 'knight';
+g.state.jobId = 'lordknight';
 g.state.jobLevel = 30;
-g.state.jobLevelHistory = Object.assign({}, g.state.jobLevelHistory, { knight: 30 });
+g.state.jobLevelHistory = Object.assign({}, g.state.jobLevelHistory, { knight: 50, lordknight: 30 });
 g.state.learnedSkills.lk_concentration = 5;
 g.state.maxSp = Math.max(100, g.state.maxSp);
 g.state.sp = g.state.maxSp;
