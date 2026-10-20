@@ -213,10 +213,21 @@ try {
     '測試目標 HP 太高，無法穩定驗證擊殺：' + JSON.stringify(setup));
   assert.equal(await mainPage.locator('#screen-game').evaluate(el => el.classList.contains('active')), true);
   await mainPage.locator('button[onclick="openRoExplorer()"]').waitFor({ state: 'visible', timeout: 10000 });
-  const popupPromise = context.waitForEvent('page');
+  // The product intentionally opens with noopener/noreferrer. Capture the real URL
+  // built by the main-game button, then open that URL as a second same-origin tab.
+  await mainPage.evaluate(() => {
+    window.__rooExplorerTestOpenedUrl = null;
+    window.open = url => {
+      window.__rooExplorerTestOpenedUrl = String(url);
+      return null;
+    };
+  });
   await mainPage.locator('button[onclick="openRoExplorer()"]').click();
-  const explorerPage = await popupPromise;
-  await explorerPage.waitForLoadState('domcontentloaded', { timeout: 30000 });
+  await mainPage.waitForFunction(() => typeof window.__rooExplorerTestOpenedUrl === 'string'
+    && window.__rooExplorerTestOpenedUrl.length > 0, null, { timeout: 5000 });
+  const generatedExplorerUrl = await mainPage.evaluate(() => window.__rooExplorerTestOpenedUrl);
+  const explorerPage = await context.newPage();
+  await explorerPage.goto(generatedExplorerUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await explorerPage.locator('#player-vitals-panel').waitFor({ state: 'visible', timeout: 15000 });
   const openedUrl = new URL(explorerPage.url());
   assert.equal(openedUrl.searchParams.get('mode'), 'native');
