@@ -1461,8 +1461,8 @@ function createLightmapDataTexture(data, width, height) {
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.magFilter = THREE.LinearFilter;
-  texture.minFilter = THREE.LinearFilter;
-  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
   texture.flipY = false;
   texture.needsUpdate = true;
   return texture;

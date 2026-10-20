@@ -1520,7 +1520,7 @@ export function buildGndLightmapAtlasData(gnd, posterizationLevel = 16) {
 
   const columns = Math.ceil(Math.sqrt(slices.length));
   const rows = Math.ceil(slices.length / columns);
-  const gutter = 1;
+  const gutter = 4;
   const cellWidth = sliceWidth + gutter * 2;
   const cellHeight = sliceHeight + gutter * 2;
   const width = columns * cellWidth;
@@ -1572,22 +1572,18 @@ export function buildGndLightmapAtlasData(gnd, posterizationLevel = 16) {
       }
     }
 
-    // Duplicate each slice's border pixels into the atlas gutter to prevent bleed.
-    for (let y = 0; y < sliceHeight; y++) {
-      for (const target of [lightMapPixels, aoMapPixels]) {
-        const rowAt = (baseY + y) * width * 4;
-        const firstAt = rowAt + baseX * 4;
-        const lastAt = rowAt + (baseX + sliceWidth - 1) * 4;
-        target.set(target.subarray(firstAt, firstAt + 4), rowAt + (baseX - 1) * 4);
-        target.set(target.subarray(lastAt, lastAt + 4), rowAt + (baseX + sliceWidth) * 4);
-      }
-    }
-    for (let x = 0; x < sliceWidth + 2; x++) {
-      for (const target of [lightMapPixels, aoMapPixels]) {
-        const topAt = (baseY * width + baseX - 1 + x) * 4;
-        const bottomAt = ((baseY + sliceHeight - 1) * width + baseX - 1 + x) * 4;
-        target.set(target.subarray(topAt, topAt + 4), ((baseY - 1) * width + baseX - 1 + x) * 4);
-        target.set(target.subarray(bottomAt, bottomAt + 4), ((baseY + sliceHeight) * width + baseX - 1 + x) * 4);
+    // Extend each slice's edge color through the full gutter so mipmaps do not
+    // blend unrelated neighboring slices when the terrain is viewed from afar.
+    for (let y = -gutter; y < sliceHeight + gutter; y++) {
+      for (let x = -gutter; x < sliceWidth + gutter; x++) {
+        if (x >= 0 && x < sliceWidth && y >= 0 && y < sliceHeight) continue;
+        const sourceX = Math.max(0, Math.min(sliceWidth - 1, x));
+        const sourceY = Math.max(0, Math.min(sliceHeight - 1, y));
+        const sourceAt = ((baseY + sourceY) * width + baseX + sourceX) * 4;
+        const targetAt = ((baseY + y) * width + baseX + x) * 4;
+        for (const target of [lightMapPixels, aoMapPixels]) {
+          target.set(target.subarray(sourceAt, sourceAt + 4), targetAt);
+        }
       }
     }
 

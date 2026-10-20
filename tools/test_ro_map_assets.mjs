@@ -439,13 +439,17 @@ assert.equal(standardGnd.lightmapSlices[0].shadowPixels.length, 64);
 assert.deepEqual(standardGnd.surfaces[0].colors[0], [1, 1, 1, 1]);
 
 const lightmapAtlas = buildGndLightmapAtlasData(standardGnd, 0);
-assert.equal(lightmapAtlas.width, 10);
-assert.equal(lightmapAtlas.height, 10);
-assert.deepEqual(Array.from(lightmapAtlas.lightMapPixels.slice((1 * 10 + 1) * 4, (1 * 10 + 1) * 4 + 4)),
+function readAtlasRgbaAt(pixels, width, x, y) {
+  const offset = (y * width + x) * 4;
+  return Array.from(pixels.slice(offset, offset + 4));
+}
+assert.equal(lightmapAtlas.width, 16);
+assert.equal(lightmapAtlas.height, 16);
+assert.deepEqual(Array.from(lightmapAtlas.lightMapPixels.slice((4 * 16 + 4) * 4, (4 * 16 + 4) * 4 + 4)),
   [127, 95, 63, 255]);
-assert.deepEqual(Array.from(lightmapAtlas.aoMapPixels.slice((1 * 10 + 1) * 4, (1 * 10 + 1) * 4 + 4)),
+assert.deepEqual(Array.from(lightmapAtlas.aoMapPixels.slice((4 * 16 + 4) * 4, (4 * 16 + 4) * 4 + 4)),
   [128, 128, 128, 255]);
-assert.deepEqual(lightmapAtlas.uvsBySlice[0], [[0.15, 0.15], [0.85, 0.15], [0.15, 0.85], [0.85, 0.85]]);
+assert.deepEqual(lightmapAtlas.uvsBySlice[0], [[0.28125, 0.28125], [0.71875, 0.28125], [0.28125, 0.71875], [0.71875, 0.71875]]);
 const standardMesh = buildGndMeshData(standardGnd, 0.2, lightmapAtlas);
 assert.equal(standardMesh.buckets[0].lightmapUvs.length, 8);
 assert.deepEqual(standardMesh.buckets[0].colors.slice(0, 3), [1, 1, 1]);
@@ -458,7 +462,7 @@ const legacyAtlas = buildGndLightmapAtlasData({
   }],
 }, 0);
 assert.deepEqual(Array.from(legacyAtlas.lightMapPixels.slice(0, 4)), [20, 40, 60, 255]);
-assert.deepEqual(Array.from(legacyAtlas.aoMapPixels.slice(16, 20)), [90, 90, 90, 255]);
+assert.equal(legacyAtlas.width, 9);\nassert.deepEqual(readAtlasRgbaAt(legacyAtlas.aoMapPixels, legacyAtlas.width, 4, 4), [90, 90, 90, 255]);
 assert.equal(buildGndLightmapAtlasData({ lightmapSlices: [] }), null);
 assert.throws(() => buildGndLightmapAtlasData(null), /lightmap slices/);
 assert.throws(() => buildGndLightmapAtlasData({ lightmapSlices: [] }, -1), /0–255/);
@@ -881,3 +885,19 @@ assert.deepEqual(computeGndPreviewLightingMultiplier([-1, 0.5, 2], 2),
   '光照與 AO 輸入被限制於合法範圍');
 assert.throws(() => computeGndPreviewLightingMultiplier([1, 1], 1),
   /GND 預覽光照/, '無效光照資料會被拒絕');
+
+
+for (const [pixels, label] of [
+  [lightmapAtlas.lightMapPixels, 'lightmap'],
+  [lightmapAtlas.aoMapPixels, 'AO'],
+]) {
+  const edgePixel = readAtlasRgbaAt(pixels, lightmapAtlas.width, 4, 4);
+  for (const x of [0, 1, 2, 3, 12, 13, 14, 15]) {
+    assert.deepEqual(readAtlasRgbaAt(pixels, lightmapAtlas.width, x, 4), edgePixel,
+      label + ' atlas 的水平 mipmap gutter 應複製切片邊緣');
+  }
+  for (const y of [0, 1, 2, 3, 12, 13, 14, 15]) {
+    assert.deepEqual(readAtlasRgbaAt(pixels, lightmapAtlas.width, 4, y), edgePixel,
+      label + ' atlas 的垂直 mipmap gutter 應複製切片邊緣');
+  }
+}
