@@ -195,7 +195,17 @@ async function run() {
   }, null, { timeout: 150000 });
   const mapStatus = await page.locator('#status').innerText();
   assert.ok(mapStatus.includes('原生地圖已載入'), '原生地圖沒有成功顯示：' + mapStatus);
-  await page.locator('#minimap-panel').waitFor({ state: 'visible', timeout: 15000 });
+  await sleep(500);
+  const sceneReadiness = await page.evaluate(() => ({
+    status: document.getElementById('status')?.textContent || '',
+    stats: document.getElementById('stats')?.textContent || '',
+    showMinimapChecked: !!document.getElementById('show-minimap')?.checked,
+    minimapHidden: !!document.getElementById('minimap-panel')?.hidden,
+    nativeModeHidden: !!document.getElementById('local-mode')?.hidden,
+    stage: (() => { const r = document.getElementById('stage').getBoundingClientRect(); return { width: r.width, height: r.height }; })(),
+  }));
+  console.log('原生場景初始化診斷：' + JSON.stringify(sceneReadiness));
+  assert.ok(!sceneReadiness.minimapHidden, '地圖顯示成功但小地圖仍隱藏：' + JSON.stringify(sceneReadiness));
   await page.waitForFunction(() => {
     const text = document.getElementById('stats')?.textContent || '';
     return text.includes('GAT：tra_fild') && text.includes('目前格：') && text.includes('角色素材：');
