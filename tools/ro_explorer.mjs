@@ -1422,6 +1422,8 @@ function resetRswLighting() {
   fillLight.position.set(-300, 150, -250);
 }
 
+const GND_DEBUG_MODE_UNIFORM = { value: 0 };
+
 function applyGndBakedLighting(material, lightMapTexture, aoTexture, rswLight) {
   const longitude = Number.isFinite(rswLight && rswLight.longitude) ? rswLight.longitude : 45;
   const latitude = Number.isFinite(rswLight && rswLight.latitude) ? rswLight.latitude : 45;
@@ -1441,6 +1443,7 @@ function applyGndBakedLighting(material, lightMapTexture, aoTexture, rswLight) {
     shader.uniforms.rooGndLightDirection = { value: lightDirection };
     shader.uniforms.rooGndLightAmbient = { value: lightAmbient };
     shader.uniforms.rooGndLightDiffuse = { value: lightDiffuse };
+    shader.uniforms.rooGndDebugMode = GND_DEBUG_MODE_UNIFORM;
     shader.vertexShader = shader.vertexShader.replace(
       '#include <common>',
       '#include <common>\nattribute vec2 uv2;\nattribute vec3 rooGndVertexNormal;'
@@ -1473,22 +1476,33 @@ function applyGndBakedLighting(material, lightMapTexture, aoTexture, rswLight) {
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <common>',
       '#include <common>\nuniform sampler2D rooGndLightMap;'
-        + '\nuniform sampler2D rooGndAoMap;\nvarying vec2 vRooGndLightmapUv;'
+        + '\nuniform sampler2D rooGndAoMap;\nuniform float rooGndDebugMode;\nvarying vec2 vRooGndLightmapUv;'
         + '\nvarying float vRooGndHasLightmap;\nvarying vec3 vRooGndLightMultiplier;'
     ).replace(
-      '#include <color_fragment>',
       '#include <color_fragment>\n'
         + 'float rooGndHasValidLightmap = clamp(vRooGndHasLightmap, 0.0, 1.0);\n'
-        + 'diffuseColor.rgb *= vRooGndLightMultiplier;\n'
-        + 'float rooGndAmbientOcclusion = mix(1.0,'
-        + ' clamp(texture2D(rooGndAoMap, vRooGndLightmapUv).r, 0.0, 1.0),'
-        + ' rooGndHasValidLightmap * ' + GND_PREVIEW_AO_STRENGTH.toFixed(2) + ');\n'
-        + 'diffuseColor.rgb *= rooGndAmbientOcclusion;\n'
-        + 'diffuseColor.rgb += clamp(texture2D(rooGndLightMap, vRooGndLightmapUv).rgb,'
-        + ' 0.0, 1.0) * rooGndHasValidLightmap;'
+        + 'vec3 rooGndDiffuse = diffuseColor.rgb;\n'
+        + 'vec3 rooGndRgbLightmap = clamp(texture2D(rooGndLightMap, vRooGndLightmapUv).rgb, 0.0, 1.0);\n'
+        + 'float rooGndAo = clamp(texture2D(rooGndAoMap, vRooGndLightmapUv).r, 0.0, 1.0);\n'
+        + 'float rooGndAoBlend = mix(1.0, rooGndAo, rooGndHasValidLightmap * ' + GND_PREVIEW_AO_STRENGTH.toFixed(2) + ');\n'
+        + 'if (rooGndDebugMode < 0.5) {\n'
+        + '  diffuseColor.rgb = rooGndDiffuse * vRooGndLightMultiplier * rooGndAoBlend + rooGndRgbLightmap * rooGndHasValidLightmap;\n'
+        + '} else if (rooGndDebugMode < 1.5) {\n'
+        + '  diffuseColor.rgb = rooGndDiffuse;\n'
+        + '} else if (rooGndDebugMode < 2.5) {\n'
+        + '  diffuseColor.rgb = rooGndRgbLightmap * rooGndHasValidLightmap;\n'
+        + '} else if (rooGndDebugMode < 3.5) {\n'
+        + '  diffuseColor.rgb = vec3(mix(1.0, rooGndAo, rooGndHasValidLightmap));\n'
+        + '} else if (rooGndDebugMode < 4.5) {\n'
+        + '  diffuseColor.rgb = vRooGndLightMultiplier;\n'
+        + '} else if (rooGndDebugMode < 5.5) {\n'
+        + '  diffuseColor.rgb = rooGndDiffuse * rooGndAoBlend;\n'
+        + '} else {\n'
+        + '  diffuseColor.rgb = rooGndDiffuse * vRooGndLightMultiplier;\n'
+        + '}'
     );
   };
-  material.customProgramCacheKey = () => 'roo-gnd-baked-lightmap-v4-rsw-multiplier-validity';
+  material.customProgramCacheKey = () => 'roo-gnd-baked-lightmap-v5-channel-debug-modes';
 }
 
 function createLightmapDataTexture(data, width, height) {
@@ -2936,6 +2950,13 @@ document.getElementById('recenter').addEventListener('click', () => {
   fitCamera(false);
   if (followPlayerInput.checked) focusCameraOnPlayer();
   setStatus('已重置視角。');
+});
+document.getElementById('gnd-debug-mode').addEventListener('change', event => {
+  const selected = event.currentTarget;
+  const mode = Number(selected.value);
+  GND_DEBUG_MODE_UNIFORM.value = Number.isInteger(mode) && mode >= 0 && mode <= 6 ? mode : 0;
+  const label = selected.options[selected.selectedIndex]?.textContent || '完整合成';
+  setStatus('GND 診斷模式：' + label + '。僅供分離材質通道排查；按「完整合成」回到一般地表畫面。');
 });
 let pointerOrigin = null;
 let pointerDragged = false;

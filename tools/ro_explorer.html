@@ -143,6 +143,15 @@
     <div id="native-toolbar" hidden>
       <label>地圖 ID <input id="native-map" type="text" value="prontera" maxlength="64" autocapitalize="none" spellcheck="false"></label>
       <button id="load-native-map" type="button">載入原生地圖</button>
+      <label>地表診斷 <select id="gnd-debug-mode" aria-label="GND 地表材質診斷模式">
+        <option value="0">完整合成</option>
+        <option value="1">貼圖＋頂點色</option>
+        <option value="2">RGB 光照圖</option>
+        <option value="3">AO／陰影圖</option>
+        <option value="4">RSW 方向光</option>
+        <option value="5">貼圖×AO</option>
+        <option value="6">貼圖×方向光</option>
+      </select></label>
       <span class="hint">支援原生 GND/GAT/RSW 與部分 RSM/RSM2 模型、lightmap/AO、水面和動畫，仍待真實瀏覽器畫面校驗。角色優先使用 RO 八方向動畫，失敗時退回本機立繪。野外怪物可接回主遊戲普攻、直接攻擊技能與持續傷害；角色狀態面板也有獨立恢復／輔助選單，必須保持同源主遊戲分頁開啟。指定怪物、定位場域及完整技能特效仍未全部接通。</span>
       <section id="player-vitals-panel" class="vitals-panel" hidden aria-label="角色 HP 與 SP">
         <div class="vitals-heading"><strong>角色狀態</strong><span>主遊戲同步</span></div>

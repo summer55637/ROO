@@ -151,6 +151,35 @@ async function clickMinimapUntilMoving(targetPage, useTouch, label) {
   await targetPage.locator('#stop-movement').waitFor({ state: 'hidden', timeout: 3000 });
 }
 
+const GND_DEBUG_SCREENSHOT_MODES = [
+  { value: '1', label: '貼圖＋頂點色', file: 'diffuse-vertex' },
+  { value: '2', label: 'RGB 光照圖', file: 'rgb-lightmap' },
+  { value: '3', label: 'AO／陰影圖', file: 'ao-shadow' },
+  { value: '4', label: 'RSW 方向光', file: 'rsw-light' },
+  { value: '5', label: '貼圖×AO', file: 'diffuse-times-ao' },
+  { value: '6', label: '貼圖×方向光', file: 'diffuse-times-rsw' },
+];
+
+async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
+  const selector = targetPage.locator('#gnd-debug-mode');
+  await selector.waitFor({ state: 'visible', timeout: 5000 });
+  for (const mode of GND_DEBUG_SCREENSHOT_MODES) {
+    await selector.selectOption(mode.value);
+    await sleep(220);
+    const status = await targetPage.locator('#status').innerText();
+    assert.ok(status.includes('GND 診斷模式：' + mode.label),
+      mapSlug + ' 未切換到 GND 診斷模式：' + mode.label + '；' + status);
+    await targetPage.screenshot({
+      path: path.join(artifactDir, mapSlug + '-gnd-debug-' + mode.file + '.png'),
+      clip: { x: stageBox.x, y: stageBox.y, width: stageBox.width, height: stageBox.height },
+      animations: 'disabled',
+    });
+  }
+  await selector.selectOption('0');
+  assert.ok((await targetPage.locator('#status').innerText()).includes('GND 診斷模式：完整合成'),
+    mapSlug + ' 無法切回完整 GND 合成畫面。');
+}
+
 async function run() {
   await mkdir(artifactDir, { recursive: true });
   await waitForServer();
@@ -222,6 +251,8 @@ async function run() {
     timeout: 30000,
   });
   await page.locator('#native-toolbar').waitFor({ state: 'visible', timeout: 30000 });
+  await page.locator('#gnd-debug-mode').waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await page.locator('#gnd-debug-mode option').count(), 7, 'GND 診斷應提供完整合成與六種獨立通道檢視。');
   await page.locator('#player-vitals-panel').waitFor({ state: 'visible', timeout: 30000 });
   await page.locator('#support-skill').waitFor({ state: 'visible', timeout: 30000 });
   await page.locator('#cast-support-skill').waitFor({ state: 'visible', timeout: 30000 });
@@ -284,6 +315,7 @@ async function run() {
     clip: { x: stageBox.x, y: stageBox.y, width: stageBox.width, height: stageBox.height },
     animations: 'disabled',
   });
+  await captureGndDebugViews(page, stageBox, 'tra-fild');
   await page.locator('#recenter').click();
   await sleep(200);
   await clickMinimapUntilMoving(page, false, '桌面');
@@ -327,6 +359,7 @@ async function run() {
       width: pronteraStage.width, height: pronteraStage.height },
     animations: 'disabled',
   });
+  await captureGndDebugViews(page, pronteraStage, 'prontera');
   await page.locator('#recenter').click();
 
   // Restore tra_fild for the mobile interaction checks below.
