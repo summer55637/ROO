@@ -166,6 +166,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
   const selector = targetPage.locator('#gnd-debug-mode');
   await selector.waitFor({ state: 'visible', timeout: 5000 });
   const sampledPixels = {};
+  let groundProbe = null;
   for (const mode of GND_DEBUG_SCREENSHOT_MODES) {
     await selector.selectOption(mode.value);
     await sleep(220);
@@ -175,18 +176,65 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
     if (mode.value === '7' || mode.value === '8') {
       const box = await targetPage.locator('#stage').boundingBox();
       assert.ok(box && box.width > 0 && box.height > 0, mapSlug + ' 缺少有效地表檢視範圍。');
-      await targetPage.mouse.move(box.x + box.width / 2 + 3, box.y + box.height / 2 + 3);
+      const inspector = targetPage.locator('#gnd-surface-inspector-content');
       await targetPage.locator('#gnd-surface-inspector').waitFor({ state: 'visible', timeout: 5000 });
-      await targetPage.waitForFunction(() => {
-        const text = document.getElementById('gnd-surface-inspector-content')?.textContent || '';
-        return text.includes('Surface #') && text.includes('真實材質路徑')
-          && text.includes('原始四角 UV')
-          && /GPU 最終畫面取樣 RGBA：\(\d+,\s*\d+,\s*\d+,\s*\d+\)/.test(text);
-      }, null, { timeout: 5000 });
-      const diagnosticText = await targetPage.locator('#gnd-surface-inspector-content').innerText();
-      const pixelMatch = diagnosticText.match(/GPU 最終畫面取樣 RGBA：\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)/);
-      assert.ok(pixelMatch, mapSlug + ' 沒有取得真正的 GPU 畫面像素。');
-      sampledPixels[mode.value] = pixelMatch.slice(1, 4).join(',');
+
+      if (mode.value === '7') {
+        const centerX = box.x + box.width / 2;
+        const centerY = box.y + box.height / 2;
+        const offsets = [
+          [0, 0], [-0.10 * box.width, 0], [0.10 * box.width, 0],
+          [0, -0.12 * box.height], [0, 0.12 * box.height],
+          [-0.18 * box.width, -0.12 * box.height], [0.18 * box.width, -0.12 * box.height],
+          [-0.18 * box.width, 0.12 * box.height], [0.18 * box.width, 0.12 * box.height],
+          [-0.24 * box.width, 0], [0.24 * box.width, 0],
+          [0, -0.22 * box.height], [0, 0.22 * box.height],
+          [-0.28 * box.width, -0.18 * box.height], [0.28 * box.width, -0.18 * box.height],
+          [-0.28 * box.width, 0.18 * box.height], [0.28 * box.width, 0.18 * box.height],
+        ];
+        let foundVisibleGround = false;
+        for (const [dx, dy] of offsets) {
+          const point = {
+            x: Math.max(box.x + 8, Math.min(box.x + box.width - 8, centerX + dx)),
+            y: Math.max(box.y + 8, Math.min(box.y + box.height - 8, centerY + dy)),
+          };
+          await targetPage.mouse.move(point.x, point.y);
+          await sleep(70);
+          let diagnosticText = await inspector.innerText();
+          if (!diagnosticText.includes('Surface #')) continue;
+          try {
+            await targetPage.waitForFunction(() => {
+              const text = document.getElementById('gnd-surface-inspector-content')?.textContent || '';
+              return text.includes('真實材質路徑') && text.includes('原始四角 UV')
+                && /GPU 最終畫面取樣 RGBA：\(\d+,\s*\d+,\s*\d+,\s*\d+\)/.test(text);
+            }, null, { timeout: 1600 });
+          } catch (error) {
+            continue;
+          }
+          diagnosticText = await inspector.innerText();
+          const pixelMatch = diagnosticText.match(/GPU 最終畫面取樣 RGBA：\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)/);
+          if (!pixelMatch) continue;
+          groundProbe = point;
+          sampledPixels['7'] = pixelMatch.slice(1, 4).join(',');
+          foundVisibleGround = true;
+          break;
+        }
+        assert.ok(foundVisibleGround,
+          mapSlug + ' 找不到未被前景模型遮住且可讀取 GPU 像素的地表位置。');
+      } else {
+        assert.ok(groundProbe, mapSlug + ' 未先找到純 Diffuse 的可見地表取樣點。');
+        await targetPage.mouse.move(groundProbe.x, groundProbe.y);
+        await targetPage.waitForFunction(() => {
+          const text = document.getElementById('gnd-surface-inspector-content')?.textContent || '';
+          return text.includes('Surface #') && text.includes('真實材質路徑')
+            && text.includes('原始四角 UV')
+            && /GPU 最終畫面取樣 RGBA：\(\d+,\s*\d+,\s*\d+,\s*\d+\)/.test(text);
+        }, null, { timeout: 5000 });
+        const diagnosticText = await inspector.innerText();
+        const pixelMatch = diagnosticText.match(/GPU 最終畫面取樣 RGBA：\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)/);
+        assert.ok(pixelMatch, mapSlug + ' 沒有取得純頂點色模式的 GPU 畫面像素。');
+        sampledPixels['8'] = pixelMatch.slice(1, 4).join(',');
+      }
     }
     await targetPage.screenshot({
       path: path.join(artifactDir, mapSlug + '-gnd-debug-' + mode.file + '.png'),
