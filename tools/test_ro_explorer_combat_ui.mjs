@@ -25,6 +25,12 @@ assert.match(explorer,
   /updatePlayerVitals\(\{\s*hp: result\.playerHp,\s*maxHp: result\.playerMaxHp,\s*sp: result\.playerSp,\s*maxSp: result\.playerMaxSp,/,
   '主遊戲戰鬥回覆更新角色 HP／SP');
 assert.match(explorer,
+  /if \(result\.requestType === 'status_tick'\) \{\s*if \(result\.requestId !== pendingStatusTickId\) return;\s*pendingStatusTickId = null;\s*updatePlayerVitals\(\{[\s\S]*?\}\);\s*updatePlayerProgress\(result\);/,
+  '持續傷害回覆立即刷新探索等級、經驗與鋅幣');
+assert.match(explorer,
+  /if \(!pendingCombatRequest \|\| result\.requestId !== pendingCombatRequest\.requestId\) return;[\s\S]*?updatePlayerVitals\(\{\s*hp: result\.playerHp,[\s\S]*?\}, \{ showDamage: true \}\);\s*updatePlayerProgress\(result\);/,
+  '普攻／技能回覆立即刷新探索等級、經驗與鋅幣');
+assert.match(explorer,
   /updateRoExplorerGauge\(monsterHpGauge, monsterHpBar, monsterHpValue, hp, maxHp\)/,
   '目前目標 HP 會轉成可見血條');
 console.log('原生探索戰鬥 UI 目標隔離與 HP／SP 狀態列接線測試通過。');
