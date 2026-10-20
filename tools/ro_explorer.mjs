@@ -276,9 +276,13 @@ renderPlayerProgress();
 const explorerSpriteKey = resolveRoExplorerSpriteKey(explorerParams.get('sprite'));
 const monsterMapIdFromUrl = String(explorerParams.get('map') || '').trim().toLowerCase();
 const explorerMonsterCatalog = parseRoExplorerMonsterCatalog(explorerParams.get('mobs'));
-/* 只列出目前已接通結算／計時的技能；其他持續或異常技能待整合。 */
-const RO_EXPLORER_DIRECT_SKILL_TYPES = new Set([
-  'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc'
+/* 只列出已接通的攻擊技能與安全的自身增益；其餘持續／指定目標效果待整合。 */
+const RO_EXPLORER_SELF_BUFF_TYPES = new Set([
+  'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd', 'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+]);
+const RO_EXPLORER_SUPPORTED_SKILL_TYPES = new Set([
+  'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc',
+  'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd', 'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
 ]);
 function parseRoExplorerSkillCatalog(raw) {
   try {
@@ -288,11 +292,11 @@ function parseRoExplorerSkillCatalog(raw) {
       && typeof skill.id === 'string' && /^[a-z0-9_]{1,48}$/i.test(skill.id)
       && typeof skill.name === 'string' && skill.name.length > 0 && skill.name.length <= 80
       && Number.isInteger(skill.level) && skill.level >= 1 && skill.level <= 200
-      && RO_EXPLORER_DIRECT_SKILL_TYPES.has(skill.type))
+      && RO_EXPLORER_SUPPORTED_SKILL_TYPES.has(skill.type))
       .map(skill => ({
         id: skill.id, name: skill.name, level: skill.level,
         spCost: Number.isFinite(Number(skill.spCost)) ? Math.max(0, Math.floor(Number(skill.spCost))) : 0,
-        type: skill.type
+        type: skill.type, isSelfBuff: RO_EXPLORER_SELF_BUFF_TYPES.has(skill.type)
       }));
   } catch (error) {
     return [];
@@ -2150,6 +2154,11 @@ function requestRoExplorerSkill(entry, skill) {
     setStatus('請先載入通行格，確認角色所在位置。', true);
     return;
   }
+  if (skill.isSelfBuff) {
+    queuedCombatSkill = null;
+    sendRoExplorerSkillRequest(entry, skill);
+    return;
+  }
   const distance = Math.max(Math.abs(currentCell.x - entry.cell.x), Math.abs(currentCell.y - entry.cell.y));
   if (distance > 1) {
     const adjacent = findMonsterAdjacentPath(entry);
@@ -2360,7 +2369,9 @@ function handleRoExplorerCombatStorage(event) {
   updateRoExplorerCombatButtons();
   if (Number.isFinite(result.hp)) entry.currentHp = Math.max(0, result.hp);
   if (Number.isFinite(result.maxHp)) entry.maxHp = Math.max(1, result.maxHp);
-  if (result.accepted) showRoExplorerCombatFeedback(entry, result.damageDealt, request.action === 'skill' ? 'skill' : 'attack');
+  if (result.accepted && (!result.isSelfBuff || Number(result.damageDealt) > 0)) {
+    showRoExplorerCombatFeedback(entry, result.damageDealt, request.action === 'skill' ? 'skill' : 'attack');
+  }
   if (result.killed || entry.currentHp <= 0) {
     timedStatusEntries.delete(entry);
     scheduleRoExplorerMonsterRespawn(entry, performance.now());
@@ -2415,9 +2426,11 @@ function handleRoExplorerCombatStorage(event) {
   if (request.action === 'skill') {
     nextCombatAt = performance.now() + combatAttackIntervalMs;
     const skillName = result.skillName || request.skill.name;
-    const note = result.damageDealt > 0
-      ? skillName + ' 造成 ' + Math.floor(result.damageDealt).toLocaleString() + ' 傷害。'
-      : skillName + ' 已施放。';
+    const note = result.isSelfBuff
+      ? skillName + ' 已施放，自身增益已生效。'
+      : (result.damageDealt > 0
+        ? skillName + ' 造成 ' + Math.floor(result.damageDealt).toLocaleString() + ' 傷害。'
+        : skillName + ' 已施放。');
     const playerInfo = ' 玩家 HP ' + Math.floor(result.playerHp).toLocaleString()
       + ' / ' + Math.floor(result.playerMaxHp).toLocaleString()
       + '，SP ' + Math.floor(result.playerSp).toLocaleString()
