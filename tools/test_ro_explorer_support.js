@@ -13,13 +13,21 @@ g.state.learnedSkills.heal = 5;
 g.state.learnedSkills.sanctuary = 3;
 g.state.learnedSkills.magnificat = 1;
 g.state.learnedSkills.strecovery = 1;
+g.state.learnedSkills.blessing = 5;
+g.state.learnedSkills.angelusbarrier = 4;
+g.state.learnedSkills.kyrie = 5;
+g.state.learnedSkills.gloria = 3;
+g.state.learnedSkills.aspersio = 1;
+g.state.learnedSkills.sanctuary_holy = 1;
+g.state.learnedSkills.slowpoison = 1;
 g.state.learnedSkills.bash = 5;
 g.state.mapId = map.id;
 g.state.cooldowns = {};
 g.recomputeDerived(true);
-g.state.maxSp = Math.max(150, g.state.maxSp);
+g.state.maxSp = Math.max(250, g.state.maxSp);
 g.state.hp = Math.max(1, g.state.maxHp - 100);
 g.state.sp = g.state.maxSp;
+g.state.gold = 5000;
 const idleMonsters = [{ defId: map.monsters && map.monsters[0] ? map.monsters[0].id : 'poring',
   hp: 777, maxHp: 777, id: 7 }];
 g.state.monsters = idleMonsters;
@@ -71,6 +79,66 @@ t.ok('光耀之堂沿用主引擎持續恢復場域',
     && g.state.activeFieldEffects.some(effect => effect.kind === 'selfheal' && effect.endsAt > Date.now()));
 t.eq('光耀之堂結算後仍保留原怪物陣列', g.state.monsters, idleMonsters);
 t.eq('光耀之堂未更動放置怪物 HP', g.state.monsters[0].hp, 777);
+
+g.state.cooldowns = {};
+g.state.sp = g.state.maxSp;
+const blessing = g.castRoExplorerSupportSkill('ex-support-session', map.id, 'blessing');
+t.eq('探索可施放天使之賜福', blessing.accepted, true);
+t.ok('天使之賜福寫入主引擎能力值增益',
+  g.state.buffs.some(buff => buff.type === 'blessing' && buff.skillId === 'blessing'));
+t.ok('天使之賜福也套用命中增益',
+  g.state.buffs.some(buff => buff.type === 'hit' && buff.flatBonus > 0));
+
+g.state.cooldowns = {};
+g.state.sp = g.state.maxSp;
+const angelus = g.castRoExplorerSupportSkill('ex-support-session', map.id, 'angelusbarrier');
+t.eq('探索可施放天使之障壁', angelus.accepted, true);
+t.ok('天使之障壁寫入防禦增益',
+  g.state.buffs.some(buff => buff.type === 'def' && buff.skillId === 'angelusbarrier' && buff.mult > 1));
+t.ok('天使之障壁提高角色最大 HP', g.state.maxHp > angelus.playerMaxHp - 150);
+
+g.state.cooldowns = {};
+g.state.sp = g.state.maxSp;
+const kyrie = g.castRoExplorerSupportSkill('ex-support-session', map.id, 'kyrie');
+t.eq('探索可施放霸邪之陣', kyrie.accepted, true);
+t.ok('霸邪之陣沿用主引擎護盾資料',
+  (g.state.shields || []).some(shield => shield.id === 'kyrie'
+    && shield.remainingHp > 0 && shield.remainingCharges > 0));
+
+g.state.cooldowns = {};
+g.state.sp = g.state.maxSp;
+const gloria = g.castRoExplorerSupportSkill('ex-support-session', map.id, 'gloria');
+t.eq('探索可施放幸運之頌歌', gloria.accepted, true);
+t.ok('幸運之頌歌寫入 LUK 增益',
+  g.state.buffs.some(buff => buff.type === 'lukflat' && buff.skillId === 'gloria' && buff.flatBonus > 0));
+
+g.state.cooldowns = {};
+g.state.sp = g.state.maxSp;
+const goldBefore = g.state.gold;
+const aspersio = g.castRoExplorerSupportSkill('ex-support-session', map.id, 'aspersio');
+t.eq('探索可施放撒水祈福', aspersio.accepted, true);
+t.eq('撒水祈福依主引擎扣除鋅幣', goldBefore - g.state.gold, 1500);
+t.eq('撒水祈福回報正確鋅幣花費', aspersio.zenySpent, 1500);
+t.ok('撒水祈福附加武器聖屬性',
+  g.state.buffs.some(buff => buff.type === 'holyweapon'));
+
+g.state.cooldowns = {};
+g.state.sp = g.state.maxSp;
+const armor = g.castRoExplorerSupportSkill('ex-support-session', map.id, 'sanctuary_holy');
+t.eq('探索可施放聖之祈福', armor.accepted, true);
+t.ok('聖之祈福寫入防禦屬性增益',
+  g.state.buffs.some(buff => buff.type === 'elearmor' && buff.element === 'holy'));
+
+g.state.cooldowns = {};
+g.state.sp = g.state.maxSp;
+g.state.playerAil.poison = Date.now() + 10000;
+const poisonGuard = g.castRoExplorerSupportSkill('ex-support-session', map.id, 'slowpoison');
+t.eq('探索可施放緩毒術', poisonGuard.accepted, true);
+t.eq('緩毒術會解除現有中毒', (g.state.playerAil || {}).poison, undefined);
+t.ok('緩毒術寫入主引擎中毒免疫增益',
+  g.state.buffs.some(buff => buff.type === 'ailimmune' && buff.ailType === 'poison'));
+t.ok('緩毒期間主引擎拒絕新中毒',
+  !g.applyPlayerAilment('poison'));
 
 const beforeInvalid = { hp: g.state.hp, sp: g.state.sp };
 const wrongMap = g.castRoExplorerSupportSkill('ex-support-session', 'wrong_map', 'heal');

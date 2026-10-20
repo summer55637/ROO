@@ -2154,6 +2154,8 @@ function openRoExplorer() {
   'heal', 'heal_over_time', 'field_heal', 'cure', 'buff_sprate', 'buff_def', 'buff_block',
   'buff_reflect', 'buff_providence', 'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd',
   'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+  'buff_blessing', 'buff_angelus', 'buff_shield', 'buff_lukflat',
+  'buff_holyweapon', 'buff_elearmor', 'buff_ailimmune',
 ]);
   const explorerSkillTypes = new Set([
     'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc',

@@ -63,7 +63,10 @@ for (const type of uiSupportTypes) {
 for (const type of engineSupportTypes) {
   assert.ok(uiSupportTypes.has(type), '主引擎恢復／輔助清單同步到入口：' + type);
 }
-for (const type of ['heal', 'field_heal', 'cure', 'buff_sprate']) {
+for (const type of [
+  'heal', 'field_heal', 'cure', 'buff_sprate', 'buff_blessing', 'buff_angelus',
+  'buff_shield', 'buff_lukflat', 'buff_holyweapon', 'buff_elearmor', 'buff_ailimmune',
+]) {
   assert.ok(explorerSupportTypes.has(type), '關鍵恢復／輔助類型已接通：' + type);
 }
 assert.match(ui, /isSupport: supportSkillTypes\.has\(entry\.sk\.type\)/,

@@ -6545,6 +6545,8 @@ const RO_EXPLORER_SUPPORT_SKILL_TYPES = new Set([
   'heal', 'heal_over_time', 'field_heal', 'cure', 'buff_sprate', 'buff_def', 'buff_block',
   'buff_reflect', 'buff_providence', 'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd',
   'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+  'buff_blessing', 'buff_angelus', 'buff_shield', 'buff_lukflat',
+  'buff_holyweapon', 'buff_elearmor', 'buff_ailimmune',
 ]);
 const RO_EXPLORER_SUPPORTED_SKILL_TYPES = new Set([
   'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc',
@@ -6835,6 +6837,7 @@ function castRoExplorerSupportSkill(sessionId, mapId, skillId) {
 
   const hpBefore = Number(state.hp) || 0;
   const spBefore = Number(state.sp) || 0;
+  const zenyBefore = Number(state.gold) || 0;
   let accepted = false;
   roExplorerCombatTransactionDepth++;
   try {
@@ -6851,6 +6854,7 @@ function castRoExplorerSupportSkill(sessionId, mapId, skillId) {
     hpRestored: Math.max(0, (Number(state.hp) || 0) - hpBefore),
     spRestored: Math.max(0, (Number(state.sp) || 0) - spBefore),
     spCost: Math.max(0, spBefore - (Number(state.sp) || 0)),
+    zenySpent: Math.max(0, zenyBefore - (Number(state.gold) || 0)),
     playerHp: state.hp, playerMaxHp: state.maxHp, playerSp: state.sp, playerMaxSp: state.maxSp,
   };
 }

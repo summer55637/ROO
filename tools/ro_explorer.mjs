@@ -286,6 +286,8 @@ const RO_EXPLORER_SUPPORT_SKILL_TYPES = new Set([
   'heal', 'heal_over_time', 'field_heal', 'cure', 'buff_sprate', 'buff_def', 'buff_block',
   'buff_reflect', 'buff_providence', 'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd',
   'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+  'buff_blessing', 'buff_angelus', 'buff_shield', 'buff_lukflat',
+  'buff_holyweapon', 'buff_elearmor', 'buff_ailimmune',
 ]);
 const RO_EXPLORER_SUPPORTED_SKILL_TYPES = new Set([
   'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc',
@@ -2439,9 +2441,17 @@ function handleRoExplorerCombatStorage(event) {
     if (result.skillType === 'field_heal') note = skillName + ' 已啟動持續恢復效果。';
     else if (result.skillType === 'cure') note = skillName + ' 已施放，已處理可解除的異常狀態。';
     else if (result.skillType === 'buff_sprate') note = skillName + ' 已施放，SP 自然恢復增益已生效。';
+    else if (result.skillType === 'buff_blessing') note = skillName + ' 已施放，能力值與命中提升。';
+    else if (result.skillType === 'buff_angelus') note = skillName + ' 已施放，防禦與最大 HP 提升。';
+    else if (result.skillType === 'buff_shield') note = skillName + ' 已施放，防護護盾已建立。';
+    else if (result.skillType === 'buff_lukflat') note = skillName + ' 已施放，幸運值提升。';
+    else if (result.skillType === 'buff_holyweapon') note = skillName + ' 已施放，武器暫時附加聖屬性。';
+    else if (result.skillType === 'buff_elearmor') note = skillName + ' 已施放，防禦屬性已變更。';
+    else if (result.skillType === 'buff_ailimmune') note = skillName + ' 已施放，中毒免疫已生效。';
     if (Number(result.hpRestored) > 0) note += ' HP +' + Math.floor(result.hpRestored).toLocaleString() + '。';
     if (Number(result.spRestored) > 0) note += ' SP +' + Math.floor(result.spRestored).toLocaleString() + '。';
     else if (Number(result.spCost) > 0) note += ' 消耗 SP ' + Math.floor(result.spCost).toLocaleString() + '。';
+    if (Number(result.zenySpent) > 0) note += ' 消耗鋅幣 ' + Math.floor(result.zenySpent).toLocaleString() + '。';
     note += ' 目前 HP ' + Math.floor(result.playerHp).toLocaleString()
       + ' / ' + Math.floor(result.playerMaxHp).toLocaleString()
       + '，SP ' + Math.floor(result.playerSp).toLocaleString()

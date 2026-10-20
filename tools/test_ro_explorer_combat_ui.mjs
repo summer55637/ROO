@@ -56,4 +56,13 @@ assert.match(ui, /'support_skill'[\s\S]*?castRoExplorerSupportSkill\(command\.se
 assert.match(explorer,
   /if \(result\.requestType === 'support_skill'\)[\s\S]*?updatePlayerVitals\([\s\S]*?updatePlayerProgress\(result\)[\s\S]*?return;/,
   '恢復／輔助回覆更新 HP／SP 與進度 HUD，不讀取怪物目標');
+for (const message of [
+  'buff_blessing', 'buff_angelus', 'buff_shield', 'buff_lukflat',
+  'buff_holyweapon', 'buff_elearmor', 'buff_ailimmune',
+]) {
+  assert.ok(explorer.includes("result.skillType === '" + message + "'"),
+    'UI 有專屬輔助提示：' + message);
+}
+assert.match(explorer, /Number\(result\.zenySpent\) > 0[\s\S]*?消耗鋅幣/,
+  '需要鋅幣的輔助技能會回報貨幣花費');
 console.log('原生探索自身增益與恢復／輔助 UI 接線測試通過。');
