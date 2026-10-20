@@ -5,6 +5,7 @@ import {
   RAGASSETS_BASE_URL,
   buildGndLightmapAtlasData,
   computeGndLightDirection,
+  transformGndNormalToRoSpace,
   buildGndMeshData,
   GND_PREVIEW_AO_STRENGTH,
   analyzeRswPlacementBounds,
@@ -1683,8 +1684,17 @@ async function loadRagassetsMap(mapName) {
       geometry.setIndex(bucket.indices);
       geometry.computeVertexNormals();
       if (lightmapAtlas) {
+        const viewNormals = geometry.getAttribute('normal').array;
+        const roLightingNormals = new Float32Array(viewNormals.length);
+        for (let normalAt = 0; normalAt < viewNormals.length; normalAt += 3) {
+          roLightingNormals.set(transformGndNormalToRoSpace([
+            viewNormals[normalAt],
+            viewNormals[normalAt + 1],
+            viewNormals[normalAt + 2],
+          ]), normalAt);
+        }
         geometry.setAttribute('rooGndVertexNormal', new THREE.Float32BufferAttribute(
-          geometry.getAttribute('normal').array, 3
+          roLightingNormals, 3
         ));
       }
 

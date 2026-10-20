@@ -7,6 +7,7 @@ import {
   computeGndPreviewColor,
   computeGndLightDirection,
   computeGndLightMultiplier,
+  transformGndNormalToRoSpace,
   buildRsmNodeTransformData,
   buildRsm2NodeTransformData,
   buildRsmNodeMeshData,
@@ -1021,13 +1022,21 @@ assert.ok(Math.abs(quarterTurnLightDirection[0] - 1) < 1e-12
   'GND longitude and latitude rotation order is preserved');
 assert.throws(() => computeGndLightDirection(NaN, 0), /光照方向/,
   'invalid RSW angles are rejected');
+assert.deepEqual(transformGndNormalToRoSpace([0, 1, 0]), [0, -1, -0],
+  'flat Three.js ground normals are converted to RO GND Y-down normal space');
+assert.deepEqual(transformGndNormalToRoSpace([0.25, 0.5, -0.75]), [0.25, -0.5, 0.75],
+  'slope normals undo both the view-space Y and Z axis flips');
+assert.throws(() => transformGndNormalToRoSpace([0, NaN, 1]), /法線換算/,
+  'invalid ground normals are rejected');
 const brightSideMultiplier = computeGndLightMultiplier(
-  [0, 1, 0], [0, -1, 0], [0.2, 0.2, 0.2], [0.8, 0.8, 0.8]
+  transformGndNormalToRoSpace([0, 1, 0]), [0, 1, 0],
+  [0.2, 0.2, 0.2], [0.8, 0.8, 0.8]
 );
 assert.ok(brightSideMultiplier.every(value => Math.abs(value - 0.84) < 1e-12),
   'official RSW light formula produces the expected facing-surface multiplier');
 const awaySideMultiplier = computeGndLightMultiplier(
-  [0, -1, 0], [0, -1, 0], [0.2, 0.2, 0.2], [0.8, 0.8, 0.8]
+  transformGndNormalToRoSpace([0, -1, 0]), [0, 1, 0],
+  [0.2, 0.2, 0.2], [0.8, 0.8, 0.8]
 );
 assert.ok(awaySideMultiplier.every(value => Math.abs(value - 0.168) < 1e-12),
   'official RSW light formula retains ambient light when the surface faces away');
@@ -1036,6 +1045,8 @@ assert.throws(() => computeGndLightMultiplier([0, 0, 0], [0, 1, 0], [0.2, 0.2, 0
 const gndExplorerSource = readFileSync(new URL('./ro_explorer.mjs', import.meta.url), 'utf8');
 assert.match(gndExplorerSource, /vRooGndLightMultiplier/,
   'native ground shader applies the computed RSW lighting multiplier');
+assert.match(gndExplorerSource, /transformGndNormalToRoSpace/,
+  'native ground shader converts Three.js normals back to the official GND coordinate system');
 assert.match(gndExplorerSource, /computeGndLightDirection/,
   'native ground shader uses the reference RSW angle conversion');
 assert.match(gndExplorerSource, /rooGndHasLightmap/,

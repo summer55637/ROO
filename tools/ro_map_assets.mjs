@@ -45,6 +45,15 @@ export function computeGndLightDirection(longitude, latitude) {
   ];
 }
 
+// Three.js positions flip the source map's Y-height and Z-grid axes. Convert
+// view-space geometry normals back to RO's GND/RSW light coordinate system.
+export function transformGndNormalToRoSpace(normal) {
+  if (!Array.isArray(normal) || normal.length !== 3 || !normal.every(Number.isFinite)) {
+    throw new TypeError('GND 法線換算需要三個有限分量。');
+  }
+  return [normal[0], -normal[1], -normal[2]];
+}
+
 // Mirror the official GRFEditor GND vertex shader, including its non-linear
 // ambient/diffuse blend and the negative light-direction dot product.
 export function computeGndLightMultiplier(normal, lightDirection, lightAmbient, lightDiffuse) {

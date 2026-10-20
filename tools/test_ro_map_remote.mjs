@@ -6,6 +6,7 @@ import {
   buildGndLightmapAtlasData,
   computeGndLightDirection,
   computeGndLightMultiplier,
+  transformGndNormalToRoSpace,
   buildGndWaterMeshDataByPlane,
   buildRsmNodeTransformData,
   buildRsm2NodeTransformData,
@@ -445,12 +446,13 @@ async function validateMap(mapId) {
   const nw = [0, -sampleCube.hNW * 0.2, -2];
   const edgeA = se.map((value, index) => value - sw[index]);
   const edgeB = nw.map((value, index) => value - sw[index]);
-  let sampleNormal = [
+  let sampleWorldNormal = [
     edgeA[1] * edgeB[2] - edgeA[2] * edgeB[1],
     edgeA[2] * edgeB[0] - edgeA[0] * edgeB[2],
     edgeA[0] * edgeB[1] - edgeA[1] * edgeB[0],
   ];
-  if (sampleNormal[1] < 0) sampleNormal = sampleNormal.map(value => -value);
+  if (sampleWorldNormal[1] < 0) sampleWorldNormal = sampleWorldNormal.map(value => -value);
+  const sampleNormal = transformGndNormalToRoSpace(sampleWorldNormal);
   const rswDirection = computeGndLightDirection(rsw.light.longitude, rsw.light.latitude);
   const rswMultiplier = computeGndLightMultiplier(
     sampleNormal, rswDirection, rsw.light.ambient, rsw.light.diffuse
@@ -472,7 +474,7 @@ async function validateMap(mapId) {
       + ' RGB RO-level16=' + JSON.stringify(posterizedLightRgb)
       + ' atlas UV=' + JSON.stringify(sampleLightmapUvs)
       + ' vertex tint=' + JSON.stringify(vertexColor)
-      + ' surface normal=' + JSON.stringify(sampleNormal)
+      + ' source-space normal=' + JSON.stringify(sampleNormal)
       + ' RSW angles=' + JSON.stringify([rsw.light.longitude, rsw.light.latitude])
       + ' RSW ambient=' + JSON.stringify(rsw.light.ambient)
       + ' RSW diffuse=' + JSON.stringify(rsw.light.diffuse)
