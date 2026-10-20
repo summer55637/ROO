@@ -18,4 +18,13 @@ assert.match(explorer,
 assert.match(explorer,
   /if \(selectedMonsterEntry === entry\) \{\s*setStatus\(result\.error/,
   '舊目標的錯誤回報不會覆蓋新目標狀態');
-console.log('原生探索戰鬥 UI 目標隔離測試通過：舊目標回報不會覆蓋目前選取目標。');
+assert.match(explorer,
+  /function updatePlayerVitals\(values\)/,
+  '探索頁提供角色 HP／SP 狀態同步入口');
+assert.match(explorer,
+  /updatePlayerVitals\(\{\s*hp: result\.playerHp,\s*maxHp: result\.playerMaxHp,\s*sp: result\.playerSp,\s*maxSp: result\.playerMaxSp,/,
+  '主遊戲戰鬥回覆更新角色 HP／SP');
+assert.match(explorer,
+  /updateRoExplorerGauge\(monsterHpGauge, monsterHpBar, monsterHpValue, hp, maxHp\)/,
+  '目前目標 HP 會轉成可見血條');
+console.log('原生探索戰鬥 UI 目標隔離與 HP／SP 狀態列接線測試通過。');
