@@ -45,7 +45,7 @@ t.ok('冷卻拒絕帶有原因', String(healCooldown.error).includes('冷卻'));
 
 g.state.cooldowns = {};
 const ailmentEnd = Date.now() + 10000;
-g.state.playerAil = { stun: ailmentEnd, poison: ailmentEnd };
+g.state.playerAil = { blind: ailmentEnd, poison: ailmentEnd };
 const cure = g.castRoExplorerSupportSkill('ex-support-session', map.id, 'strecovery');
 t.eq('探索可施放痊癒術', cure.accepted, true);
 t.eq('痊癒術清除角色異常狀態', Object.keys(g.state.playerAil || {}).length, 0);
