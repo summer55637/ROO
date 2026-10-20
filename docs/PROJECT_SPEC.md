@@ -372,3 +372,14 @@
 - 保留 RO 本身的 RGB level-16 posterization（每通道向下量化至 16 的倍數）；公開 Ground Mesh 文件確認這是原版刻意處理，會產生階梯狀色塊，不應當作程式錯誤直接刪除。
 - 剩餘色塊需區分原始 baked lightmap、AO、vertex color 與真實地形表面邊界；逐像素紀錄只驗證取樣與映射，不宣稱已與官方客戶端整張畫面逐像素一致。
 - 參考：[GND 格式](https://ragnarokresearchlab.github.io/file-formats/gnd/)、[Ground Mesh／AO／posterization](https://ragnarokresearchlab.github.io/rendering/ground-mesh/)、[GRFEditor 原版 GND shader](https://raw.githubusercontent.com/Tokeiburu/GRFEditor/e6508407c1e193dac5252eef788dc0a0c1d9d07f/GRFEditor/Resources/Shaders/map/gnd.frag)、[GRFEditor lightmap UV renderer](https://raw.githubusercontent.com/Tokeiburu/GRFEditor/e6508407c1e193dac5252eef788dc0a0c1d9d07f/GRFEditor/OpenGL/MapRenderers/GndRenderer.cs)。
+
+## 2026-10-20 更新：GND 通道診斷與桌面／手機回歸
+
+- 原生地圖測試頁新增七種 GND 顯示模式：完整合成、diffuse＋頂點色、RGB lightmap、AO／shadowmap、RSW 方向光、diffuse×AO、diffuse×方向光；只供開發診斷，預設仍是完整合成。
+- Chromium 驗收會對 `tra_fild` 與 `prontera` 各保存六種分通道近景截圖，並驗證能切回完整合成；桌面診斷選單放在場景內，手機隱藏，避免增加工具列高度而把小地圖擠出可視範圍。
+- 截圖觀察：黃色／綠色色塊在 diffuse＋頂點色模式已可見，表示不能把全部色差歸因於 AO 或 RGB lightmap；RGB lightmap 模式另外可見稀疏線狀細節。這只是定位線索，尚未證實每個色塊或細線的唯一根因。
+- 本輪未調整正式地表合成公式，也未更動 GAT 碰撞／尋路、戰鬥、存檔或純前端架構。下一步優先追查真實 surface 的 diffuse 貼圖路徑、四角 UV 與抽樣像素，再逐一對照 lightmap slice／UV 和公開 GRFEditor renderer；不要先盲目調整亮度、posterization 或 AO 強度。
+- 本次程式 head `93b23e6` 驗證成功： [Push CI #39422137500](https://github.com/summer55637/ROO/actions/runs/39422137500)、[PR CI #39422143977](https://github.com/summer55637/ROO/actions/runs/39422143977)。驗收包含桌面／手機 Chromium、主遊戲＋探索戰鬥端到端、完整回歸、全遊戲 smoke test 與資料語法檢查。
+- 分通道畫面與手機畫面 artifact：[roo-explorer-browser-screenshots](https://github.com/summer55637/ROO/actions/runs/39422143977/artifacts/12263997104)。
+- PR #1 仍為草稿且未合併 `main`；開發分支提交不會自動更新 GitHub Pages 正式網址。
+
