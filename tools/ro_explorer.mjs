@@ -5,7 +5,6 @@ import {
   RAGASSETS_BASE_URL,
   buildGndLightmapAtlasData,
   buildGndMeshData,
-  GND_PREVIEW_LIGHT_FLOOR,
   GND_PREVIEW_AO_STRENGTH,
   analyzeRswPlacementBounds,
   buildRsmNodeTransformData,
@@ -1436,17 +1435,15 @@ function applyGndBakedLighting(material, lightMapTexture, aoTexture) {
       '#include <common>',
       '#include <common>\nuniform sampler2D rooGndLightMap;\nuniform sampler2D rooGndAoMap;\nvarying vec2 vRooGndLightmapUv;'
     ).replace(
-      '#include <map_fragment>',
-      '#include <map_fragment>\n'
-        + 'vec3 rooGndBakedLight = max(texture2D(rooGndLightMap, vRooGndLightmapUv).rgb, vec3('
-        + GND_PREVIEW_LIGHT_FLOOR.toFixed(2) + '));\n'
-        + 'float rooGndAmbientOcclusion = mix(1.0, texture2D(rooGndAoMap, vRooGndLightmapUv).r, '
+      '#include <color_fragment>',
+      '#include <color_fragment>\n'
+        + 'float rooGndAmbientOcclusion = mix(1.0, clamp(texture2D(rooGndAoMap, vRooGndLightmapUv).r, 0.0, 1.0), '
         + GND_PREVIEW_AO_STRENGTH.toFixed(2) + ');\n'
-        + 'diffuseColor.rgb *= rooGndBakedLight;\n'
-        + 'diffuseColor.rgb *= rooGndAmbientOcclusion;'
+        + 'diffuseColor.rgb *= rooGndAmbientOcclusion;\n'
+        + 'diffuseColor.rgb += clamp(texture2D(rooGndLightMap, vRooGndLightmapUv).rgb, 0.0, 1.0);'
     );
   };
-  material.customProgramCacheKey = () => 'roo-gnd-baked-lightmap-v2-preview';
+  material.customProgramCacheKey = () => 'roo-gnd-baked-lightmap-v3-ro-composite';
 }
 
 function createLightmapDataTexture(data, width, height) {

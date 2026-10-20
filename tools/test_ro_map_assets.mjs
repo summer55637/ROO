@@ -3,9 +3,8 @@ import { readFileSync } from 'node:fs';
 import {
   RAGASSETS_BASE_URL,
   buildGndLightmapAtlasData,
-  GND_PREVIEW_LIGHT_FLOOR,
   GND_PREVIEW_AO_STRENGTH,
-  computeGndPreviewLightingMultiplier,
+  computeGndPreviewColor,
   buildRsmNodeTransformData,
   buildRsm2NodeTransformData,
   buildRsmNodeMeshData,
@@ -913,19 +912,29 @@ assert.equal(resolveMapTextureUrl(terrainTextureManifest, ''),
   null, '空白貼圖名稱不會解析到任意材質');
 
 
-const darkestGndPreview = computeGndPreviewLightingMultiplier([0, 0.1, 1], 0);
-assert.ok(Math.abs(darkestGndPreview[0]
-  - GND_PREVIEW_LIGHT_FLOOR * (1 - GND_PREVIEW_AO_STRENGTH)) < 1e-9,
-'暗部預覽仍保留可見的最低光照');
-assert.ok(darkestGndPreview.every(value => value > 0 && value <= 1),
-  '光照合成乘數保持可顯示且在合法範圍');
-assert.deepEqual(computeGndPreviewLightingMultiplier([1, 1, 1], 1), [1, 1, 1],
-  '全亮 lightmap 與無 AO 區域保持原亮度');
-assert.deepEqual(computeGndPreviewLightingMultiplier([-1, 0.5, 2], 2),
-  computeGndPreviewLightingMultiplier([0, 0.5, 1], 1),
-  '光照與 AO 輸入被限制於合法範圍');
-assert.throws(() => computeGndPreviewLightingMultiplier([1, 1], 1),
-  /GND 預覽光照/, '無效光照資料會被拒絕');
+assert.equal(GND_PREVIEW_AO_STRENGTH, 1, 'RO applies the stored grayscale AO map at full strength');
+assert.deepEqual(
+  computeGndPreviewColor([0.6, 0.4, 0.2], [0.1, 0.25, 0.5], 0.5),
+  [0.4, 0.45, 0.6],
+  'RO compositing multiplies diffuse by AO, then adds the RGB lightmap'
+);
+assert.deepEqual(
+  computeGndPreviewColor([0.6, 0.4, 0.2], [0.1, 0.25, 0.5], 1),
+  [0.7, 0.65, 0.7],
+  'white AO preserves diffuse before the additive lightmap pass'
+);
+assert.deepEqual(
+  computeGndPreviewColor([0.6, 0.4, 0.2], [0.1, 0.25, 0.5], 0),
+  [0.1, 0.25, 0.5],
+  'black AO darkens only diffuse; it does not erase baked colored light'
+);
+assert.deepEqual(
+  computeGndPreviewColor([0.1, 0.5, 1.2], [-1, 0.5, 2], 2),
+  [0.1, 1, 2.2],
+  'AO and RGB lightmap channels are clamped to their legal ranges'
+);
+assert.throws(() => computeGndPreviewColor([1, 1], [0, 0, 0], 1),
+  /GND 預覽合成/, 'invalid diffuse or lightmap data is rejected');
 
 
 for (const [pixels, label] of [

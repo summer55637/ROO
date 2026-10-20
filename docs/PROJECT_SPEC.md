@@ -315,12 +315,12 @@
 - 格式檢查參照 [RagnarokFileFormats GND 規格](https://github.com/rdw-archive/RagnarokFileFormats/blob/master/GND.MD)。該規格描述地表 diffuse 貼圖、烘焙 RGB lightmap 及灰階 AO/shadow map；視覺準確度仍以 CI 截圖及後續目視比對為準。
 
 
-## 2026-10-20 更新：原生地表過暗的預覽光照修正
+## 2026-10-20 更新：GND 原生光照合成順序校正
 
-- 在瀏覽器驗收確認 GND 地表貼圖 11/11 成功載入後，截圖仍有大面積黑暗條紋；因此問題不只在貼圖 URL。
-- 原生預覽採用 Basic 材質，地表本身由 baked lightmap 與 AO 合成；現在為極暗光照保留有限亮度底值，並降低 AO 的乘算強度，避免陰影把 diffuse 地表完全壓黑。
-- 保留光照 RGB 色彩、亮部與 AO 的明暗變化；這是為了瀏覽器預覽可讀性所做的折衷，不宣稱與官方 RO 客戶端逐像素一致。
-- 新增光照乘數的行為測試，覆蓋暗部最低光照、全亮保真、輸入範圍與無效數值；地圖資料、GAT 通行／尋路與 RO 戰鬥公式不變。
+- 先前預覽把 RGB lightmap 當成 diffuse 的乘數，並人工提高過暗通道；雖可避免純黑，卻不符合 RO 的真實合成順序，而且會把地表原色及光照細節一起壓暗。
+- 對照 [GRFEditor GND fragment shader](https://github.com/Tokeiburu/GRFEditor/blob/e6508407c1e193dac5252eef788dc0a0c1d9d07f/GRFEditor/Resources/Shaders/map/gnd.frag)：RO 先以頂點色處理 diffuse，再乘灰階 AO/shadowmap，最後將 RGB lightmap 加到顏色上。現已把合成程式移至 Three.js 的 vertex-color pass 後，按同一順序運算。
+- 移除人工 lightmap 最低乘數，AO 按原始灰階資料完整套用；同時保留 RGB lightmap 的加色，不再用光照值覆蓋或縮小 diffuse 色彩。
+- 新增合成公式測試：驗證 AO 為黑／灰／白時的行為、lightmap 通道限制與無效輸入。此為與公開 RO shader 一致的公式校正；仍需以新 CI 截圖目視確認場景整體亮度與剩餘幾何縫隙。
 
 
 ## 2026-10-20 更新：GND lightmap 縮小混疊修正
@@ -345,3 +345,9 @@
 - 新增二進位 fixture 回歸，逐像素驗證 AO 首三值、RGB 首三個 texel、atlas 輸出與 surface 左下角 lightmap UV 對應；保留既有 4px gutter、保護邊框與 mipmap。
 - diffuse UV 的 RO 頂點順序仍是 SW、SE、NW、NE；這次只修正已由公開格式和程式碼比對證實的通道解析，不任意翻轉 UV。
 - 等待本次完整 CI 與桌面／手機截圖驗證；目前分支仍是 PR 草稿，尚未合併 `main`，GitHub Pages 不會因功能分支提交自動更新。
+
+## 2026-10-20 更新：GND diffuse、AO 與 lightmap 的實際合成順序
+- 公開 GND 規格確認每個切片包含獨立灰階 AO/shadowmap 與 RGB lightmap；公開 GRFEditor shader 顯示 AO 乘在 diffuse 之後，RGB lightmap 再以加法疊加。
+- 修正 Three.js 預覽：diffuse 與頂點色先合成，再乘 AO，最後加上 RGB lightmap。此前錯把 lightmap 當乘數，會把原始地表壓暗並放大不自然的明暗條紋。
+- diffuse UV／lightmap UV 仍按 RO 的 SW、SE、NW、NE 頂點對應；lightmap 只取 8×8 slice 中央 6×6 有效區域，外圈作防滲色緩衝。沒有任意翻轉 UV。
+- 本次 Push／PR 完整 CI 與新桌面／手機截圖驗收以最新提交結果為準；PR 維持草稿且未合併 `main`。
