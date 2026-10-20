@@ -1021,7 +1021,7 @@ assert.ok(awaySideMultiplier.every(value => Math.abs(value - 0.168) < 1e-12),
 assert.throws(() => computeGndLightMultiplier([0, 0, 0], [0, 1, 0], [0.2, 0.2, 0.2], [1, 1, 1]),
   /零向量/, 'zero normals are rejected instead of making an unstable light value');
 const gndExplorerSource = readFileSync(new URL('./ro_explorer.mjs', import.meta.url), 'utf8');
-assert.match(gndExplorerSource, /rooGndLightMultiplier/,
+assert.match(gndExplorerSource, /vRooGndLightMultiplier/,
   'native ground shader applies the computed RSW lighting multiplier');
 assert.match(gndExplorerSource, /rooGndHasLightmap/,
   'native ground shader masks surfaces without valid lightmap slices');
