@@ -4,6 +4,7 @@ import {
   RAGASSETS_BASE_URL,
   analyzeRswPlacementBounds,
   buildGndLightmapAtlasData,
+  computeGndLightMultiplier,
   buildGndWaterMeshDataByPlane,
   buildRsmNodeTransformData,
   buildRsm2NodeTransformData,
@@ -436,6 +437,35 @@ async function validateMap(mapId) {
   assert.ok(Math.abs(sampleLightmapUvs[1][0] - sampleLightmapUvs[0][0] - expectedUvSpan) < 1e-12,
     mapId + ' real lightmap UV spans six visible texels between inner borders');
 
+  const sampleCube = gnd.cubes.find(cube => cube.topSurface === sampleSurfaceIndex);
+  assert.ok(sampleCube, mapId + ' sample ground surface has a source cube for normal analysis');
+  const sw = [0, -sampleCube.hSW * 0.2, 0];
+  const se = [2, -sampleCube.hSE * 0.2, 0];
+  const nw = [0, -sampleCube.hNW * 0.2, -2];
+  const edgeA = se.map((value, index) => value - sw[index]);
+  const edgeB = nw.map((value, index) => value - sw[index]);
+  let sampleNormal = [
+    edgeA[1] * edgeB[2] - edgeA[2] * edgeB[1],
+    edgeA[2] * edgeB[0] - edgeA[0] * edgeB[2],
+    edgeA[0] * edgeB[1] - edgeA[1] * edgeB[0],
+  ];
+  if (sampleNormal[1] < 0) sampleNormal = sampleNormal.map(value => -value);
+  const longitude = rsw.light.longitude * Math.PI / 180;
+  const latitude = rsw.light.latitude * Math.PI / 180;
+  const rswDirection = [
+    Math.cos(latitude) * Math.cos(longitude),
+    Math.sin(latitude),
+    Math.cos(latitude) * Math.sin(longitude),
+  ];
+  const rswMultiplier = computeGndLightMultiplier(
+    sampleNormal, rswDirection, rsw.light.ambient, rsw.light.diffuse
+  );
+  const surfaceColors = Array.isArray(sampleSurface.colors) && sampleSurface.colors.length
+    ? sampleSurface.colors : [sampleSurface.color || [1, 1, 1, 1]];
+  const vertexColor = [0, 1, 2].map(channel => surfaceColors.reduce(
+    (sum, color) => sum + (Number.isFinite(color[channel]) ? color[channel] : 1), 0
+  ) / surfaceColors.length);
+
   console.log(
     mapId + ' GND pixel trace: diffuse=' + gnd.textures[sampleSurface.textureIndex]
       + ' PNG ' + diffuse.width + '×' + diffuse.height
@@ -446,7 +476,10 @@ async function validateMap(mapId) {
       + ' RGB raw=' + JSON.stringify(rawLightRgb)
       + ' RGB RO-level16=' + JSON.stringify(posterizedLightRgb)
       + ' atlas UV=' + JSON.stringify(sampleLightmapUvs)
-      + ' (official shader: diffuse×vertexColor×AO + RGB lightmap)'
+      + ' vertex tint=' + JSON.stringify(vertexColor)
+      + ' surface normal=' + JSON.stringify(sampleNormal)
+      + ' RSW direction multiplier=' + JSON.stringify(rswMultiplier)
+      + ' (official shader: diffuse×RSW multiplier×vertexColor×AO + RGB lightmap)'
   );
 
   console.log(

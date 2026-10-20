@@ -5,6 +5,7 @@ import {
   buildGndLightmapAtlasData,
   GND_PREVIEW_AO_STRENGTH,
   computeGndPreviewColor,
+  computeGndLightMultiplier,
   buildRsmNodeTransformData,
   buildRsm2NodeTransformData,
   buildRsmNodeMeshData,
@@ -468,7 +469,20 @@ assert.deepEqual(lightmapAtlas.uvsBySlice[0], [
 ], 'lightmap UV spans six texels between the inner borders, excluding the reserved 8×8 outer ring');
 const standardMesh = buildGndMeshData(standardGnd, 0.2, lightmapAtlas);
 assert.equal(standardMesh.buckets[0].lightmapUvs.length, 8);
+assert.deepEqual(standardMesh.buckets[0].lightmapEnabled, [1, 1, 1, 1]);
 assert.deepEqual(standardMesh.buckets[0].colors.slice(0, 3), [1, 1, 1]);
+const noLightmapMesh = buildGndMeshData({
+  ...standardGnd,
+  surfaces: standardGnd.surfaces.map(surface => ({ ...surface, lightmapIndex: -1 })),
+}, 0.2, lightmapAtlas);
+assert.deepEqual(noLightmapMesh.buckets[0].lightmapEnabled, [0, 0, 0, 0],
+  'surfaces without a valid GND lightmap must not sample atlas UV (0,0)');
+const outOfRangeLightmapMesh = buildGndMeshData({
+  ...standardGnd,
+  surfaces: standardGnd.surfaces.map(surface => ({ ...surface, lightmapIndex: lightmapAtlas.uvsBySlice.length })),
+}, 0.2, lightmapAtlas);
+assert.deepEqual(outOfRangeLightmapMesh.buckets[0].lightmapEnabled, [0, 0, 0, 0],
+  'out-of-range GND lightmap indexes must not sample an unrelated atlas slice');
 
 const legacyAtlas = buildGndLightmapAtlasData({
   lightmapSlices: [{
@@ -989,6 +1003,28 @@ assert.deepEqual(
 );
 assert.throws(() => computeGndPreviewColor([1, 1], [0, 0, 0], 1),
   /GND 預覽合成/, 'invalid diffuse or lightmap data is rejected');
+assert.deepEqual(
+  computeGndPreviewColor([0.6, 0.4, 0.2], [0.1, 0.25, 0.5], 0.5, [0.5, 1, 0.25], [0.8, 0.4, 1]),
+  [0.22, 0.33, 0.525],
+  'diffuse is multiplied by RSW light, vertex tint and AO before RGB lightmap is added'
+);
+const brightSideMultiplier = computeGndLightMultiplier(
+  [0, 1, 0], [0, -1, 0], [0.2, 0.2, 0.2], [0.8, 0.8, 0.8]
+);
+assert.ok(brightSideMultiplier.every(value => Math.abs(value - 0.84) < 1e-12),
+  'official RSW light formula produces the expected facing-surface multiplier');
+const awaySideMultiplier = computeGndLightMultiplier(
+  [0, -1, 0], [0, -1, 0], [0.2, 0.2, 0.2], [0.8, 0.8, 0.8]
+);
+assert.ok(awaySideMultiplier.every(value => Math.abs(value - 0.168) < 1e-12),
+  'official RSW light formula retains ambient light when the surface faces away');
+assert.throws(() => computeGndLightMultiplier([0, 0, 0], [0, 1, 0], [0.2, 0.2, 0.2], [1, 1, 1]),
+  /零向量/, 'zero normals are rejected instead of making an unstable light value');
+const gndExplorerSource = readFileSync(new URL('./ro_explorer.mjs', import.meta.url), 'utf8');
+assert.match(gndExplorerSource, /rooGndLightMultiplier/,
+  'native ground shader applies the computed RSW lighting multiplier');
+assert.match(gndExplorerSource, /rooGndHasLightmap/,
+  'native ground shader masks surfaces without valid lightmap slices');
 
 
 for (const [pixels, label] of [

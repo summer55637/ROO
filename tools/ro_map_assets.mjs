@@ -8,17 +8,61 @@ export const RAGASSETS_BASE_URL = 'https://assets.latam-tools.com.br';
 // apply the grayscale AO map to diffuse/vertex color, then ADD the RGB lightmap.
 export const GND_PREVIEW_AO_STRENGTH = 1;
 
-export function computeGndPreviewColor(diffuseRgb, lightmapRgb, aoValue) {
-  if (!Array.isArray(diffuseRgb) || diffuseRgb.length !== 3
-    || !diffuseRgb.every(Number.isFinite)
-    || !Array.isArray(lightmapRgb) || lightmapRgb.length !== 3
-    || !lightmapRgb.every(Number.isFinite) || !Number.isFinite(aoValue)) {
-    throw new TypeError('GND 預覽合成需要有限的 diffuse RGB、lightmap RGB 與 AO 值。');
+export function computeGndPreviewColor(
+  diffuseRgb,
+  lightmapRgb,
+  aoValue,
+  vertexColor = [1, 1, 1],
+  lightMultiplier = [1, 1, 1]
+) {
+  const isRgb = value => Array.isArray(value) && value.length === 3
+    && value.every(Number.isFinite);
+  if (!isRgb(diffuseRgb) || !isRgb(lightmapRgb)
+    || !isRgb(vertexColor) || !isRgb(lightMultiplier) || !Number.isFinite(aoValue)) {
+    throw new TypeError('GND 預覽合成需要有限的 diffuse、vertex color、light multiplier、lightmap RGB 與 AO 值。');
   }
   const ao = Math.max(0, Math.min(1, aoValue));
   const aoMultiplier = 1 - GND_PREVIEW_AO_STRENGTH + GND_PREVIEW_AO_STRENGTH * ao;
-  return diffuseRgb.map((channel, index) => Math.max(0, channel) * aoMultiplier
+  return diffuseRgb.map((channel, index) => Math.max(0, channel)
+    * Math.max(0, vertexColor[index])
+    * Math.max(0, Math.min(1, lightMultiplier[index]))
+    * aoMultiplier
     + Math.max(0, Math.min(1, lightmapRgb[index])));
+}
+
+// Mirror the official GRFEditor GND vertex shader, including its non-linear
+// ambient/diffuse blend and the negative light-direction dot product.
+export function computeGndLightMultiplier(normal, lightDirection, lightAmbient, lightDiffuse) {
+  const isVector = value => Array.isArray(value) && value.length === 3
+    && value.every(Number.isFinite);
+  if (!isVector(normal) || !isVector(lightDirection)
+    || !isVector(lightAmbient) || !isVector(lightDiffuse)) {
+    throw new TypeError('GND 方向光計算需要四組有限的 RGB／向量資料。');
+  }
+  const normalize = (value, label) => {
+    const length = Math.hypot(...value);
+    if (length <= 1e-12) throw new Error('GND ' + label + ' 不可為零向量。');
+    return value.map(channel => channel / length);
+  };
+  const n = normalize(normal, '法線');
+  const direction = normalize(lightDirection, '光照方向');
+  const ambient = lightAmbient.map(value => Math.max(0, Math.min(1, value)));
+  const diffuse = lightDiffuse.map(value => Math.max(0, Math.min(1, value)));
+  const nl = Math.max(0, Math.min(1,
+    n.reduce((sum, channel, index) => sum - channel * direction[index], 0)));
+  const ambientFactor = ambient.map(value => (1 - value) * value);
+  const ambientTerm = ambient.map((value, index) =>
+    value - ambientFactor[index] + ambientFactor[index] * diffuse[index]);
+  const diffuseFactor = diffuse.map(value => (1 - value) * value);
+  const diffuseTerm = diffuse.map((value, index) =>
+    value - diffuseFactor[index] + diffuseFactor[index] * ambient[index]);
+  const mult1 = diffuseTerm.map((value, index) => Math.min(nl * value + ambientTerm[index], 1));
+  const maxLight = ambient.map((value, index) => Math.max(value, diffuse[index]));
+  const minLight = ambient.map((value, index) => Math.min(value, diffuse[index]));
+  const mult2 = maxLight.map((value, index) =>
+    Math.min(value + (1 - value) * minLight[index], 1));
+  return mult1.map((value, index) =>
+    Math.max(0, Math.min(1, Math.min(value, mult2[index]))));
 }
 
 
@@ -1649,7 +1693,7 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
     const bucketKey = textureIndex >= 0 && textureIndex < gnd.textures.length ? textureIndex : -1;
     let bucket = buckets.get(bucketKey);
     if (!bucket) {
-      bucket = { textureIndex: bucketKey, positions: [], uvs: [], lightmapUvs: [], colors: [], indices: [] };
+      bucket = { textureIndex: bucketKey, positions: [], uvs: [], lightmapUvs: [], lightmapEnabled: [], colors: [], indices: [] };
       buckets.set(bucketKey, bucket);
     }
     const base = bucket.positions.length / 3;
@@ -1662,10 +1706,13 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
       );
       const uv = surface.uv[corner.uvIndex];
       bucket.uvs.push(uv[0], uv[1]);
-      const lightmapUvs = lightmapAtlas && surface.lightmapIndex >= 0
-        ? lightmapAtlas.uvsBySlice[surface.lightmapIndex] : null;
+      const lightmapIndex = surface.lightmapIndex;
+      const lightmapUvs = lightmapAtlas && Number.isInteger(lightmapIndex)
+        && lightmapIndex >= 0 && lightmapIndex < lightmapAtlas.uvsBySlice.length
+        ? lightmapAtlas.uvsBySlice[lightmapIndex] : null;
       const lightmapUv = lightmapUvs && lightmapUvs[corner.uvIndex] || [0, 0];
       bucket.lightmapUvs.push(lightmapUv[0], lightmapUv[1]);
+      bucket.lightmapEnabled.push(lightmapUvs ? 1 : 0);
       const color = surface.colors && surface.colors[corner.uvIndex]
         || (vertexColors && vertexColors[corner.uvIndex]) || surface.color || [1, 1, 1, 1];
       bucket.colors.push(color[0], color[1], color[2]);

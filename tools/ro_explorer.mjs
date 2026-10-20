@@ -1420,30 +1420,77 @@ function resetRswLighting() {
   fillLight.position.set(-300, 150, -250);
 }
 
-function applyGndBakedLighting(material, lightMapTexture, aoTexture) {
+function applyGndBakedLighting(material, lightMapTexture, aoTexture, rswLight) {
+  const longitude = Number.isFinite(rswLight && rswLight.longitude) ? rswLight.longitude : 45;
+  const latitude = Number.isFinite(rswLight && rswLight.latitude) ? rswLight.latitude : 45;
+  const ambientSource = rswLight && Array.isArray(rswLight.ambient) ? rswLight.ambient : [0.3, 0.3, 0.3];
+  const diffuseSource = rswLight && Array.isArray(rswLight.diffuse) ? rswLight.diffuse : [1, 1, 1];
+  const longitudeRadians = longitude * Math.PI / 180;
+  const latitudeRadians = latitude * Math.PI / 180;
+  const lightDirection = new THREE.Vector3(
+    Math.cos(latitudeRadians) * Math.cos(longitudeRadians),
+    Math.sin(latitudeRadians),
+    Math.cos(latitudeRadians) * Math.sin(longitudeRadians)
+  ).normalize();
+  const lightAmbient = new THREE.Vector3(...ambientSource.map(value =>
+    Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.3))));
+  const lightDiffuse = new THREE.Vector3(...diffuseSource.map(value =>
+    Math.max(0, Math.min(1, Number.isFinite(value) ? value : 1))));
+
   material.onBeforeCompile = shader => {
     shader.uniforms.rooGndLightMap = { value: lightMapTexture };
     shader.uniforms.rooGndAoMap = { value: aoTexture };
+    shader.uniforms.rooGndLightDirection = { value: lightDirection };
+    shader.uniforms.rooGndLightAmbient = { value: lightAmbient };
+    shader.uniforms.rooGndLightDiffuse = { value: lightDiffuse };
     shader.vertexShader = shader.vertexShader.replace(
       '#include <common>',
-      '#include <common>\nattribute vec2 uv2;\nvarying vec2 vRooGndLightmapUv;'
+      '#include <common>\nattribute vec2 uv2;\nattribute vec3 rooGndVertexNormal;'
+        + '\nattribute float rooGndHasLightmap;'
+        + '\nuniform vec3 rooGndLightDirection;\nuniform vec3 rooGndLightAmbient;'
+        + '\nuniform vec3 rooGndLightDiffuse;\nvarying vec2 vRooGndLightmapUv;'
+        + '\nvarying float vRooGndHasLightmap;\nvarying vec3 vRooGndLightMultiplier;'
     ).replace(
       '#include <begin_vertex>',
-      '#include <begin_vertex>\nvRooGndLightmapUv = uv2;'
+      '#include <begin_vertex>\n'
+        + 'vRooGndLightmapUv = uv2;\n'
+        + 'vRooGndHasLightmap = rooGndHasLightmap;\n'
+        + 'vec3 rooGndNormal = normalize(rooGndVertexNormal);\n'
+        + 'vec3 rooGndDirection = normalize(rooGndLightDirection);\n'
+        + 'float rooGndNL = clamp(dot(rooGndNormal, -rooGndDirection), 0.0, 1.0);\n'
+        + 'vec3 rooGndAmbientFactor = (vec3(1.0) - rooGndLightAmbient) * rooGndLightAmbient;\n'
+        + 'vec3 rooGndAmbientTerm = rooGndLightAmbient - rooGndAmbientFactor'
+        + ' + rooGndAmbientFactor * rooGndLightDiffuse;\n'
+        + 'vec3 rooGndDiffuseFactor = (vec3(1.0) - rooGndLightDiffuse) * rooGndLightDiffuse;\n'
+        + 'vec3 rooGndDiffuseTerm = rooGndLightDiffuse - rooGndDiffuseFactor'
+        + ' + rooGndDiffuseFactor * rooGndLightAmbient;\n'
+        + 'vec3 rooGndMultiplier1 = min(rooGndNL * rooGndDiffuseTerm + rooGndAmbientTerm, vec3(1.0));\n'
+        + 'vec3 rooGndMaxLight = max(rooGndLightDiffuse, rooGndLightAmbient);\n'
+        + 'vec3 rooGndMinLight = min(rooGndLightDiffuse, rooGndLightAmbient);\n'
+        + 'vec3 rooGndMultiplier2 = min(rooGndMaxLight + (vec3(1.0) - rooGndMaxLight)'
+        + ' * rooGndMinLight, vec3(1.0));\n'
+        + 'vRooGndLightMultiplier = clamp(min(rooGndMultiplier1, rooGndMultiplier2),'
+        + ' vec3(0.0), vec3(1.0));'
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <common>',
-      '#include <common>\nuniform sampler2D rooGndLightMap;\nuniform sampler2D rooGndAoMap;\nvarying vec2 vRooGndLightmapUv;'
+      '#include <common>\nuniform sampler2D rooGndLightMap;'
+        + '\nuniform sampler2D rooGndAoMap;\nvarying vec2 vRooGndLightmapUv;'
+        + '\nvarying float vRooGndHasLightmap;\nvarying vec3 vRooGndLightMultiplier;'
     ).replace(
       '#include <color_fragment>',
       '#include <color_fragment>\n'
-        + 'float rooGndAmbientOcclusion = mix(1.0, clamp(texture2D(rooGndAoMap, vRooGndLightmapUv).r, 0.0, 1.0), '
-        + GND_PREVIEW_AO_STRENGTH.toFixed(2) + ');\n'
+        + 'float rooGndHasValidLightmap = clamp(vRooGndHasLightmap, 0.0, 1.0);\n'
+        + 'diffuseColor.rgb *= vRooGndLightMultiplier;\n'
+        + 'float rooGndAmbientOcclusion = mix(1.0,'
+        + ' clamp(texture2D(rooGndAoMap, vRooGndLightmapUv).r, 0.0, 1.0),'
+        + ' rooGndHasValidLightmap * ' + GND_PREVIEW_AO_STRENGTH.toFixed(2) + ');\n'
         + 'diffuseColor.rgb *= rooGndAmbientOcclusion;\n'
-        + 'diffuseColor.rgb += clamp(texture2D(rooGndLightMap, vRooGndLightmapUv).rgb, 0.0, 1.0);'
+        + 'diffuseColor.rgb += clamp(texture2D(rooGndLightMap, vRooGndLightmapUv).rgb,'
+        + ' 0.0, 1.0) * rooGndHasValidLightmap;'
     );
   };
-  material.customProgramCacheKey = () => 'roo-gnd-baked-lightmap-v3-ro-composite';
+  material.customProgramCacheKey = () => 'roo-gnd-baked-lightmap-v4-rsw-multiplier-validity';
 }
 
 function createLightmapDataTexture(data, width, height) {
@@ -1631,10 +1678,18 @@ async function loadRagassetsMap(mapName) {
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.Float32BufferAttribute(bucket.positions, 3));
       geometry.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uvs, 2));
-      if (lightmapAtlas) geometry.setAttribute('uv2', new THREE.Float32BufferAttribute(bucket.lightmapUvs, 2));
+      if (lightmapAtlas) {
+        geometry.setAttribute('uv2', new THREE.Float32BufferAttribute(bucket.lightmapUvs, 2));
+        geometry.setAttribute('rooGndHasLightmap', new THREE.Float32BufferAttribute(bucket.lightmapEnabled, 1));
+      }
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(bucket.colors, 3));
       geometry.setIndex(bucket.indices);
       geometry.computeVertexNormals();
+      if (lightmapAtlas) {
+        geometry.setAttribute('rooGndVertexNormal', new THREE.Float32BufferAttribute(
+          geometry.getAttribute('normal').array, 3
+        ));
+      }
 
       let material;
       let texture = null;
@@ -1678,7 +1733,7 @@ async function loadRagassetsMap(mapName) {
           vertexColors: true,
           side: THREE.DoubleSide,
         });
-        applyGndBakedLighting(material, lightmapTexture, aoTexture);
+        applyGndBakedLighting(material, lightmapTexture, aoTexture, parsedRsw.light);
       } else {
         material = new THREE.MeshStandardMaterial({
           map: texture,
