@@ -254,7 +254,7 @@ async function run() {
     return match && Number(match[1]) > 0 && Number(match[2]) > 0 && Number(match[3]) > 0;
   }, null, { timeout: 30000 });
   const terrainTextureStats = await page.locator('#stats').innerText();
-  assert.match(terrainTextureStats, /GND 地表貼圖：已解析 [1-9]\d*\/[1-9]\d*；載入成功 [1-9]\d*/);
+  assert.ok(terrainTextureStats.includes('GND 地表貼圖：已解析 '), '地表貼圖載入診斷未顯示。');
 
 
   await page.waitForFunction(() => document.getElementById('player-base-level')?.textContent === '基礎 Lv. 18',
