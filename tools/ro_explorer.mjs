@@ -3261,6 +3261,142 @@ function describeGndTextureFilters(texture) {
     + '; mag=' + filterName(texture.magFilter);
 }
 
+const gndSurfaceUseLookupCache = new WeakMap();
+const gndSurfaceMeshLookupCache = new WeakMap();
+
+function getGndSurfaceUseLookup(gnd) {
+  let lookup = gndSurfaceUseLookupCache.get(gnd);
+  if (lookup) return lookup;
+  lookup = new Map();
+  for (let cubeIndex = 0; cubeIndex < gnd.cubes.length; cubeIndex++) {
+    const cube = gnd.cubes[cubeIndex];
+    const x = cubeIndex % gnd.width;
+    const y = Math.floor(cubeIndex / gnd.width);
+    for (const [side, index] of [
+      ['top', cube.topSurface], ['north', cube.northSurface], ['east', cube.eastSurface],
+    ]) {
+      if (!Number.isInteger(index) || index < 0) continue;
+      if (!lookup.has(index)) lookup.set(index, []);
+      lookup.get(index).push({ x, y, side });
+    }
+  }
+  gndSurfaceUseLookupCache.set(gnd, lookup);
+  return lookup;
+}
+
+function getGndSurfaceMeshLookup(root) {
+  let lookup = gndSurfaceMeshLookupCache.get(root);
+  if (lookup) return lookup;
+  lookup = new Map();
+  root.traverse(object => {
+    const indices = object.userData && object.userData.rooGndSurfaceIndices;
+    if (!object.userData.rooTerrainSurface || !Array.isArray(indices)) return;
+    indices.forEach((index, quadIndex) => {
+      if (!lookup.has(index)) lookup.set(index, { object, quadIndex });
+    });
+  });
+  gndSurfaceMeshLookupCache.set(root, lookup);
+  return lookup;
+}
+
+function describeGndSurfaceForComparison(gnd, surfaceIndex, meshLookup) {
+  const surface = gnd.surfaces[surfaceIndex];
+  if (!surface) return 'Surface #' + surfaceIndex + ' 無效';
+  const bounds = surface.uv && surface.uv.length
+    ? {
+      minU: Math.min(...surface.uv.map(uv => uv[0])),
+      maxU: Math.max(...surface.uv.map(uv => uv[0])),
+      minV: Math.min(...surface.uv.map(uv => uv[1])),
+      maxV: Math.max(...surface.uv.map(uv => uv[1])),
+    } : null;
+  const entry = meshLookup.get(surfaceIndex);
+  let tintSummary = surface.color
+    ? formatGndDiagnosticVector(surface.color.slice(0, 3))
+    : '—';
+  let sourceTexture = null;
+  if (entry) {
+    sourceTexture = entry.object.userData.rooGndDiffuseSourceTexture || null;
+    const colorAttribute = entry.object.geometry.getAttribute('color');
+    if (colorAttribute) {
+      const base = entry.quadIndex * 4;
+      const colours = [];
+      for (let corner = 0; corner < 4; corner++) {
+        const at = base + corner;
+        if (at >= colorAttribute.count) break;
+        colours.push([
+          colorAttribute.getX(at), colorAttribute.getY(at), colorAttribute.getZ(at),
+        ]);
+      }
+      if (colours.length) {
+        tintSummary = formatGndDiagnosticVector([0, 1, 2].map(channel =>
+          colours.reduce((sum, colour) => sum + colour[channel], 0) / colours.length
+        ));
+      }
+    }
+  }
+  let diffuseCenter = '未載入／不可取樣';
+  if (bounds && sourceTexture) {
+    diffuseCenter = sampleGndSourceTexturePixel(sourceTexture, [
+      (bounds.minU + bounds.maxU) * 0.5,
+      (bounds.minV + bounds.maxV) * 0.5,
+    ]);
+  }
+  let lightSummary = '無有效 lightmap';
+  const slices = gnd.lightmapSlices;
+  if (Number.isInteger(surface.lightmapIndex) && surface.lightmapIndex >= 0
+    && Array.isArray(slices) && surface.lightmapIndex < slices.length) {
+    const slice = slices[surface.lightmapIndex];
+    const x = slice.width >= 4 ? Math.max(1, Math.min(slice.width - 2, Math.floor(slice.width / 2)))
+      : Math.floor(slice.width / 2);
+    const y = slice.height >= 4 ? Math.max(1, Math.min(slice.height - 2, Math.floor(slice.height / 2)))
+      : Math.floor(slice.height / 2);
+    const channels = slice.channels || 4;
+    const offset = (y * slice.width + x) * channels;
+    const rgb = Array.from(slice.colorPixels.slice(offset, offset + 3));
+    const ao = slice.shadowPixels ? slice.shadowPixels[y * slice.width + x]
+      : channels === 4 ? slice.colorPixels[offset + 3] : 255;
+    lightSummary = 'RGB (' + rgb.join(', ') + '); AO ' + ao + ' @ (' + x + ', ' + y + ')';
+  }
+  const uvSummary = bounds
+    ? 'U[' + bounds.minU.toFixed(3) + ',' + bounds.maxU.toFixed(3) + ']'
+      + ' V[' + bounds.minV.toFixed(3) + ',' + bounds.maxV.toFixed(3) + ']'
+    : 'UV 無效';
+  const textureName = gnd.textures[surface.textureIndex] || '(無 diffuse)';
+  return 'Surface #' + surfaceIndex + ' tex#' + surface.textureIndex + ' ' + textureName
+    + '；' + uvSummary + '；頂點色平均 RGB (' + tintSummary + ')'
+    + '；diffuse 中心 ' + diffuseCenter
+    + '；lightmap#' + surface.lightmapIndex + ' ' + lightSummary;
+}
+
+function describeGndAdjacentTopSurfaces(gnd, surfaceIndex, root) {
+  const uses = getGndSurfaceUseLookup(gnd).get(surfaceIndex) || [];
+  const origin = uses.find(use => use.side === 'top');
+  if (!origin) return ['相鄰 TOP surface：此面未被任何 cube 當作 top（可能是牆面），不猜測相鄰關係。'];
+  const meshLookup = getGndSurfaceMeshLookup(root);
+  const neighbors = [
+    { label: '西', x: origin.x - 1, y: origin.y },
+    { label: '東', x: origin.x + 1, y: origin.y },
+    { label: '南', x: origin.x, y: origin.y - 1 },
+    { label: '北', x: origin.x, y: origin.y + 1 },
+  ];
+  return [
+    '相鄰 TOP surface 對照（GND cube x=' + origin.x + ', y=' + origin.y + '）：',
+    ...neighbors.map(neighbor => {
+      if (neighbor.x < 0 || neighbor.y < 0
+        || neighbor.x >= gnd.width || neighbor.y >= gnd.height) {
+        return '  ' + neighbor.label + '：地圖邊界，沒有相鄰 cube';
+      }
+      const cube = gnd.cubes[neighbor.x + neighbor.y * gnd.width];
+      if (!cube || !Number.isInteger(cube.topSurface) || cube.topSurface < 0) {
+        return '  ' + neighbor.label + '：無 TOP surface';
+      }
+      return '  ' + neighbor.label + '：' + describeGndSurfaceForComparison(
+        gnd, cube.topSurface, meshLookup
+      );
+    }),
+  ];
+}
+
 function updateGndSurfaceInspector(event) {
   if (GND_DEBUG_MODE_UNIFORM.value !== 7 && GND_DEBUG_MODE_UNIFORM.value !== 8) {
     gndSurfaceInspector.hidden = true;
@@ -3304,24 +3440,31 @@ function updateGndSurfaceInspector(event) {
 
   const geometry = object.geometry;
   const uvAttribute = geometry.getAttribute('uv');
+  const sourceUvAttribute = geometry.getAttribute('rooGndSourceUv');
   const colorAttribute = geometry.getAttribute('color');
   const baseVertex = quadIndex * 4;
   const actualUvs = [];
+  const sourceUvs = [];
   const actualColors = [];
   for (let corner = 0; corner < 4; corner++) {
     const vertexIndex = baseVertex + corner;
     actualUvs.push(uvAttribute
       ? [uvAttribute.getX(vertexIndex), uvAttribute.getY(vertexIndex)] : [NaN, NaN]);
+    sourceUvs.push(sourceUvAttribute
+      ? [sourceUvAttribute.getX(vertexIndex), sourceUvAttribute.getY(vertexIndex)]
+      : surface.uv && surface.uv[corner] || [NaN, NaN]);
     actualColors.push(colorAttribute
       ? [colorAttribute.getX(vertexIndex), colorAttribute.getY(vertexIndex), colorAttribute.getZ(vertexIndex)]
       : [1, 1, 1]);
   }
 
-  const texture = object.material && object.material.map;
+  const texture = object.userData.rooGndDiffuseSourceTexture
+    || object.material && object.material.map;
   const textureName = gndInfo.textures[surface.textureIndex] || object.userData.rooGndTextureName || '(未指定)';
-  const uvLines = actualUvs.map((uv, corner) => (
-    '  幾何角 ' + corner + ': 實際 UV (' + formatGndDiagnosticVector(uv) + ')；來源像素 '
-      + sampleGndSourceTexturePixel(texture, uv)
+  const uvLines = sourceUvs.map((sourceUv, corner) => (
+    '  幾何角 ' + corner + ': 原始來源 UV (' + formatGndDiagnosticVector(sourceUv) + ')；'
+      + 'GPU 分區 UV (' + formatGndDiagnosticVector(actualUvs[corner]) + ')；來源像素 '
+      + sampleGndSourceTexturePixel(texture, sourceUv)
   ));
   const colorLines = actualColors.map((color, corner) => (
     '  幾何角 ' + corner + ': RGB (' + formatGndDiagnosticVector(color) + ')'
@@ -3332,8 +3475,11 @@ function updateGndSurfaceInspector(event) {
   ));
   const cursorLightmapUv = sampleGndAttributeAtHit(hit, 'uv2');
   const cursorVertexColor = sampleGndAttributeAtHit(hit, 'color');
+  const cursorSourceUv = sampleGndAttributeAtHit(hit, 'rooGndSourceUv')
+    || [hit.uv.x, hit.uv.y];
   const cursorLightmapSample = cursorLightmapUv
     ? sampleGndLightmapSourceAtUv(surface, cursorLightmapUv) : null;
+  const adjacentSurfaceLines = describeGndAdjacentTopSurfaces(gndInfo, surfaceIndex, mapRoot);
   const samplerDescription = sampler => {
     if (!sampler) return '未啟用';
     const filterName = value => value === THREE.LinearFilter ? 'LinearFilter'
@@ -3350,11 +3496,19 @@ function updateGndSurfaceInspector(event) {
     'Diffuse 貼圖採樣：' + samplerDescription(object.userData.rooGndDiffuseSampler),
     'RGB lightmap/AO 採樣：' + samplerDescription(object.userData.rooGndLightmapSampler),
     '材質索引：' + surface.textureIndex + '；lightmap 索引：' + surface.lightmapIndex,
-    '游標處插值 UV：(' + formatGndDiagnosticVector([hit.uv.x, hit.uv.y]) + ')',
-    '游標處原貼圖像素近似值：' + sampleGndSourceTexturePixel(texture, [hit.uv.x, hit.uv.y]),
+    'diffuse 原始 UV 範圍：' + (object.userData.rooGndDiffuseUvRect
+      ? 'U[' + object.userData.rooGndDiffuseUvRect.minU.toFixed(4) + ','
+        + object.userData.rooGndDiffuseUvRect.maxU.toFixed(4) + '] V['
+        + object.userData.rooGndDiffuseUvRect.minV.toFixed(4) + ','
+        + object.userData.rooGndDiffuseUvRect.maxV.toFixed(4) + ']'
+      : '完整來源／Repeat UV'),
+    '游標處原始來源 UV：(' + formatGndDiagnosticVector(cursorSourceUv) + ')；'
+      + 'GPU 分區 UV：(' + formatGndDiagnosticVector([hit.uv.x, hit.uv.y]) + ')',
+    '游標處原貼圖像素近似值：' + sampleGndSourceTexturePixel(texture, cursorSourceUv),
     '游標處插值頂點色 RGB：' + (cursorVertexColor
       ? '(' + formatGndDiagnosticVector(cursorVertexColor.slice(0, 3)) + ')'
       : '無法取得'),
+    ...adjacentSurfaceLines,
     '游標處 Lightmap atlas UV2：' + (cursorLightmapUv
       ? '(' + formatGndDiagnosticVector(cursorLightmapUv) + ')' : '無法取得'),
     '游標處來源 RGB lightmap / AO 最近像素（原始 GND bytes）：'
@@ -3366,7 +3520,7 @@ function updateGndSurfaceInspector(event) {
     ...lightmapLines,
     '原始四角 UV（UV0..UV3）：',
     ...(surface.uv || []).map((uv, index) => '  UV' + index + ': (' + formatGndDiagnosticVector(uv) + ')'),
-    '渲染網格四角（含半像素內縮）與原貼圖像素近似取樣：',
+    '實際 GPU 分區 UV（含半像素內縮）與對應來源貼圖像素：',
     ...uvLines,
     '實際傳入 GPU 的逐角頂點色 RGB：',
     ...colorLines,
