@@ -1479,6 +1479,7 @@ function applyGndBakedLighting(material, lightMapTexture, aoTexture, rswLight) {
         + '\nuniform sampler2D rooGndAoMap;\nuniform float rooGndDebugMode;\nvarying vec2 vRooGndLightmapUv;'
         + '\nvarying float vRooGndHasLightmap;\nvarying vec3 vRooGndLightMultiplier;'
     ).replace(
+      '#include <color_fragment>',
       '#include <color_fragment>\n'
         + 'float rooGndHasValidLightmap = clamp(vRooGndHasLightmap, 0.0, 1.0);\n'
         + 'vec3 rooGndDiffuse = diffuseColor.rgb;\n'
