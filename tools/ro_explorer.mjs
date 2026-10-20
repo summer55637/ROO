@@ -3023,12 +3023,13 @@ function updateGndSurfaceInspector(event) {
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-  const hit = raycaster.intersectObject(mapRoot, true).find(item => (
-    item.object && item.object.userData.rooTerrainSurface
-      && Number.isInteger(item.faceIndex) && item.uv
-  ));
-  if (!hit) {
-    gndSurfaceInspectorContent.textContent = '目前游標沒有命中 GND 地表；請移到可見的地面或牆面。';
+  const hits = raycaster.intersectObject(mapRoot, true);
+  const hit = hits[0];
+  if (!hit || !hit.object || !hit.object.userData.rooTerrainSurface
+    || !Number.isInteger(hit.faceIndex) || !hit.uv) {
+    gndSurfaceInspectorContent.textContent = hits.length
+      ? '游標目前先命中模型或水面，地表被遮住；請移到真正可見的地面或牆面。'
+      : '目前游標沒有命中場景中的地表；請移到可見的地面或牆面。';
     pendingGndInspectorReadback = null;
     return;
   }
