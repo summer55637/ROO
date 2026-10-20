@@ -1523,9 +1523,12 @@ function createLightmapDataTexture(data, width, height) {
   texture.colorSpace = THREE.NoColorSpace;
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
+  // Each atlas cell is a separate original RO lightmap slice. Global mip generation
+  // averages neighboring slices at low levels and creates unrelated dark/bright blobs.
+  // Keep base-level bilinear sampling inside the four-pixel edge-extended gutter.
   texture.magFilter = THREE.LinearFilter;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
   texture.flipY = false;
   texture.needsUpdate = true;
   return texture;
@@ -1729,6 +1732,12 @@ async function loadRagassetsMap(mapName) {
           loadedTexture.colorSpace = THREE.SRGBColorSpace;
           loadedTexture.wrapS = THREE.RepeatWrapping;
           loadedTexture.wrapT = THREE.RepeatWrapping;
+          // GND diffuse UVs often address sub-rectangles inside a shared texture.
+          // A whole-image mip chain blends adjacent sub-rectangles at distance,
+          // even after half-texel UV insetting, so sample the padded source level.
+          loadedTexture.generateMipmaps = false;
+          loadedTexture.minFilter = THREE.LinearFilter;
+          loadedTexture.magFilter = THREE.LinearFilter;
           const textureWidth = loadedTexture.image && (loadedTexture.image.naturalWidth || loadedTexture.image.width);
           const textureHeight = loadedTexture.image && (loadedTexture.image.naturalHeight || loadedTexture.image.height);
           if (textureWidth > 0 && textureHeight > 0) {
@@ -1779,6 +1788,16 @@ async function loadRagassetsMap(mapName) {
       mesh.userData.rooGndTextureIndex = bucket.textureIndex;
       mesh.userData.rooGndTextureName = textureName;
       mesh.userData.rooGndTextureUrl = textureUrl || '';
+      mesh.userData.rooGndDiffuseSampler = texture ? {
+        generateMipmaps: texture.generateMipmaps,
+        minFilter: texture.minFilter,
+        magFilter: texture.magFilter,
+      } : null;
+      mesh.userData.rooGndLightmapSampler = lightmapTexture ? {
+        generateMipmaps: lightmapTexture.generateMipmaps,
+        minFilter: lightmapTexture.minFilter,
+        magFilter: lightmapTexture.magFilter,
+      } : null;
       stagedRoot.add(mesh);
     }
 
@@ -3005,6 +3024,39 @@ function sampleGndSourceTexturePixel(texture, uv) {
   }
 }
 
+function sampleGndLightmapSourceCorner(surface, corner) {
+  const slices = gndInfo && gndInfo.lightmapSlices;
+  const index = surface && surface.lightmapIndex;
+  if (!Number.isInteger(index) || index < 0 || !Array.isArray(slices) || index >= slices.length) {
+    return '無有效 lightmap slice';
+  }
+  const slice = slices[index];
+  const width = slice.width;
+  const height = slice.height;
+  if (!width || !height || !slice.colorPixels) return 'lightmap 像素資料缺失';
+
+  // RO GND reserves the outer pixel ring as a filter buffer; report the four
+  // closest valid interior texels mapped to SW, SE, NW and NE surface corners.
+  const x = corner % 2 === 0 ? Math.min(1, width - 1) : Math.max(0, width - 2);
+  const y = corner < 2 ? Math.min(1, height - 1) : Math.max(0, height - 2);
+  const channels = slice.channels || 4;
+  const at = (y * width + x) * channels;
+  const rgb = Array.from(slice.colorPixels.slice(at, at + 3));
+  const ao = slice.shadowPixels
+    ? slice.shadowPixels[y * width + x]
+    : channels === 4 ? slice.colorPixels[at + 3] : 255;
+  return 'RGB (' + rgb.join(', ') + '); AO ' + ao + ' @ (' + x + ', ' + y + ')';
+}
+
+function describeGndTextureFilters(texture) {
+  if (!texture) return '無已載入貼圖';
+  const filterName = value => value === THREE.LinearFilter ? 'LinearFilter'
+    : value === THREE.NearestFilter ? 'NearestFilter' : 'mipmap filter (' + value + ')';
+  return 'mipmap=' + (texture.generateMipmaps ? 'on' : 'off')
+    + '; min=' + filterName(texture.minFilter)
+    + '; mag=' + filterName(texture.magFilter);
+}
+
 function updateGndSurfaceInspector(event) {
   if (GND_DEBUG_MODE_UNIFORM.value !== 7 && GND_DEBUG_MODE_UNIFORM.value !== 8) {
     gndSurfaceInspector.hidden = true;
@@ -3070,12 +3122,28 @@ function updateGndSurfaceInspector(event) {
   const colorLines = actualColors.map((color, corner) => (
     '  幾何角 ' + corner + ': RGB (' + formatGndDiagnosticVector(color) + ')'
   ));
+  const lightmapLines = [0, 1, 2, 3].map(corner => (
+    '  ' + ['SW', 'SE', 'NW', 'NE'][corner] + ': '
+      + sampleGndLightmapSourceCorner(surface, corner)
+  ));
+  const samplerDescription = sampler => {
+    if (!sampler) return '未啟用';
+    const filterName = value => value === THREE.LinearFilter ? 'LinearFilter'
+      : value === THREE.NearestFilter ? 'NearestFilter' : 'mipmap filter (' + value + ')';
+    return 'mipmap=' + (sampler.generateMipmaps ? 'on' : 'off')
+      + '; min=' + filterName(sampler.minFilter)
+      + '; mag=' + filterName(sampler.magFilter);
+  };
   const detail = [
     '地圖：' + (mapInfo && mapInfo.mapId || '未知'),
     'Surface #' + surfaceIndex + '；triangle #' + hit.faceIndex + '；quad #' + quadIndex,
     '真實材質路徑：' + textureName,
     '實際載入 URL：' + (object.userData.rooGndTextureUrl || '無；使用純色備援'),
+    'Diffuse 貼圖採樣：' + samplerDescription(object.userData.rooGndDiffuseSampler),
+    'RGB lightmap/AO 採樣：' + samplerDescription(object.userData.rooGndLightmapSampler),
     '材質索引：' + surface.textureIndex + '；lightmap 索引：' + surface.lightmapIndex,
+    '原始 RGB lightmap / AO 四角取樣（來源 GND 像素，不是渲染猜測）：',
+    ...lightmapLines,
     '原始四角 UV（UV0..UV3）：',
     ...(surface.uv || []).map((uv, index) => '  UV' + index + ': (' + formatGndDiagnosticVector(uv) + ')'),
     '渲染網格四角（含半像素內縮）與原貼圖像素近似取樣：',
