@@ -586,8 +586,28 @@ assert.deepEqual(leftTile.colors.slice(0, 6), [1, 0, 0, 0, 1, 0]);
 
 assert.deepEqual(
   Array.from(insetGndTextureUvs([0, 0, 1, 1], 100, 50)),
-  [0.004999999888241291, 0.009999999776482582, 0.9950000047683716, 0.9900000095367432]
+  [0.004999999888241291, 0.009999999776482582, 0.9950000047683716, 0.9900000095367432],
+  'legacy UV-pair callers retain the original full-texture inset'
 );
+assert.deepEqual(
+  Array.from(insetGndTextureUvs([
+    0.25, 0.25, 0.5, 0.25,
+    0.25, 0.5, 0.5, 0.5,
+  ], 64, 64)),
+  [
+    0.2578125, 0.2578125, 0.4921875, 0.2578125,
+    0.2578125, 0.4921875, 0.4921875, 0.4921875,
+  ],
+  'GND sub-rectangle UVs inset half a texel at each surface edge'
+);
+const leftSubTexture = insetGndTextureUvs([
+  0, 0, 0.5, 0, 0, 1, 0.5, 1,
+], 64, 64);
+const rightSubTexture = insetGndTextureUvs([
+  0.5, 0, 1, 0, 0.5, 1, 1, 1,
+], 64, 64);
+assert.ok(leftSubTexture[2] < rightSubTexture[0],
+  'adjacent GND UV sub-regions no longer sample across their shared texel boundary');
 assert.throws(() => insetGndTextureUvs([0, 0], 0, 32), /正整數/);
 
 const waterMesh = buildGndWaterMeshData({

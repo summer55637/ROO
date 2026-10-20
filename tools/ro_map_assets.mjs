@@ -1725,6 +1725,35 @@ export function insetGndTextureUvs(uvs, textureWidth, textureHeight) {
   const result = Float32Array.from(uvs);
   const halfU = 0.5 / textureWidth;
   const halfV = 0.5 / textureHeight;
+
+  // GND terrain emits four independent vertices per surface (SW, SE, NW, NE).
+  // Inset each surface's own UV rectangle; global 0..1 inset does not protect
+  // sub-rectangles whose texture edges sit at values such as 0.25 or 0.5.
+  if (result.length >= 8 && result.length % 8 === 0) {
+    const insetAxis = (base, coordinateOffset, halfTexel, texelSize) => {
+      const values = [0, 1, 2, 3].map(corner => result[base + corner * 2 + coordinateOffset]);
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const span = max - min;
+      // Avoid folding a degenerate or sub-pixel UV region back over itself.
+      if (span <= texelSize + 1e-7) return;
+      const tolerance = 1e-7;
+      for (let corner = 0; corner < 4; corner++) {
+        const index = base + corner * 2 + coordinateOffset;
+        const value = result[index];
+        if (Math.abs(value - min) <= tolerance) result[index] = value + halfTexel;
+        else if (Math.abs(value - max) <= tolerance) result[index] = value - halfTexel;
+      }
+    };
+
+    for (let base = 0; base < result.length; base += 8) {
+      insetAxis(base, 0, halfU, 1 / textureWidth);
+      insetAxis(base, 1, halfV, 1 / textureHeight);
+    }
+    return result;
+  }
+
+  // Retain the legacy pair-list behavior for callers that do not provide quads.
   for (let i = 0; i < result.length; i += 2) {
     result[i] = halfU + result[i] * (1 - 2 * halfU);
     result[i + 1] = halfV + result[i + 1] * (1 - 2 * halfV);

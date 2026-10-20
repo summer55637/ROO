@@ -268,6 +268,24 @@ async function run() {
 
   await assertNoHorizontalOverflow(page, '桌面');
   await page.screenshot({ path: path.join(artifactDir, 'desktop.png'), fullPage: true, animations: 'disabled' });
+
+  // Capture the real GND surface seams at a closer view as well as the full-map overview.
+  const stage = page.locator('#stage');
+  const stageBox = await stage.boundingBox();
+  assert.ok(stageBox && stageBox.width > 0 && stageBox.height > 0, '3D 地圖畫面沒有有效尺寸。');
+  await page.mouse.move(stageBox.x + stageBox.width / 2, stageBox.y + stageBox.height / 2);
+  for (let zoomStep = 0; zoomStep < 14; zoomStep++) {
+    await page.mouse.wheel(0, -100);
+    await sleep(35);
+  }
+  await sleep(500);
+  await page.screenshot({
+    path: path.join(artifactDir, 'desktop-ground-zoom.png'),
+    clip: { x: stageBox.x, y: stageBox.y, width: stageBox.width, height: stageBox.height },
+    animations: 'disabled',
+  });
+  await page.locator('#recenter').click();
+  await sleep(200);
   await clickMinimapUntilMoving(page, false, '桌面');
   await page.locator('#follow-player').uncheck();
   assert.ok((await page.locator('#status').innerText()).includes('自由視角'));
