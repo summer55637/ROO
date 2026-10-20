@@ -584,6 +584,29 @@ const adjacentTint = buildGndMeshData({
 const leftTile = adjacentTint.buckets.find(bucket => bucket.textureIndex === 0);
 assert.deepEqual(leftTile.colors.slice(0, 6), [1, 0, 0, 0, 1, 0]);
 
+const sharedWallTint = buildGndMeshData({
+  width: 2,
+  height: 2,
+  textures: ['top_sw.png', 'north_wall.png', 'top_se.png', 'top_nw.png', 'top_ne.png'],
+  surfaces: [
+    { textureIndex: 0, uv: [[0, 0], [1, 0], [0, 1], [1, 1]], color: [1, 0, 0, 1] },
+    { textureIndex: 1, uv: [[0, 0], [1, 0], [0, 1], [1, 1]], color: [1, 0, 1, 1] },
+    { textureIndex: 2, uv: [[0, 0], [1, 0], [0, 1], [1, 1]], color: [0, 1, 0, 1] },
+    { textureIndex: 3, uv: [[0, 0], [1, 0], [0, 1], [1, 1]], color: [0, 0, 1, 1] },
+    { textureIndex: 4, uv: [[0, 0], [1, 0], [0, 1], [1, 1]], color: [1, 1, 0, 1] },
+  ],
+  cubes: [
+    { hSW: 0, hSE: 0, hNW: 0, hNE: 0, topSurface: 0, northSurface: 1, eastSurface: -1 },
+    { hSW: 0, hSE: 0, hNW: 0, hNE: 0, topSurface: 2, northSurface: -1, eastSurface: -1 },
+    { hSW: 0, hSE: 0, hNW: 0, hNE: 0, topSurface: 3, northSurface: -1, eastSurface: -1 },
+    { hSW: 0, hSE: 0, hNW: 0, hNE: 0, topSurface: 4, northSurface: -1, eastSurface: -1 },
+  ],
+});
+const northWall = sharedWallTint.buckets.find(bucket => bucket.textureIndex === 1);
+assert.deepEqual(northWall.colors.slice(0, 12),
+  [0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0],
+  'legacy north wall reuses colors at the shared ground-grid vertices instead of a flat tint');
+
 assert.deepEqual(
   Array.from(insetGndTextureUvs([0, 0, 1, 1], 100, 50)),
   [0.004999999888241291, 0.009999999776482582, 0.9950000047683716, 0.9900000095367432],
