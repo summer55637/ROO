@@ -2143,17 +2143,21 @@ function openRoExplorer() {
     }).filter(Boolean)
     : [];
   if (mobs.length) url.searchParams.set('mobs', JSON.stringify(mobs));
-  const directSkillTypes = new Set([
-    'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc'
+  const selfBuffSkillTypes = new Set([
+    'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd', 'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+  ]);
+  const explorerSkillTypes = new Set([
+    'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc',
+    'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd', 'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
   ]);
   const combatSkills = typeof usableSkillEntries === 'function'
     ? usableSkillEntries()
-      .filter(entry => entry && entry.sk && entry.lv > 0 && directSkillTypes.has(entry.sk.type))
+      .filter(entry => entry && entry.sk && entry.lv > 0 && explorerSkillTypes.has(entry.sk.type))
       .slice(0, 30)
       .map(entry => ({
         id: entry.sk.id, name: entry.sk.name, level: entry.lv,
         spCost: typeof skillSpCost === 'function' ? skillSpCost(entry.sk, entry.lv) : 0,
-        type: entry.sk.type
+        type: entry.sk.type, isSelfBuff: selfBuffSkillTypes.has(entry.sk.type)
       }))
     : [];
   if (combatSkills.length) url.searchParams.set('skills', JSON.stringify(combatSkills));
