@@ -17,6 +17,9 @@ assert.match(ui,
   /function buildRoExplorerProgressSnapshot\(playerState\)[\s\S]*?playerBaseLevel:[\s\S]*?playerBaseExpNeed:[\s\S]*?playerJobLevel:[\s\S]*?playerJobExpNeed:[\s\S]*?playerZeny:/,
   '探索進度快照沿用主遊戲等級、經驗曲線與鋅幣');
 assert.match(ui,
+  /if \(state && command\.type !== 'vitals'\) \{\s*result = Object\.assign\(\{\}, result, buildRoExplorerProgressSnapshot\(state\)\);\s*\}/,
+  '普攻、技能與持續傷害回覆附上最新等級／經驗／鋅幣');
+assert.match(ui,
   /\['pbaselevel', progression\.playerBaseLevel\][\s\S]*?\['pzeny', progression\.playerZeny\]/,
   '開啟探索時會傳入角色初始進度');
 assert.match(explorer,
