@@ -1749,9 +1749,6 @@ async function loadRagassetsMap(mapName) {
           nextTerrainTextureDiagnostics.loaded++;
           if (terrainTextureDiagnostics === nextTerrainTextureDiagnostics) updateStats();
         }, undefined, () => {
-        texture.generateMipmaps = false;
-        texture.minFilter = THREE.LinearFilter;
-        texture.magFilter = THREE.LinearFilter;
           nextTerrainTextureDiagnostics.failed++;
           if (terrainTextureDiagnostics === nextTerrainTextureDiagnostics) updateStats();
           if (material) {
@@ -1760,6 +1757,10 @@ async function loadRagassetsMap(mapName) {
             material.needsUpdate = true;
           }
         });
+        // Set the sampling policy before the first draw, not only when loading completes.
+        texture.generateMipmaps = false;
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
       } else if (bucket.textureIndex >= 0) {
         const missingName = textureName || '(空白材質名稱)';
         if (!nextTerrainTextureDiagnostics.missing.includes(missingName)) {
