@@ -178,6 +178,14 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
       assert.ok(box && box.width > 0 && box.height > 0, mapSlug + ' 缺少有效地表檢視範圍。');
       const inspector = targetPage.locator('#gnd-surface-inspector-content');
       await targetPage.locator('#gnd-surface-inspector').waitFor({ state: 'visible', timeout: 5000 });
+      const inspectorStyle = await targetPage.locator('#gnd-surface-inspector').evaluate(el => ({
+        pointerEvents: getComputedStyle(el).pointerEvents,
+        overflowY: getComputedStyle(el).overflowY,
+      }));
+      assert.equal(inspectorStyle.pointerEvents, 'auto',
+        mapSlug + ' 地表診斷面板需要接收滾輪／觸控，才能查看完整取樣。');
+      assert.equal(inspectorStyle.overflowY, 'auto',
+        mapSlug + ' 地表診斷面板必須能在自身區域捲動。');
 
       if (mode.value === '7') {
         const centerX = box.x + box.width / 2;
@@ -221,6 +229,12 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
           const pixelMatch = diagnosticText.match(/GPU 最終畫面取樣 RGBA：\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)/);
           if (!pixelMatch) continue;
           if (!/(?:SW|SE|NW|NE): RGB \(\d+, \d+, \d+\); AO \d+/.test(diagnosticText)) continue;
+          const scrollMetrics = await targetPage.locator('#gnd-surface-inspector').evaluate(el => ({
+            scrollHeight: el.scrollHeight,
+            clientHeight: el.clientHeight,
+          }));
+          assert.ok(scrollMetrics.scrollHeight > scrollMetrics.clientHeight,
+            mapSlug + ' 地表取樣內容超出視窗時必須提供面板內捲動。');
           groundProbe = point;
           sampledPixels['7'] = pixelMatch.slice(1, 4).join(',');
           foundVisibleGround = true;

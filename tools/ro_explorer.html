@@ -37,7 +37,7 @@
     #status.error { color: #fecaca; border-color: #9f4141; }
     #gnd-debug-picker { position: absolute; top: 12px; right: 12px; z-index: 5; max-width: min(250px, calc(100% - 24px)); padding: 8px 10px; border: 1px solid #526985; border-radius: 8px; background: rgba(7, 13, 22, .92); color: #d9e7f8; }
     #gnd-debug-picker select { min-width: 145px; max-width: min(180px, 44vw); }
-    #gnd-surface-inspector { position: absolute; top: 62px; right: 12px; z-index: 4; width: min(390px, calc(100% - 24px)); max-height: min(38vh, 320px); overflow: auto; padding: 9px 11px; border: 1px solid #526985; border-radius: 8px; background: rgba(7, 13, 22, .94); color: #d9e7f8; font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; pointer-events: none; overflow-wrap: anywhere; }
+    #gnd-surface-inspector { position: absolute; top: 62px; right: 12px; z-index: 4; width: min(390px, calc(100% - 24px)); max-height: min(38vh, 320px); overflow: auto; overscroll-behavior: contain; touch-action: pan-y; padding: 9px 11px; border: 1px solid #526985; border-radius: 8px; background: rgba(7, 13, 22, .94); color: #d9e7f8; font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; pointer-events: auto; overflow-wrap: anywhere; }
     #gnd-surface-inspector[hidden] { display: none; }
     #gnd-surface-inspector pre { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
     @media (max-width: 640px) { #gnd-surface-inspector { top: 58px; width: min(270px, calc(100% - 24px)); max-height: 24vh; font-size: 10px; } }

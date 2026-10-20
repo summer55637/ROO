@@ -3232,14 +3232,8 @@ function updateGndSurfaceInspector(event) {
     'Diffuse 貼圖採樣：' + samplerDescription(object.userData.rooGndDiffuseSampler),
     'RGB lightmap/AO 採樣：' + samplerDescription(object.userData.rooGndLightmapSampler),
     '材質索引：' + surface.textureIndex + '；lightmap 索引：' + surface.lightmapIndex,
-    '原始 RGB lightmap / AO 四角取樣（來源 GND 像素，不是渲染猜測）：',
-    ...lightmapLines,
-    '原始四角 UV（UV0..UV3）：',
-    ...(surface.uv || []).map((uv, index) => '  UV' + index + ': (' + formatGndDiagnosticVector(uv) + ')'),
-    '渲染網格四角（含半像素內縮）與原貼圖像素近似取樣：',
-    ...uvLines,
-    '實際傳入 GPU 的逐角頂點色 RGB：',
-    ...colorLines,
+    '游標處插值 UV：(' + formatGndDiagnosticVector([hit.uv.x, hit.uv.y]) + ')',
+    '游標處原貼圖像素近似值：' + sampleGndSourceTexturePixel(texture, [hit.uv.x, hit.uv.y]),
     '游標處插值頂點色 RGB：' + (cursorVertexColor
       ? '(' + formatGndDiagnosticVector(cursorVertexColor.slice(0, 3)) + ')'
       : '無法取得'),
@@ -3250,8 +3244,14 @@ function updateGndSurfaceInspector(event) {
         ? 'RGB (' + cursorLightmapSample.rgb.join(', ') + '); AO ' + cursorLightmapSample.ao
           + ' @ (' + cursorLightmapSample.x + ', ' + cursorLightmapSample.y + ')'
         : '無法取樣'),
-    '游標處插值 UV：(' + formatGndDiagnosticVector([hit.uv.x, hit.uv.y]) + ')',
-    '游標處原貼圖像素近似值：' + sampleGndSourceTexturePixel(texture, [hit.uv.x, hit.uv.y]),
+    '原始 RGB lightmap / AO 四角取樣（來源 GND 像素，不是渲染猜測）：',
+    ...lightmapLines,
+    '原始四角 UV（UV0..UV3）：',
+    ...(surface.uv || []).map((uv, index) => '  UV' + index + ': (' + formatGndDiagnosticVector(uv) + ')'),
+    '渲染網格四角（含半像素內縮）與原貼圖像素近似取樣：',
+    ...uvLines,
+    '實際傳入 GPU 的逐角頂點色 RGB：',
+    ...colorLines,
     'GPU 最終畫面取樣 RGBA：等待下一個渲染影格。',
   ].join('\n');
   gndSurfaceInspectorContent.textContent = detail;
