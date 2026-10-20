@@ -164,6 +164,21 @@ const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const normalMatrix = new THREE.Matrix3();
 const textureLoader = new THREE.TextureLoader();
+const gndDiffuseSourceTexturePromises = new Map();
+
+function loadGndDiffuseSourceTexture(url) {
+  if (!gndDiffuseSourceTexturePromises.has(url)) {
+    const promise = textureLoader.loadAsync(url).then(texture => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      return texture;
+    }).catch(error => {
+      gndDiffuseSourceTexturePromises.delete(url);
+      throw error;
+    });
+    gndDiffuseSourceTexturePromises.set(url, promise);
+  }
+  return gndDiffuseSourceTexturePromises.get(url);
+}
 const explorerParams = new URLSearchParams(window.location.search);
 activeExplorerMode = explorerParams.get('mode') === 'native'
   ? 'native' : (explorerParams.get('mode') === 'local' ? 'local' : 'public');
@@ -1676,14 +1691,18 @@ async function loadRagassetsMap(mapName) {
     const lightmapAtlas = buildGndLightmapAtlasData(parsedGnd);
     const meshData = buildGndMeshData(parsedGnd, nextScale, lightmapAtlas);
     const texturedBuckets = meshData.buckets.filter(bucket => bucket.textureIndex >= 0);
+    const mappedTextureIndexes = [...new Set(texturedBuckets.map(bucket => bucket.textureIndex))];
     const nextTerrainTextureDiagnostics = {
       mapId,
-      total: texturedBuckets.length,
+      total: mappedTextureIndexes.length,
       resolved: 0,
       loaded: 0,
       failed: 0,
       missing: [],
     };
+    const resolvedTextureIndexes = new Set();
+    const loadedTextureIndexes = new Set();
+    const failedTextureIndexes = new Set();
     terrainTextureDiagnostics = nextTerrainTextureDiagnostics;
     updateStats();
     const lightmapTexture = lightmapAtlas
@@ -1700,6 +1719,9 @@ async function loadRagassetsMap(mapName) {
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.Float32BufferAttribute(bucket.positions, 3));
       geometry.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uvs, 2));
+      if (bucket.sourceUvs && bucket.sourceUvs.length === bucket.uvs.length) {
+        geometry.setAttribute('rooGndSourceUv', new THREE.Float32BufferAttribute(bucket.sourceUvs, 2));
+      }
       if (lightmapAtlas) {
         geometry.setAttribute('uv2', new THREE.Float32BufferAttribute(bucket.lightmapUvs, 2));
         geometry.setAttribute('rooGndHasLightmap', new THREE.Float32BufferAttribute(bucket.lightmapEnabled, 1));
@@ -1722,63 +1744,33 @@ async function loadRagassetsMap(mapName) {
         ));
       }
 
-      let material;
-      let texture = null;
       const textureName = bucket.textureIndex >= 0 ? parsedGnd.textures[bucket.textureIndex] : '';
       const textureUrl = resolveMapTextureUrl(urls.textures, textureName);
-      if (textureUrl) {
+      if (textureUrl && !resolvedTextureIndexes.has(bucket.textureIndex)) {
+        resolvedTextureIndexes.add(bucket.textureIndex);
         nextTerrainTextureDiagnostics.resolved++;
-        texture = textureLoader.load(textureUrl, loadedTexture => {
-          loadedTexture.colorSpace = THREE.SRGBColorSpace;
-          loadedTexture.wrapS = THREE.RepeatWrapping;
-          loadedTexture.wrapT = THREE.RepeatWrapping;
-          // GND diffuse UVs often address sub-rectangles inside a shared texture.
-          // A whole-image mip chain blends adjacent sub-rectangles at distance,
-          // even after half-texel UV insetting, so sample the padded source level.
-          loadedTexture.generateMipmaps = false;
-          loadedTexture.minFilter = THREE.LinearFilter;
-          loadedTexture.magFilter = THREE.LinearFilter;
-          const textureWidth = loadedTexture.image && (loadedTexture.image.naturalWidth || loadedTexture.image.width);
-          const textureHeight = loadedTexture.image && (loadedTexture.image.naturalHeight || loadedTexture.image.height);
-          if (textureWidth > 0 && textureHeight > 0) {
-            const uvAttribute = geometry.getAttribute('uv');
-            uvAttribute.array.set(insetGndTextureUvs(uvAttribute.array, textureWidth, textureHeight));
-            uvAttribute.needsUpdate = true;
-          }
-          loadedTexture.needsUpdate = true;
-          nextTerrainTextureDiagnostics.loaded++;
-          if (terrainTextureDiagnostics === nextTerrainTextureDiagnostics) updateStats();
-        }, undefined, () => {
-          nextTerrainTextureDiagnostics.failed++;
-          if (terrainTextureDiagnostics === nextTerrainTextureDiagnostics) updateStats();
-          if (material) {
-            material.map = null;
-            material.color.set('#9cb68c');
-            material.needsUpdate = true;
-          }
-        });
-        // Set the sampling policy before the first draw, not only when loading completes.
-        texture.generateMipmaps = false;
-        texture.minFilter = THREE.LinearFilter;
-        texture.magFilter = THREE.LinearFilter;
-      } else if (bucket.textureIndex >= 0) {
+      } else if (bucket.textureIndex >= 0 && !textureUrl) {
         const missingName = textureName || '(空白材質名稱)';
         if (!nextTerrainTextureDiagnostics.missing.includes(missingName)) {
           nextTerrainTextureDiagnostics.missing.push(missingName);
         }
       }
+
+      // Leave a safe terrain tint while the one shared source image is decoded.
+      // The real material map is replaced by an isolated per-UV-region CanvasTexture below.
+      let material;
       if (lightmapAtlas) {
         material = new THREE.MeshBasicMaterial({
-          map: texture,
-          color: texture ? 0xffffff : 0x9cb68c,
+          map: null,
+          color: 0x9cb68c,
           vertexColors: true,
           side: THREE.DoubleSide,
         });
         applyGndBakedLighting(material, lightmapTexture, aoTexture, parsedRsw.light);
       } else {
         material = new THREE.MeshStandardMaterial({
-          map: texture,
-          color: texture ? 0xffffff : 0x9cb68c,
+          map: null,
+          color: 0x9cb68c,
           vertexColors: true,
           side: THREE.DoubleSide,
           roughness: 1,
@@ -1786,23 +1778,103 @@ async function loadRagassetsMap(mapName) {
         });
       }
       const mesh = new THREE.Mesh(geometry, material);
-      mesh.name = 'terrain-texture-' + bucket.textureIndex;
+      mesh.name = 'terrain-texture-' + bucket.textureIndex
+        + (bucket.diffuseUvRect ? '-region-' + [
+          bucket.diffuseUvRect.minU, bucket.diffuseUvRect.maxU,
+          bucket.diffuseUvRect.minV, bucket.diffuseUvRect.maxV,
+        ].map(value => Math.round(value * 1000)).join('-') : '-source');
       mesh.userData.rooTerrainSurface = true;
       mesh.userData.rooGndSurfaceIndices = bucket.surfaceIndices;
       mesh.userData.rooGndTextureIndex = bucket.textureIndex;
       mesh.userData.rooGndTextureName = textureName;
       mesh.userData.rooGndTextureUrl = textureUrl || '';
-      mesh.userData.rooGndDiffuseSampler = texture ? {
-        generateMipmaps: texture.generateMipmaps,
-        minFilter: texture.minFilter,
-        magFilter: texture.magFilter,
-      } : null;
+      mesh.userData.rooGndDiffuseUvRect = bucket.diffuseUvRect || null;
+      mesh.userData.rooGndDiffuseSourceTexture = null;
+      mesh.userData.rooGndDiffuseSourcePixelRect = null;
+      mesh.userData.rooGndDiffuseSampler = null;
       mesh.userData.rooGndLightmapSampler = lightmapTexture ? {
         generateMipmaps: lightmapTexture.generateMipmaps,
         minFilter: lightmapTexture.minFilter,
         magFilter: lightmapTexture.magFilter,
       } : null;
       stagedRoot.add(mesh);
+
+      if (!textureUrl) continue;
+      loadGndDiffuseSourceTexture(textureUrl).then(sourceTexture => {
+        if (!isCurrentRequest()) return;
+        let targetTexture = sourceTexture;
+        let textureWidth = sourceTexture.image
+          && (sourceTexture.image.naturalWidth || sourceTexture.image.width);
+        let textureHeight = sourceTexture.image
+          && (sourceTexture.image.naturalHeight || sourceTexture.image.height);
+        let sourcePixelRect = null;
+        let isIsolatedRegion = false;
+
+        if (bucket.diffuseUvRect) {
+          try {
+            const region = createGndDiffuseRegionTexture(sourceTexture, bucket.diffuseUvRect);
+            targetTexture = region.texture;
+            textureWidth = region.width;
+            textureHeight = region.height;
+            sourcePixelRect = region.sourcePixelRect;
+            isIsolatedRegion = true;
+          } catch (error) {
+            // If canvas cropping is unavailable, restore the real source UVs and use
+            // the original texture with its full-image mip chain rather than showing
+            // the wrong subregion under local 0..1 coordinates.
+            console.warn('ROO GND diffuse 子區域隔離失敗，回退完整來源貼圖：' + textureName, error);
+            const sourceUvAttribute = geometry.getAttribute('rooGndSourceUv');
+            const uvAttribute = geometry.getAttribute('uv');
+            if (sourceUvAttribute && uvAttribute) {
+              uvAttribute.array.set(sourceUvAttribute.array);
+              uvAttribute.needsUpdate = true;
+            }
+          }
+        }
+
+        if (!isIsolatedRegion) {
+          sourceTexture.wrapS = THREE.RepeatWrapping;
+          sourceTexture.wrapT = THREE.RepeatWrapping;
+          sourceTexture.generateMipmaps = true;
+          sourceTexture.minFilter = THREE.LinearMipmapLinearFilter;
+          sourceTexture.magFilter = THREE.LinearFilter;
+          sourceTexture.needsUpdate = true;
+        }
+        if (textureWidth > 0 && textureHeight > 0) {
+          const uvAttribute = geometry.getAttribute('uv');
+          uvAttribute.array.set(insetGndTextureUvs(uvAttribute.array, textureWidth, textureHeight));
+          uvAttribute.needsUpdate = true;
+        }
+
+        material.map = targetTexture;
+        material.color.set(0xffffff);
+        material.needsUpdate = true;
+        mesh.userData.rooGndDiffuseSourceTexture = sourceTexture;
+        mesh.userData.rooGndDiffuseSourcePixelRect = sourcePixelRect;
+        mesh.userData.rooGndDiffuseSampler = {
+          generateMipmaps: targetTexture.generateMipmaps,
+          minFilter: targetTexture.minFilter,
+          magFilter: targetTexture.magFilter,
+        };
+        if (!loadedTextureIndexes.has(bucket.textureIndex)) {
+          loadedTextureIndexes.add(bucket.textureIndex);
+          nextTerrainTextureDiagnostics.loaded++;
+        }
+        if (terrainTextureDiagnostics === nextTerrainTextureDiagnostics) updateStats();
+      }).catch(error => {
+        if (!isCurrentRequest()) return;
+        if (!failedTextureIndexes.has(bucket.textureIndex)) {
+          failedTextureIndexes.add(bucket.textureIndex);
+          nextTerrainTextureDiagnostics.failed++;
+        }
+        if (material) {
+          material.map = null;
+          material.color.set('#9cb68c');
+          material.needsUpdate = true;
+        }
+        if (terrainTextureDiagnostics === nextTerrainTextureDiagnostics) updateStats();
+        console.warn('ROO GND 地表貼圖載入失敗：' + textureName, error);
+      });
     }
 
     setStatus('地表已建立，正在載入 RSW 模型資源…');
@@ -3132,6 +3204,52 @@ function sampleGndLightmapSourceAtUv(surface, atlasUv) {
     ? slice.shadowPixels[y * width + x]
     : channels === 4 ? slice.colorPixels[pixelOffset + 3] : 255;
   return { x, y, rgb, ao };
+}
+
+function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
+  const image = sourceTexture && sourceTexture.image;
+  const width = image && (image.naturalWidth || image.videoWidth || image.width);
+  const height = image && (image.naturalHeight || image.videoHeight || image.height);
+  if (!image || !Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1
+    || !uvRect || ![uvRect.minU, uvRect.maxU, uvRect.minV, uvRect.maxV].every(Number.isFinite)) {
+    throw new Error('GND diffuse 子區域缺少有效來源影像或 UV 範圍。');
+  }
+
+  // GND UVs describe pixel boundaries in the shared source atlas. Crop that region
+  // into its own texture so each region builds an independent mip chain.
+  const x0 = Math.max(0, Math.min(width - 1, Math.round(uvRect.minU * width)));
+  const x1 = Math.max(x0 + 1, Math.min(width, Math.round(uvRect.maxU * width)));
+  const y0 = Math.max(0, Math.min(height - 1, Math.round((1 - uvRect.maxV) * height)));
+  const y1 = Math.max(y0 + 1, Math.min(height, Math.round((1 - uvRect.minV) * height)));
+  const regionWidth = x1 - x0;
+  const regionHeight = y1 - y0;
+  if (regionWidth < 1 || regionHeight < 1) {
+    throw new Error('GND diffuse UV 子區域小於一個來源像素。');
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = regionWidth;
+  canvas.height = regionHeight;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('無法建立 GND diffuse 子區域畫布。');
+  context.imageSmoothingEnabled = false;
+  context.drawImage(image, x0, y0, regionWidth, regionHeight, 0, 0, regionWidth, regionHeight);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 4);
+  texture.needsUpdate = true;
+  return {
+    texture,
+    width: regionWidth,
+    height: regionHeight,
+    sourcePixelRect: { x0, y0, x1, y1 },
+  };
 }
 
 function describeGndTextureFilters(texture) {
