@@ -38,6 +38,7 @@ jobs:
           node --check tools/ro_explorer.mjs
           node --check tools/ro_explorer_hud.mjs
           node --check tools/test_ro_explorer_hud.mjs
+          node --check tools/test_ro_explorer_vitals_bridge.mjs
           node --check tools/latest_request_gate.mjs
           node --check tools/test_latest_request_gate.mjs
           node --check tools/ro_explorer_bootstrap.js
