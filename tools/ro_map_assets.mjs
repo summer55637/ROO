@@ -1717,7 +1717,7 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
     const bucketKey = textureIndex >= 0 && textureIndex < gnd.textures.length ? textureIndex : -1;
     let bucket = buckets.get(bucketKey);
     if (!bucket) {
-      bucket = { textureIndex: bucketKey, positions: [], uvs: [], lightmapUvs: [], lightmapEnabled: [], colors: [], indices: [] };
+      bucket = { textureIndex: bucketKey, positions: [], uvs: [], lightmapUvs: [], lightmapEnabled: [], colors: [], indices: [], surfaceIndices: [] };
       buckets.set(bucketKey, bucket);
     }
     const base = bucket.positions.length / 3;
@@ -1742,6 +1742,7 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
       bucket.colors.push(color[0], color[1], color[2]);
     }
     bucket.indices.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+    bucket.surfaceIndices.push(surfaceIndex);
     quadCount++;
   }
 
