@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs';
 import {
   RAGASSETS_BASE_URL,
   buildGndLightmapAtlasData,
+  GND_PREVIEW_LIGHT_FLOOR,
+  GND_PREVIEW_AO_STRENGTH,
+  computeGndPreviewLightingMultiplier,
   buildRsmNodeTransformData,
   buildRsm2NodeTransformData,
   buildRsmNodeMeshData,
@@ -863,3 +866,18 @@ assert.equal(
 );
 assert.equal(resolveMapTextureUrl(terrainTextureManifest, ''),
   null, '空白貼圖名稱不會解析到任意材質');
+
+
+const darkestGndPreview = computeGndPreviewLightingMultiplier([0, 0.1, 1], 0);
+assert.ok(Math.abs(darkestGndPreview[0]
+  - GND_PREVIEW_LIGHT_FLOOR * (1 - GND_PREVIEW_AO_STRENGTH)) < 1e-9,
+'暗部預覽仍保留可見的最低光照');
+assert.ok(darkestGndPreview.every(value => value > 0 && value <= 1),
+  '光照合成乘數保持可顯示且在合法範圍');
+assert.deepEqual(computeGndPreviewLightingMultiplier([1, 1, 1], 1), [1, 1, 1],
+  '全亮 lightmap 與無 AO 區域保持原亮度');
+assert.deepEqual(computeGndPreviewLightingMultiplier([-1, 0.5, 2], 2),
+  computeGndPreviewLightingMultiplier([0, 0.5, 1], 1),
+  '光照與 AO 輸入被限制於合法範圍');
+assert.throws(() => computeGndPreviewLightingMultiplier([1, 1], 1),
+  /GND 預覽光照/, '無效光照資料會被拒絕');

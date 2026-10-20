@@ -5,6 +5,8 @@ import {
   RAGASSETS_BASE_URL,
   buildGndLightmapAtlasData,
   buildGndMeshData,
+  GND_PREVIEW_LIGHT_FLOOR,
+  GND_PREVIEW_AO_STRENGTH,
   analyzeRswPlacementBounds,
   buildRsmNodeTransformData,
   buildRsm2NodeTransformData,
@@ -1436,11 +1438,15 @@ function applyGndBakedLighting(material, lightMapTexture, aoTexture) {
     ).replace(
       '#include <map_fragment>',
       '#include <map_fragment>\n'
-        + 'diffuseColor.rgb *= texture2D(rooGndLightMap, vRooGndLightmapUv).rgb;\n'
-        + 'diffuseColor.rgb *= texture2D(rooGndAoMap, vRooGndLightmapUv).r;'
+        + 'vec3 rooGndBakedLight = max(texture2D(rooGndLightMap, vRooGndLightmapUv).rgb, vec3('
+        + GND_PREVIEW_LIGHT_FLOOR.toFixed(2) + '));\n'
+        + 'float rooGndAmbientOcclusion = mix(1.0, texture2D(rooGndAoMap, vRooGndLightmapUv).r, '
+        + GND_PREVIEW_AO_STRENGTH.toFixed(2) + ');\n'
+        + 'diffuseColor.rgb *= rooGndBakedLight;\n'
+        + 'diffuseColor.rgb *= rooGndAmbientOcclusion;'
     );
   };
-  material.customProgramCacheKey = () => 'roo-gnd-baked-lightmap-v1';
+  material.customProgramCacheKey = () => 'roo-gnd-baked-lightmap-v2-preview';
 }
 
 function createLightmapDataTexture(data, width, height) {

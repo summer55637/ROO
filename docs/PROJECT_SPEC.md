@@ -313,3 +313,11 @@
 - Chromium 桌面／手機驗收必須確認至少一張真實 GND 地表貼圖成功載入，且加入 exact path、unique basename、ambiguous basename 與空名稱的解析回歸測試。
 - 目前先修正材質查找與可觀測性；不變更 GND 地形、碰撞／尋路、RO 傷害公式或既有單機存檔。
 - 格式檢查參照 [RagnarokFileFormats GND 規格](https://github.com/rdw-archive/RagnarokFileFormats/blob/master/GND.MD)。該規格描述地表 diffuse 貼圖、烘焙 RGB lightmap 及灰階 AO/shadow map；視覺準確度仍以 CI 截圖及後續目視比對為準。
+
+
+## 2026-10-20 更新：原生地表過暗的預覽光照修正
+
+- 在瀏覽器驗收確認 GND 地表貼圖 11/11 成功載入後，截圖仍有大面積黑暗條紋；因此問題不只在貼圖 URL。
+- 原生預覽採用 Basic 材質，地表本身由 baked lightmap 與 AO 合成；現在為極暗光照保留有限亮度底值，並降低 AO 的乘算強度，避免陰影把 diffuse 地表完全壓黑。
+- 保留光照 RGB 色彩、亮部與 AO 的明暗變化；這是為了瀏覽器預覽可讀性所做的折衷，不宣稱與官方 RO 客戶端逐像素一致。
+- 新增光照乘數的行為測試，覆蓋暗部最低光照、全亮保真、輸入範圍與無效數值；地圖資料、GAT 通行／尋路與 RO 戰鬥公式不變。

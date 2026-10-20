@@ -4,6 +4,26 @@ const MODEL_BLOB_PATTERN = /^\.\.\/_m\/[a-f0-9]{16}\.rsm2?$/i;
 
 export const RAGASSETS_BASE_URL = 'https://assets.latam-tools.com.br';
 
+// The native browser preview has no full fixed-function RO lighting pipeline.
+// Preserve baked lightmap color while preventing very dark source values and AO
+// from multiplying together into nearly black terrain.
+export const GND_PREVIEW_LIGHT_FLOOR = 0.28;
+export const GND_PREVIEW_AO_STRENGTH = 0.45;
+
+export function computeGndPreviewLightingMultiplier(lightmapRgb, aoValue) {
+  if (!Array.isArray(lightmapRgb) || lightmapRgb.length !== 3
+    || !lightmapRgb.every(Number.isFinite) || !Number.isFinite(aoValue)) {
+    throw new TypeError('GND 預覽光照需要三個有限 RGB 值及一個有限 AO 值。');
+  }
+  const ao = Math.max(0, Math.min(1, aoValue));
+  const aoMultiplier = 1 - GND_PREVIEW_AO_STRENGTH + GND_PREVIEW_AO_STRENGTH * ao;
+  return lightmapRgb.map(channel => Math.max(
+    GND_PREVIEW_LIGHT_FLOOR,
+    Math.max(0, Math.min(1, channel))
+  ) * aoMultiplier);
+}
+
+
 function asView(input) {
   if (input instanceof DataView) return input;
   if (input instanceof ArrayBuffer) return new DataView(input);
