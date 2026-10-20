@@ -1560,7 +1560,7 @@ export function compareGndGatHeights(gnd, gat, worldScale = 0.2) {
   };
 }
 
-export function buildGndLightmapAtlasData(gnd, posterizationLevel = 16) {
+export function buildGndLightmapAtlasData(gnd, posterizationLevel = 0) {
   if (!gnd || !Array.isArray(gnd.lightmapSlices)) {
     throw new TypeError('必須提供已解析的 GND lightmap slices。');
   }
@@ -1682,6 +1682,9 @@ export function buildGndLightmapAtlasData(gnd, posterizationLevel = 16) {
     rows,
     sliceWidth,
     sliceHeight,
+    gutter,
+    cellWidth,
+    cellHeight,
     sourceGutter: sliceWidth >= 4 && sliceHeight >= 4 ? 1 : 0,
     channels,
     lightMapPixels,
