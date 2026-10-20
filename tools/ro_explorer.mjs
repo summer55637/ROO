@@ -169,7 +169,8 @@ const gndDiffuseSourceTexturePromises = new Map();
 function loadGndDiffuseSourceTexture(url) {
   if (!gndDiffuseSourceTexturePromises.has(url)) {
     const promise = textureLoader.loadAsync(url).then(texture => {
-      texture.colorSpace = THREE.SRGBColorSpace;
+      // Classic RO GND blends the stored RGB values directly with vertex color/AO/lightmap.
+      texture.colorSpace = THREE.NoColorSpace;
       return texture;
     }).catch(error => {
       gndDiffuseSourceTexturePromises.delete(url);
@@ -1490,7 +1491,13 @@ function applyGndBakedLighting(material, lightMapTexture, aoTexture, rswLight) {
     );
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <common>',
-      '#include <common>\nuniform sampler2D rooGndLightMap;'
+      '#include <common>\n'
+        + 'vec3 rooGndLegacySrgbToLinear(vec3 value) {\n'
+        + '  vec3 low = value / 12.92;\n'
+        + '  vec3 high = pow((value + 0.055) / 1.055, vec3(2.4));\n'
+        + '  return mix(low, high, step(vec3(0.04045), value));\n'
+        + '}\n'
+        + 'uniform sampler2D rooGndLightMap;'
         + '\nuniform sampler2D rooGndAoMap;\nuniform float rooGndDebugMode;\nvarying vec2 vRooGndLightmapUv;'
         + '\nvarying float vRooGndHasLightmap;\nvarying vec3 vRooGndLightMultiplier;'
     ).replace(
@@ -1521,10 +1528,11 @@ function applyGndBakedLighting(material, lightMapTexture, aoTexture, rswLight) {
         + '  diffuseColor.rgb = rooGndDiffuse;\n'
         + '} else {\n'
         + '  diffuseColor.rgb = rooGndVertexColor;\n'
-        + '}'
+        + '}\n'
+        + 'diffuseColor.rgb = rooGndLegacySrgbToLinear(clamp(diffuseColor.rgb, vec3(0.0), vec3(1.0)));'
     );
   };
-  material.customProgramCacheKey = () => 'roo-gnd-baked-lightmap-v6-independent-diffuse-vertex-debug';
+  material.customProgramCacheKey = () => 'roo-gnd-baked-lightmap-v7-legacy-color-math';
 }
 
 function createLightmapDataTexture(data, width, height) {
@@ -1798,6 +1806,7 @@ async function loadRagassetsMap(mapName) {
         generateMipmaps: lightmapTexture.generateMipmaps,
         minFilter: lightmapTexture.minFilter,
         magFilter: lightmapTexture.magFilter,
+        colorSpace: lightmapTexture.colorSpace,
       } : null;
       stagedRoot.add(mesh);
 
@@ -1857,6 +1866,7 @@ async function loadRagassetsMap(mapName) {
           generateMipmaps: targetTexture.generateMipmaps,
           minFilter: targetTexture.minFilter,
           magFilter: targetTexture.magFilter,
+          colorSpace: targetTexture.colorSpace,
         };
         if (!loadedTextureIndexes.has(bucket.textureIndex)) {
           loadedTextureIndexes.add(bucket.textureIndex);
@@ -3238,7 +3248,8 @@ function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
   context.drawImage(image, x0, y0, regionWidth, regionHeight, 0, 0, regionWidth, regionHeight);
 
   const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
+  // Keep legacy GND byte colors encoded for the classic multiply/add blend.
+  texture.colorSpace = THREE.NoColorSpace;
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.generateMipmaps = true;
@@ -3486,9 +3497,13 @@ function updateGndSurfaceInspector(event) {
     if (!sampler) return '未啟用';
     const filterName = value => value === THREE.LinearFilter ? 'LinearFilter'
       : value === THREE.NearestFilter ? 'NearestFilter' : 'mipmap filter (' + value + ')';
+    const colorSpaceName = sampler.colorSpace === THREE.NoColorSpace ? 'NoColorSpace'
+      : sampler.colorSpace === THREE.SRGBColorSpace ? 'SRGBColorSpace'
+        : String(sampler.colorSpace || 'default');
     return 'mipmap=' + (sampler.generateMipmaps ? 'on' : 'off')
       + '; min=' + filterName(sampler.minFilter)
-      + '; mag=' + filterName(sampler.magFilter);
+      + '; mag=' + filterName(sampler.magFilter)
+      + '; colorSpace=' + colorSpaceName;
   };
   const detail = [
     '地圖：' + (mapInfo && mapInfo.mapId || '未知'),

@@ -383,3 +383,13 @@
 - 分通道畫面與手機畫面 artifact：[roo-explorer-browser-screenshots](https://github.com/summer55637/ROO/actions/runs/39422143977/artifacts/12263997104)。
 - PR #1 仍為草稿且未合併 `main`；開發分支提交不會自動更新 GitHub Pages 正式網址。
 
+
+## 2026-10-21 更新：GND 經典 RO 顏色計算空間對齊
+
+- 將公開 GRFEditor 的 GND shader 與 Three.js 的色彩管理規則對照後，確認舊式 GND 合成以儲存的 diffuse RGB 直接乘頂點色、AO 與方向光，再加 RGB lightmap；Three.js 則會把標示為 `SRGBColorSpace` 的 diffuse 先解碼成線性值，導致混色步驟與經典 renderer 使用的數值空間不同。
+- GND 原始 diffuse 及裁切後區域現在明確使用 `NoColorSpace`；沿用 RO 數值做完各模式／完整合成後，再將結果轉為 Three.js 的線性工作空間，交給標準 sRGB 輸出。lightmap/AO 仍視為資料貼圖，不改其來源 bytes、16 階處理、有效 UV 或 mipmap 策略。
+- 地表診斷面板現在顯示 diffuse 與 lightmap/AO 的 colorSpace；桌面／手機 Chromium 驗收會確認兩者皆為 `NoColorSpace`，同時保留來源像素、頂點色、UV、光照取樣及 GPU 最終像素檢查。
+- 這次校正專攻「合成色調／明暗計算方式不一致」；不會消除 diffuse 貼圖中原本的紋路，也不會自動修好 GND surfaces 幾何接縫或 RGB lightmap 本身的線狀細節。仍須看新 CI 截圖逐地圖驗證，不能宣稱已與官方客戶端逐像素一致。
+- 參考：[Three.js 色彩管理](https://threejs.org/manual/pages/color-management.html)、[Three.js 舊色彩工作流程差異](https://github.com/mrdoob/three.js/issues/30305)、[GRFEditor 經典 GND shader](https://github.com/Tokeiburu/GRFEditor/blob/e6508407c1e193dac5252eef788dc0a0c1d9d07f/GRFEditor/Resources/Shaders/map/gnd.frag)。
+- 本輪 CI 結果待新提交跑完後更新；PR #1 仍是草稿，未合併 `main`，GitHub Pages 正式網址不會因本分支提交自動更新。
+
