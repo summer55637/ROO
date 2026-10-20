@@ -1597,10 +1597,13 @@ export function buildGndLightmapAtlasData(gnd, posterizationLevel = 16) {
     // inner border at +1 to the opposite inner border at size-1. Those
     // coordinates are texel boundaries, not centers; sampling the centers
     // compresses the UV span from six texels to five and enlarges baked blobs.
-    const u0 = (column * cellWidth + gutter + sourceGutter) / width;
-    const u1 = (column * cellWidth + gutter + sliceWidth - sourceGutter) / width;
-    const v0 = (row * cellHeight + gutter + sourceGutter) / height;
-    const v1 = (row * cellHeight + gutter + sliceHeight - sourceGutter) / height;
+    // Tiny synthetic slices have no reserved border; keep their only texel(s)
+    // centered so atlas padding is never sampled as source data.
+    const sourceSampleInset = sourceGutter ? 0 : 0.5;
+    const u0 = (column * cellWidth + gutter + sourceGutter + sourceSampleInset) / width;
+    const u1 = (column * cellWidth + gutter + sliceWidth - sourceGutter - sourceSampleInset) / width;
+    const v0 = (row * cellHeight + gutter + sourceGutter + sourceSampleInset) / height;
+    const v1 = (row * cellHeight + gutter + sliceHeight - sourceGutter - sourceSampleInset) / height;
     uvsBySlice.push([[u0, v0], [u1, v0], [u0, v1], [u1, v1]]);
   }
 
