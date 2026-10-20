@@ -2078,6 +2078,14 @@ function openRoExplorer() {
   url.searchParams.set('mode', 'native');
   url.searchParams.set('map', mapId);
   url.searchParams.set('sprite', getAnimKey());
+  for (const [key, value] of [
+    ['php', state.hp], ['pmaxhp', state.maxHp],
+    ['psp', state.sp], ['pmaxsp', state.maxSp],
+  ]) {
+    if (value !== null && value !== undefined && Number.isFinite(Number(value))) {
+      url.searchParams.set(key, String(Number(value)));
+    }
+  }
   // 直接沿用既有 MAPS／MONSTERS 資料。
   const map = Array.isArray(MAPS) ? MAPS.find(item => item.id === mapId) : null;
   const mobs = map && Array.isArray(map.monsters)
