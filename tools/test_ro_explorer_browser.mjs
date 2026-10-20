@@ -380,6 +380,8 @@ async function run() {
   await page.setViewportSize({ width: 390, height: 844 });
   await sleep(350);
   await assertNoHorizontalOverflow(page, '手機');
+  assert.equal(await page.locator('#gnd-debug-picker').isVisible(), false,
+    '手機版不應讓 GND 開發診斷選單佔用探索畫面空間。');
   await clickMinimapUntilMoving(page, true, '手機觸控');
   // Force a representative selected-monster state to verify the overlay layout on a narrow screen.
   await page.evaluate(() => {

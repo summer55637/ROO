@@ -35,6 +35,8 @@
     #stage > canvas { display: block; width: 100%; height: 100%; }
     #status { position: absolute; top: 12px; left: 12px; z-index: 2; max-width: min(660px, calc(100% - 24px)); padding: 10px 12px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .9); color: #d9e7f8; font-size: 12px; line-height: 1.5; white-space: pre-line; pointer-events: none; }
     #status.error { color: #fecaca; border-color: #9f4141; }
+    #gnd-debug-picker { position: absolute; top: 12px; right: 12px; z-index: 5; max-width: min(250px, calc(100% - 24px)); padding: 8px 10px; border: 1px solid #526985; border-radius: 8px; background: rgba(7, 13, 22, .92); color: #d9e7f8; }
+    #gnd-debug-picker select { min-width: 145px; max-width: min(180px, 44vw); }
     #stats { position: absolute; right: 12px; bottom: 12px; z-index: 2; max-width: min(360px, calc(100% - 24px)); padding: 9px 11px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .9); color: #cbd8e8; font-size: 12px; line-height: 1.6; white-space: pre-line; pointer-events: none; }
     .minimap-panel { position: absolute; left: 12px; bottom: 12px; z-index: 2; width: max-content; max-width: min(232px, calc(100% - 24px)); padding: 7px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .9); color: #cbd8e8; pointer-events: auto; }
     .minimap-panel[hidden] { display: none; }
@@ -99,6 +101,7 @@
       .minimap-legend { font-size: 9px; }
       /* 手機上診斷文字會佔掉半個畫面，選取怪物時也容易遮住地圖。 */
       #stats { display: none; }
+      #gnd-debug-picker { display: none; }
       .monster-panel { top: 84px; width: calc(50% - 18px); padding: 5px; font-size: 9px; }
       .monster-panel .vitals-row { grid-template-columns: 18px minmax(0, 1fr) 52px; gap: 4px; font-size: 9px; }
       .monster-panel button { padding: 4px 5px; font-size: 9px; }
@@ -143,15 +146,6 @@
     <div id="native-toolbar" hidden>
       <label>地圖 ID <input id="native-map" type="text" value="prontera" maxlength="64" autocapitalize="none" spellcheck="false"></label>
       <button id="load-native-map" type="button">載入原生地圖</button>
-      <label>地表診斷 <select id="gnd-debug-mode" aria-label="GND 地表材質診斷模式">
-        <option value="0">完整合成</option>
-        <option value="1">貼圖＋頂點色</option>
-        <option value="2">RGB 光照圖</option>
-        <option value="3">AO／陰影圖</option>
-        <option value="4">RSW 方向光</option>
-        <option value="5">貼圖×AO</option>
-        <option value="6">貼圖×方向光</option>
-      </select></label>
       <span class="hint">支援原生 GND/GAT/RSW 與部分 RSM/RSM2 模型、lightmap/AO、水面和動畫，仍待真實瀏覽器畫面校驗。角色優先使用 RO 八方向動畫，失敗時退回本機立繪。野外怪物可接回主遊戲普攻、直接攻擊技能與持續傷害；角色狀態面板也有獨立恢復／輔助選單，必須保持同源主遊戲分頁開啟。指定怪物、定位場域及完整技能特效仍未全部接通。</span>
       <section id="player-vitals-panel" class="vitals-panel" hidden aria-label="角色 HP 與 SP">
         <div class="vitals-heading"><strong>角色狀態</strong><span>主遊戲同步</span></div>
@@ -200,6 +194,17 @@
       <button id="recenter" type="button">重置視角</button>
     </div>
     <div id="stage">
+      <label id="gnd-debug-picker">地表診斷
+        <select id="gnd-debug-mode" aria-label="GND 地表材質診斷模式">
+          <option value="0">完整合成</option>
+          <option value="1">貼圖＋頂點色</option>
+          <option value="2">RGB 光照圖</option>
+          <option value="3">AO／陰影圖</option>
+          <option value="4">RSW 方向光</option>
+          <option value="5">貼圖×AO</option>
+          <option value="6">貼圖×方向光</option>
+        </select>
+      </label>
       <div id="status">選取同一張 RO 地圖的 GLB 與 GAT。建議使用 ragx 轉換：<br>
 ragx maps prontera --client "C:/Gravity/Ragnarok" --format glb --world-scale 0.2 --out ./tmp/roo-map<br>
 先選 GLB，再選相同地圖的原始 GAT。點擊 3D 地面或小地圖行走；預設跟隨角色視角，也可取消勾選自由查看；拖曳旋轉、滾輪縮放。</div>
