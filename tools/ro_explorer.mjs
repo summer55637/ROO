@@ -3943,10 +3943,17 @@ function findGndSharedUvAuditPairs() {
       const meanColorA = meanRgb(ca), meanColorB = meanRgb(cb);
       const centerLightmapA = sampleGndLightmapSourceAtUv(sa, meanVector(uv2a));
       const centerLightmapB = sampleGndLightmapSourceAtUv(sb, meanVector(uv2b));
-      if (!centerLightmapA || !centerLightmapB) continue;
+      const edgeLightmapA = sampleGndLightmapSourceAtUv(sa,
+        meanVector(corners.a.map(corner => uv2a[corner])));
+      const edgeLightmapB = sampleGndLightmapSourceAtUv(sb,
+        meanVector(corners.b.map(corner => uv2b[corner])));
+      if (!centerLightmapA || !centerLightmapB || !edgeLightmapA || !edgeLightmapB) continue;
       const vertexColorMeanDelta = maxVectorDelta(meanColorA, meanColorB);
       const aoDelta = Math.abs(centerLightmapA.filteredAo - centerLightmapB.filteredAo);
       const rgbLightmapDelta = maxVectorDelta(centerLightmapA.filteredRgb, centerLightmapB.filteredRgb);
+      const edgeRgbMax = Math.max(...edgeLightmapA.filteredRgb, ...edgeLightmapB.filteredRgb);
+      const edgeRgbSignal = [...edgeLightmapA.filteredRgb, ...edgeLightmapB.filteredRgb]
+        .reduce((sum, value) => sum + value, 0);
       candidates.push({
         status: 'ready', axis, grid: [x, y], surfaceIndexA: ia, surfaceIndexB: ib,
         surfaceA: sa, surfaceB: sb, entryA: ea, entryB: eb, rectA: ra, rectB: rb,
@@ -3967,6 +3974,16 @@ function findGndSharedUvAuditPairs() {
             rgb: centerLightmapB.filteredRgb, ao: centerLightmapB.filteredAo,
             samplePosition: centerLightmapB.samplePosition,
           },
+          edgeLightmapA: {
+            rgb: edgeLightmapA.filteredRgb, ao: edgeLightmapA.filteredAo,
+            samplePosition: edgeLightmapA.samplePosition,
+          },
+          edgeLightmapB: {
+            rgb: edgeLightmapB.filteredRgb, ao: edgeLightmapB.filteredAo,
+            samplePosition: edgeLightmapB.samplePosition,
+          },
+          hasNonzeroEdgeRgbLightmap: edgeRgbMax >= 16,
+          edgeRgbSignal: Number(edgeRgbSignal.toFixed(3)),
           aoDelta: Number(aoDelta.toFixed(3)),
           rgbLightmapDelta: Number(rgbLightmapDelta.toFixed(3)),
           selectedFor: [],
@@ -3987,7 +4004,9 @@ function findGndSharedUvAuditPairs() {
   }
   const selected = [];
   const selectedKeys = new Set();
+  const maxPairs = 6;
   const addBest = (label, predicate, score) => {
+    if (selected.length >= maxPairs) return;
     const options = candidates.filter(pair => !selectedKeys.has(pair)
       && predicate(pair)).sort((a, b) => score(b) - score(a)
         || a.grid[1] - b.grid[1] || a.grid[0] - b.grid[0]);
@@ -4000,15 +4019,16 @@ function findGndSharedUvAuditPairs() {
     pair => pair.coverage.aoDelta + pair.coverage.rgbLightmapDelta + pair.coverage.vertexColorMeanDelta * 255);
   addBest('UV 北向', pair => pair.axis === 'north',
     pair => pair.coverage.aoDelta + pair.coverage.rgbLightmapDelta + pair.coverage.vertexColorMeanDelta * 255);
+  addBest('非零 RGB lightmap 邊界', pair => pair.coverage.hasNonzeroEdgeRgbLightmap,
+    pair => pair.coverage.edgeRgbSignal);
   addBest('AO 差異', pair => pair.coverage.aoDelta >= 8, pair => pair.coverage.aoDelta);
   addBest('不同 RGB lightmap 切片', pair => pair.coverage.lightmapIndices[0] !== pair.coverage.lightmapIndices[1],
-    pair => pair.coverage.rgbLightmapDelta);
+    pair => pair.coverage.edgeRgbSignal);
   addBest('頂點色差異', pair => pair.coverage.vertexColorMeanDelta >= 0.04,
     pair => pair.coverage.vertexColorMeanDelta);
   addBest('AO＋RGB lightmap 差異', pair => pair.coverage.aoDelta >= 8
     && pair.coverage.rgbLightmapDelta >= 8,
   pair => pair.coverage.aoDelta + pair.coverage.rgbLightmapDelta);
-  const maxPairs = 6;
   const diversityScore = pair => pair.coverage.aoDelta / 255
     + pair.coverage.rgbLightmapDelta / 255
     + pair.coverage.vertexColorMeanDelta;
@@ -4309,10 +4329,20 @@ function runGndSharedUvGpuBoundaryAudit() {
     .map(audit => ({ surfaces: audit.surfaces || [], status: audit.status, failures: audit.failures || [],
       reason: audit.reason || audit.message || null }));
   const axes = [...new Set(audits.map(audit => audit.axis))];
+  const hasVisibleRgbLightmap = sample => Array.isArray(sample.expected && sample.expected.rgbLightmap)
+    && sample.expected.rgbLightmap.some(value => value >= 16);
+  const nonzeroRgbLightmapSamples = audits.flatMap(audit => audit.scales || [])
+    .flatMap(scale => scale.samples || []).filter(hasVisibleRgbLightmap).length;
+  const nonzeroRgbLightmapPairs = audits.filter(audit =>
+    (audit.scales || []).some(scale => (scale.samples || []).some(hasVisibleRgbLightmap))).length;
   const contrast = {
     aoContrastPairs: audits.filter(audit => audit.coverage && audit.coverage.aoDelta >= 8).length,
     rgbLightmapContrastPairs: audits.filter(audit => audit.coverage && audit.coverage.rgbLightmapDelta >= 8).length,
     vertexColorContrastPairs: audits.filter(audit => audit.coverage && audit.coverage.vertexColorMeanDelta >= 0.04).length,
+    nonzeroEdgeRgbLightmapPairs: audits.filter(audit =>
+      audit.coverage && audit.coverage.hasNonzeroEdgeRgbLightmap).length,
+    nonzeroRgbLightmapPairs,
+    nonzeroRgbLightmapSamples,
     uniqueUvRegionPairs: new Set(audits.map(audit => audit.coverage && audit.coverage.uvRegionKey)).size,
     uniqueLightmapIds: new Set(audits.flatMap(audit => audit.lightmaps || [])).size,
   };

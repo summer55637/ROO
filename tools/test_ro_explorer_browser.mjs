@@ -164,7 +164,7 @@ const GND_DEBUG_SCREENSHOT_MODES = [
 ];
 
 
-async function runGndGpuBoundaryAudit(targetPage, mapSlug) {
+async function runGndGpuBoundaryAudit(targetPage, mapSlug, options = {}) {
   await targetPage.waitForFunction(() =>
     typeof window.__rooGndGpuBoundaryAudit?.run === 'function', null, { timeout: 10000 });
   let report = null;
@@ -193,6 +193,23 @@ async function runGndGpuBoundaryAudit(targetPage, mapSlug) {
     mapSlug + ' 所選樣本沒有涵蓋不同地表頂點色條件：' + JSON.stringify(report.coverage));
   assert.ok(report.coverage.uniqueUvRegionPairs >= 4,
     mapSlug + ' 樣本未覆蓋足夠不同的 diffuse UV 子區域：' + JSON.stringify(report.coverage));
+  if (options.requireNonzeroRgbLightmap) {
+    assert.ok(report.coverage.nonzeroEdgeRgbLightmapPairs > 0,
+      mapSlug + ' 未從共用邊界的來源 RGB lightmap 找到非零樣本：' + JSON.stringify(report.coverage));
+    assert.ok(report.coverage.nonzeroRgbLightmapPairs > 0 && report.coverage.nonzeroRgbLightmapSamples > 0,
+      mapSlug + ' GPU 邊界讀回沒有取得非零 RGB lightmap 像素：' + JSON.stringify(report.coverage));
+    const litSamples = report.audits.flatMap(audit => (audit.scales || [])
+      .flatMap(scale => (scale.samples || []).map(sample => ({
+        surface: audit.surfaces, scale: scale.scale, sample,
+      })))).filter(item => Array.isArray(item.sample.expected.rgbLightmap)
+        && item.sample.expected.rgbLightmap.some(value => value >= 16));
+    assert.ok(litSamples.length > 0 && litSamples.every(item =>
+      Number.isFinite(item.sample.errors.rgbLightmap) && item.sample.errors.rgbLightmap <= 4),
+    mapSlug + ' 非零 RGB lightmap 的來源預期值未與 GPU readback 對上：' + JSON.stringify(
+      litSamples.map(item => ({ surfaces: item.surface, scale: item.scale,
+        expected: item.sample.expected.rgbLightmap, gpu: item.sample.framebuffer.rgbLightmap,
+        delta: item.sample.errors.rgbLightmap }))));
+  }
   for (const audit of report.audits) {
     assert.equal(audit.scales.length, 3, mapSlug + ' surface ' + audit.surfaces + ' 應涵蓋 near／mid／far。');
     assert.deepEqual(audit.scales.map(scale => scale.scale), ['near', 'mid', 'far']);
@@ -673,6 +690,7 @@ async function run() {
   }, null, { timeout: 30000 });
   const terrainTextureStats = await page.locator('#stats').innerText();
   assert.ok(terrainTextureStats.includes('GND 地表貼圖：已解析 '), '地表貼圖載入診斷未顯示。');
+  await runGndGpuBoundaryAudit(page, 'tra-fild');
 
 
   await page.waitForFunction(() => document.getElementById('player-base-level')?.textContent === '基礎 Lv. 18',
@@ -770,6 +788,7 @@ async function run() {
     const match = stats.match(/GND 地表貼圖：已解析 (\d+)\/(\d+)；載入成功 (\d+)；失敗 (\d+)；缺少匹配 (\d+)/);
     return match && Number(match[1]) > 0 && Number(match[3]) > 0;
   }, null, { timeout: 30000 });
+  await runGndGpuBoundaryAudit(page, 'icecastle', { requireNonzeroRgbLightmap: true });
   await page.locator('#recenter').click();
   const icecastleStage = await page.locator('#stage').boundingBox();
   assert.ok(icecastleStage && icecastleStage.width > 0 && icecastleStage.height > 0,
