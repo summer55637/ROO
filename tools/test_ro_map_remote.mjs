@@ -251,6 +251,7 @@ function auditGndLightmapPipeline(gnd, atlas, meshData, posterizationLevel = 16)
   let meshLightmapCorners = 0;
   let meshLightmapUvMismatches = 0;
   let meshLightmapEnabledMismatches = 0;
+  const meshLightmapUvMismatchExamples = [];
   let zeroRgbSlices = 0;
   let nonZeroRgbSlices = 0;
   const valueBuckets = Array(16).fill(0);
@@ -329,11 +330,35 @@ function auditGndLightmapPipeline(gnd, atlas, meshData, posterizationLevel = 16)
         const vertex = quad * 4 + corner;
         const actualU = bucket.lightmapUvs[vertex * 2];
         const actualV = bucket.lightmapUvs[vertex * 2 + 1];
-        const expected = expectedUvs ? expectedUvs[corner] : [0, 0];
-        if (!Number.isFinite(actualU) || !Number.isFinite(actualV)
-          || Math.abs(actualU - expected[0]) > 1e-7
-          || Math.abs(actualV - expected[1]) > 1e-7) {
+        let uvMatches = false;
+        let sourceUv = null;
+        let candidateCorners = [];
+        if (valid && surface && Array.isArray(surface.uv) && bucket.sourceUvs) {
+          sourceUv = [bucket.sourceUvs[vertex * 2], bucket.sourceUvs[vertex * 2 + 1]];
+          candidateCorners = surface.uv.map((uv, index) => ({ uv, index })).filter(item =>
+            Array.isArray(item.uv) && Math.abs(item.uv[0] - sourceUv[0]) <= 1e-5
+              && Math.abs(item.uv[1] - sourceUv[1]) <= 1e-5
+          ).map(item => item.index);
+          uvMatches = candidateCorners.some(index => expectedUvs
+            && Math.abs(actualU - expectedUvs[index][0]) <= 1e-7
+            && Math.abs(actualV - expectedUvs[index][1]) <= 1e-7);
+        } else {
+          uvMatches = Number.isFinite(actualU) && Number.isFinite(actualV)
+            && Math.abs(actualU) <= 1e-7 && Math.abs(actualV) <= 1e-7;
+        }
+        if (!Number.isFinite(actualU) || !Number.isFinite(actualV) || !uvMatches) {
           meshLightmapUvMismatches++;
+          if (meshLightmapUvMismatchExamples.length < 12) {
+            meshLightmapUvMismatchExamples.push({
+              surfaceIndex,
+              lightmapIndex: valid ? index : null,
+              quadCorner: corner,
+              sourceUv,
+              candidateCorners,
+              actualUv: [actualU, actualV],
+              expectedUvCandidates: candidateCorners.map(index => expectedUvs && expectedUvs[index]),
+            });
+          }
         }
         const enabled = bucket.lightmapEnabled[vertex];
         if (enabled !== (valid ? 1 : 0)) meshLightmapEnabledMismatches++;
@@ -362,6 +387,7 @@ function auditGndLightmapPipeline(gnd, atlas, meshData, posterizationLevel = 16)
     meshLightmapCorners,
     meshLightmapUvMismatches,
     meshLightmapEnabledMismatches,
+    meshLightmapUvMismatchExamples,
     nonZeroExamples,
   };
 }
