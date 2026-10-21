@@ -20,6 +20,8 @@ import {
   buildGndWaterMeshDataByPlane,
   compareGndGatHeights,
   insetGndTextureUvs,
+  resolveGndDiffuseCropRect,
+  mapGndDiffuseUvToSourcePixel,
   parseGndBuffer,
   parseRsmBuffer,
   parseRswBuffer,
@@ -672,6 +674,36 @@ assert.deepEqual(rightDiffuseRegion.sourceUvs, [
 assert.deepEqual(rightDiffuseRegion.diffuseUvRect, {
   minU: 0.5, maxU: 1, minV: 0, maxV: 0.5,
 });
+
+// Shared UV boundaries must map to the same source texel coordinate even when
+// adjacent surfaces use different isolated crops. A 1/4 atlas edge is between
+// source pixels 63 and 64; the padded crop keeps that same bilinear midpoint.
+const leftCropRect = resolveGndDiffuseCropRect({
+  minU: 0, maxU: 0.25, minV: 0, maxV: 0.25,
+}, 256, 256);
+const rightCropRect = resolveGndDiffuseCropRect({
+  minU: 0.25, maxU: 0.5, minV: 0, maxV: 0.25,
+}, 256, 256);
+assert.deepEqual([leftCropRect.x0, leftCropRect.x1], [0, 128],
+  'left UV crop includes the neighboring source texel region for bilinear filtering');
+assert.deepEqual([rightCropRect.x0, rightCropRect.x1], [0, 192],
+  'right UV crop has a power-of-two-aligned sampling guard');
+const leftSharedUv = mapGndDiffuseUvToSourcePixel(
+  [0.25, 0.25], { minU: 0, maxU: 0.25, minV: 0, maxV: 0.25 }, 256, 256
+);
+const rightSharedUv = mapGndDiffuseUvToSourcePixel(
+  [0.25, 0.25], { minU: 0.25, maxU: 0.5, minV: 0, maxV: 0.25 }, 256, 256
+);
+assert.deepEqual(leftSharedUv.sourcePosition, [63.5, 191.5]);
+assert.deepEqual(rightSharedUv.sourcePosition, leftSharedUv.sourcePosition,
+  'adjacent padded crops preserve the same actual source sampling position at a shared UV');
+assert.notDeepEqual(leftSharedUv.localUv, rightSharedUv.localUv,
+  'each crop may have a different local UV while preserving the same global source position');
+const clampedUpperUv = mapGndDiffuseUvToSourcePixel(
+  [1, 1], { minU: 0, maxU: 1, minV: 0, maxV: 1 }, 256, 256
+);
+assert.deepEqual(clampedUpperUv.nearestPixel, [255, 0],
+  'UV=1 clamps to the final image texel rather than incorrectly wrapping to pixel zero');
 
 assert.throws(() => parseGndBuffer(makeGnd(56)), /40-byte surface/);
 
