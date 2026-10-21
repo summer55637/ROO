@@ -103,7 +103,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: roo-explorer-browser-screenshots
-          path: artifacts/explorer-browser/*.png
+          path: |
+            artifacts/explorer-browser/*.png
+            artifacts/explorer-browser/*.json
           if-no-files-found: ignore
           retention-days: 14
       - name: Run complete regression suite
