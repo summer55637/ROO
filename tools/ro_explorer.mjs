@@ -3787,6 +3787,433 @@ const stopRenderLoop = createVisibilityAwareFrameLoop(
   frameId => window.cancelAnimationFrame(frameId)
 );
 
+
+function buildGndAuditMipPyramid(texture) {
+  const image = texture && texture.image;
+  const width = image && (image.naturalWidth || image.videoWidth || image.width);
+  const height = image && (image.naturalHeight || image.videoHeight || image.height);
+  if (!image || !Number.isInteger(width) || !Number.isInteger(height) || width < 2 || height < 2) {
+    throw new Error('diffuse 原始影像尚未就緒。');
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) throw new Error('無法讀取 diffuse 來源像素。');
+  context.drawImage(image, 0, 0, width, height);
+  const levels = [{ width, height, data: context.getImageData(0, 0, width, height).data }];
+  while (levels[levels.length - 1].width > 1 || levels[levels.length - 1].height > 1) {
+    const src = levels[levels.length - 1];
+    const w = Math.max(1, Math.floor(src.width / 2));
+    const h = Math.max(1, Math.floor(src.height / 2));
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) for (let c = 0; c < 4; c++) {
+      let sum = 0;
+      for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+        const sx = Math.min(src.width - 1, x * 2 + dx);
+        const sy = Math.min(src.height - 1, y * 2 + dy);
+        sum += src.data[(sy * src.width + sx) * 4 + c];
+      }
+      data[(y * w + x) * 4 + c] = Math.round(sum / 4);
+    }
+    levels.push({ width: w, height: h, data });
+  }
+  return levels;
+}
+
+function sampleGndAuditMip(levels, uv, lod) {
+  const sampleLevel = level => {
+    const image = levels[level];
+    const fx = Math.max(0, Math.min(image.width - 1, uv[0] * image.width - 0.5));
+    const fy = Math.max(0, Math.min(image.height - 1, (1 - uv[1]) * image.height - 0.5));
+    const x0 = Math.floor(fx), y0 = Math.floor(fy);
+    const x1 = Math.min(image.width - 1, x0 + 1);
+    const y1 = Math.min(image.height - 1, y0 + 1);
+    const tx = fx - x0, ty = fy - y0;
+    return [0, 1, 2].map(c => {
+      const at = (x, y) => image.data[(y * image.width + x) * 4 + c];
+      const top = at(x0, y0) * (1 - tx) + at(x1, y0) * tx;
+      const bottom = at(x0, y1) * (1 - tx) + at(x1, y1) * tx;
+      return top * (1 - ty) + bottom * ty;
+    });
+  };
+  const value = Math.max(0, Math.min(levels.length - 1, lod));
+  const low = Math.floor(value), high = Math.min(levels.length - 1, low + 1), mix = value - low;
+  const a = sampleLevel(low), b = sampleLevel(high);
+  return a.map((channel, index) => Number((channel * (1 - mix) + b[index] * mix).toFixed(3)));
+}
+
+function findGndSharedUvAuditPair() {
+  if (!mapRoot || !gndInfo || !Array.isArray(gndInfo.cubes) || !Array.isArray(gndInfo.surfaces)) {
+    return { status: 'pending', reason: '原生 GND 尚未載入。' };
+  }
+  mapRoot.updateMatrixWorld(true);
+  const entriesBySurface = new Map();
+  mapRoot.traverse(object => {
+    const indices = object.userData && object.userData.rooGndSurfaceIndices;
+    if (!object.userData.rooTerrainSurface || !Array.isArray(indices)) return;
+    indices.forEach((surfaceIndex, quadIndex) => {
+      if (!entriesBySurface.has(surfaceIndex)) entriesBySurface.set(surfaceIndex, []);
+      entriesBySurface.get(surfaceIndex).push({ object, quadIndex, surfaceIndex });
+    });
+  });
+  const rect = surface => {
+    if (!surface || !Array.isArray(surface.uv) || surface.uv.length !== 4) return null;
+    const us = surface.uv.map(v => v[0]), vs = surface.uv.map(v => v[1]);
+    const r = { minU: Math.min(...us), maxU: Math.max(...us), minV: Math.min(...vs), maxV: Math.max(...vs) };
+    return [r.minU, r.maxU, r.minV, r.maxV].every(Number.isFinite)
+      && r.maxU - r.minU > 1e-6 && r.maxV - r.minV > 1e-6 ? r : null;
+  };
+  const equalVec = (a, b, e) => a && b && a.length === b.length
+    && a.every((v, i) => Math.abs(v - b[i]) <= e);
+  const cornerData = (entry, name) => {
+    const attr = entry.object.geometry.getAttribute(name);
+    if (!attr || attr.count < (entry.quadIndex + 1) * 4) return null;
+    return [0, 1, 2, 3].map(c => {
+      const i = entry.quadIndex * 4 + c;
+      if (name === 'position') {
+        return entry.object.localToWorld(new THREE.Vector3(attr.getX(i), attr.getY(i), attr.getZ(i))).toArray();
+      }
+      if (attr.itemSize > 1) return [attr.getX(i), attr.getY(i)];
+      return [attr.getX(i)];
+    });
+  };
+  const attempt = (axis, x, y, aCube, bCube) => {
+    const ia = aCube && aCube.topSurface, ib = bCube && bCube.topSurface;
+    if (!Number.isInteger(ia) || !Number.isInteger(ib) || ia < 0 || ib < 0 || ia === ib) return null;
+    const sa = gndInfo.surfaces[ia], sb = gndInfo.surfaces[ib];
+    if (!sa || !sb || sa.textureIndex < 0 || sa.textureIndex !== sb.textureIndex
+      || !Number.isInteger(sa.lightmapIndex) || sa.lightmapIndex < 0
+      || !Number.isInteger(sb.lightmapIndex) || sb.lightmapIndex < 0) return null;
+    const ra = rect(sa), rb = rect(sb);
+    if (!ra || !rb || (Math.abs(ra.minU - rb.minU) < 1e-6
+      && Math.abs(ra.maxU - rb.maxU) < 1e-6 && Math.abs(ra.minV - rb.minV) < 1e-6
+      && Math.abs(ra.maxV - rb.maxV) < 1e-6) return null;
+    if (Math.abs((ra.maxU - ra.minU) - (rb.maxU - rb.minU)) > 1e-6
+      || Math.abs((ra.maxV - ra.minV) - (rb.maxV - rb.minV)) > 1e-6) return null;
+    const corners = axis === 'east' ? { a: [1, 3], b: [0, 2] } : { a: [2, 3], b: [0, 1] };
+    if (!corners.a.every((c, i) => equalVec(sa.uv[c], sb.uv[corners.b[i]], 1e-6))) return null;
+    for (const ea of entriesBySurface.get(ia) || []) for (const eb of entriesBySurface.get(ib) || []) {
+      const ma = Array.isArray(ea.object.material) ? ea.object.material[0] : ea.object.material;
+      const mb = Array.isArray(eb.object.material) ? eb.object.material[0] : eb.object.material;
+      const srcA = ea.object.userData.rooGndDiffuseSourceTexture;
+      const srcB = eb.object.userData.rooGndDiffuseSourceTexture;
+      const cropA = ea.object.userData.rooGndDiffuseSourcePixelRect;
+      const cropB = eb.object.userData.rooGndDiffuseSourcePixelRect;
+      if (!ma || !mb || !ma.map || !mb.map || !cropA || !cropB
+        || !srcA || !srcB || !srcA.image || srcA.image !== srcB.image
+        || !ma.map.generateMipmaps || !mb.map.generateMipmaps
+        || ma.map.minFilter !== THREE.LinearMipmapLinearFilter
+        || mb.map.minFilter !== THREE.LinearMipmapLinearFilter) continue;
+      const pa = cornerData(ea, 'position'), pb = cornerData(eb, 'position');
+      const ua = cornerData(ea, 'rooGndSourceUv'), ub = cornerData(eb, 'rooGndSourceUv');
+      if (!pa || !pb || !ua || !ub) continue;
+      if (!corners.a.every((c, i) => equalVec(pa[c], pb[corners.b[i]], 1e-5)
+        && equalVec(ua[c], ub[corners.b[i]], 1e-6))) continue;
+      return {
+        status: 'ready', axis, grid: [x, y], surfaceIndexA: ia, surfaceIndexB: ib,
+        surfaceA: sa, surfaceB: sb, entryA: ea, entryB: eb, rectA: ra, rectB: rb,
+        corners, sharedUv: corners.a.map((c, i) => sa.uv[c]),
+        sourceTexture: srcA, cropA, cropB,
+      };
+    }
+    return null;
+  };
+  for (let y = 0; y < gndInfo.height; y++) for (let x = 0; x < gndInfo.width; x++) {
+    const index = y * gndInfo.width + x, cube = gndInfo.cubes[index];
+    if (!cube || cube.topSurface < 0) continue;
+    if (x + 1 < gndInfo.width) {
+      const found = attempt('east', x, y, cube, gndInfo.cubes[index + 1]);
+      if (found) return found;
+    }
+    if (y + 1 < gndInfo.height) {
+      const found = attempt('north', x, y, cube, gndInfo.cubes[index + gndInfo.width]);
+      if (found) return found;
+    }
+  }
+  return { status: 'pending', reason: '尚未找到貼圖已載入、幾何邊與來源 UV 均連續的相鄰裁切面。' };
+}
+
+function buildGndAuditQuad(entry) {
+  const source = entry.object.geometry, geometry = new THREE.BufferGeometry(), start = entry.quadIndex * 4;
+  for (const name of Object.keys(source.attributes)) {
+    const input = source.getAttribute(name);
+    if (!input || input.count < start + 4) continue;
+    const Ctor = input.array.constructor, values = new Ctor(4 * input.itemSize);
+    for (let c = 0; c < 4; c++) {
+      const from = (start + c) * input.itemSize;
+      values.set(input.array.subarray(from, from + input.itemSize), c * input.itemSize);
+    }
+    if (name === 'position') {
+      const point = new THREE.Vector3();
+      for (let c = 0; c < 4; c++) {
+        const at = c * 3;
+        point.set(values[at], values[at + 1], values[at + 2]);
+        entry.object.localToWorld(point);
+        values[at] = point.x; values[at + 1] = point.y; values[at + 2] = point.z;
+      }
+    }
+    geometry.setAttribute(name, new THREE.BufferAttribute(values, input.itemSize, input.normalized));
+  }
+  geometry.setIndex([0, 1, 2, 2, 1, 3]);
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function runGndSharedUvGpuBoundaryAudit() {
+  if (!renderer.capabilities.isWebGL2 && !renderer.capabilities.isWebGL) {
+    return { status: 'unavailable', reason: '瀏覽器沒有可用的 WebGL。' };
+  }
+  const pair = findGndSharedUvAuditPair();
+  if (pair.status !== 'ready') return pair;
+  let target = null;
+  try {
+    const image = pair.sourceTexture.image;
+    const sourceWidth = image.naturalWidth || image.videoWidth || image.width;
+    const sourceHeight = image.naturalHeight || image.videoHeight || image.height;
+    const mips = buildGndAuditMipPyramid(pair.sourceTexture);
+    const entries = [pair.entryA, pair.entryB];
+    const meshes = entries.map((entry, i) => {
+      const mesh = new THREE.Mesh(buildGndAuditQuad(entry), Array.isArray(entry.object.material)
+        ? entry.object.material[0] : entry.object.material);
+      mesh.name = 'roo-gnd-boundary-audit-' + (i ? 'B' : 'A');
+      mesh.frustumCulled = false;
+      mesh.userData.auditSide = i ? 'B' : 'A';
+      mesh.userData.auditSurface = entry.surfaceIndex;
+      return mesh;
+    });
+    const auditScene = new THREE.Scene();
+    auditScene.background = new THREE.Color(0x000000);
+    auditScene.add(...meshes);
+    const width = 512, height = 128;
+    target = new THREE.WebGLRenderTarget(width, height, {
+      format: THREE.RGBAFormat, type: THREE.UnsignedByteType,
+      minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+      depthBuffer: true, stencilBuffer: false,
+    });
+    target.texture.colorSpace = THREE.SRGBColorSpace;
+    const auditCamera = new THREE.OrthographicCamera(-1, 1, 0.25, -0.25, 0.001, 100000);
+    auditCamera.up.set(0, 0, 1);
+    const ray = new THREE.Raycaster();
+    const pixProject = point => {
+      const p = point.clone().project(auditCamera);
+      return { x: (p.x + 1) * width / 2, y: (1 - p.y) * height / 2 };
+    };
+    const center = corners => corners.reduce((sum, p) => sum.add(p.clone()), new THREE.Vector3())
+      .multiplyScalar(1 / corners.length);
+    const getPositions = entry => {
+      const attr = entry.object.geometry.getAttribute('position');
+      return [0, 1, 2, 3].map(c => entry.object.localToWorld(new THREE.Vector3(
+        attr.getX(entry.quadIndex * 4 + c), attr.getY(entry.quadIndex * 4 + c),
+        attr.getZ(entry.quadIndex * 4 + c)
+      )));
+    };
+    const positions = entries.map(getPositions);
+    const centers = positions.map(center);
+    const edgeWorld = pair.corners.a.map(c => positions[0][c])
+      .reduce((sum, p) => sum.add(p.clone()), new THREE.Vector3())
+      .multiplyScalar(1 / pair.corners.a.length);
+    const distance = Math.hypot(centers[0].x - centers[1].x, centers[0].z - centers[1].z);
+    if (distance <= 1e-8) return { status: 'unavailable', reason: '相鄰 surface 中心距離無效。' };
+    const originalTarget = renderer.getRenderTarget();
+    const originalViewport = renderer.getViewport(new THREE.Vector4());
+    const originalScissor = renderer.getScissor(new THREE.Vector4());
+    const originalScissorTest = renderer.getScissorTest();
+    const originalClear = renderer.getClearColor(new THREE.Color()).clone();
+    const originalClearAlpha = renderer.getClearAlpha();
+    const originalMode = GND_DEBUG_MODE_UNIFORM.value;
+    const scales = [{ name: 'near', pixels: 96 }, { name: 'mid', pixels: 16 }, { name: 'far', pixels: 4 }];
+    const modes = [
+      { key: 'diffuse', value: 7 }, { key: 'vertexColor', value: 8 },
+      { key: 'rgbLightmap', value: 2 }, { key: 'ao', value: 3 },
+      { key: 'rswLight', value: 4 }, { key: 'combined', value: 0 },
+    ];
+    const projectCenter = values => values.map(p => pixProject(p));
+    const attrAt = (hit, name) => {
+      const attr = hit.object.geometry.getAttribute(name);
+      if (!attr) return null;
+      const f = hit.face, pos = hit.object.geometry.getAttribute('position');
+      const point = index => new THREE.Vector3(pos.getX(index), pos.getY(index), pos.getZ(index));
+      const bary = THREE.Triangle.getBarycoord(hit.point, point(f.a), point(f.b), point(f.c), new THREE.Vector3());
+      if (!bary || ![bary.x, bary.y, bary.z].every(Number.isFinite)) return null;
+      const get = index => Array.from({ length: attr.itemSize }, (_, c) =>
+        c === 0 ? attr.getX(index) : c === 1 ? attr.getY(index) : c === 2 ? attr.getZ(index) : attr.getW(index));
+      const a = get(f.a), b = get(f.b), c = get(f.c);
+      return a.map((v, i) => v * bary.x + b[i] * bary.y + c[i] * bary.z);
+    };
+    const hitAt = (mesh, pixel) => {
+      ray.setFromCamera(new THREE.Vector2(
+        ((pixel.x + 0.5) / width) * 2 - 1, 1 - ((pixel.y + 0.5) / height) * 2
+      ), auditCamera);
+      return ray.intersectObjects(meshes, false).find(hit => hit.object === mesh) || null;
+    };
+    const readPixel = pixel => {
+      const rgba = new Uint8Array(4);
+      renderer.readRenderTargetPixels(target, pixel.x, height - 1 - pixel.y, 1, 1, rgba);
+      return Array.from(rgba.slice(0, 3));
+    };
+    const mipLod = (entry, projected) => {
+      const sourceUv = entry.object.geometry.getAttribute('rooGndSourceUv');
+      const uv = [0, 1, 2].map(c => [
+        sourceUv.getX(entry.quadIndex * 4 + c), sourceUv.getY(entry.quadIndex * 4 + c),
+      ]);
+      const px01 = Math.max(1e-6, Math.hypot(projected[1].x - projected[0].x, projected[1].y - projected[0].y));
+      const px02 = Math.max(1e-6, Math.hypot(projected[2].x - projected[0].x, projected[2].y - projected[0].y));
+      const rho01 = Math.max(Math.abs(uv[1][0] - uv[0][0]) * sourceWidth,
+        Math.abs(uv[1][1] - uv[0][1]) * sourceHeight) / px01;
+      const rho02 = Math.max(Math.abs(uv[2][0] - uv[0][0]) * sourceWidth,
+        Math.abs(uv[2][1] - uv[0][1]) * sourceHeight) / px02;
+      return Math.max(0, Math.min(mips.length - 1, Math.log2(Math.max(1, rho01, rho02))));
+    };
+    const maxDelta = (a, b) => a && b ? Math.max(...a.map((v, i) => Math.abs(v - b[i]))) : null;
+    const scaleReports = [];
+    try {
+      renderer.setRenderTarget(target);
+      renderer.setViewport(0, 0, width, height);
+      renderer.setScissorTest(false);
+      for (const scale of scales) {
+        const mid = centers[0].clone().add(centers[1]).multiplyScalar(0.5);
+        const frustumWidth = distance * width / scale.pixels;
+        const frustumHeight = frustumWidth * height / width;
+        auditCamera.left = -frustumWidth / 2;
+        auditCamera.right = frustumWidth / 2;
+        auditCamera.top = frustumHeight / 2;
+        auditCamera.bottom = -frustumHeight / 2;
+        auditCamera.position.set(mid.x, mid.y + Math.max(10, distance * 100), mid.z);
+        auditCamera.lookAt(mid);
+        auditCamera.updateProjectionMatrix();
+        auditCamera.updateMatrixWorld(true);
+        const centerScreen = centers.map(p => pixProject(p));
+        const edgeScreen = pixProject(edgeWorld);
+        const projectedTilePixels = Math.hypot(centerScreen[0].x - centerScreen[1].x,
+          centerScreen[0].y - centerScreen[1].y);
+        const off = Math.max(1, Math.min(4, Math.round(projectedTilePixels * 0.04)));
+        const choosePixel = (which) => {
+          const dx = centerScreen[which].x - edgeScreen.x;
+          const dy = centerScreen[which].y - edgeScreen.y;
+          const d = Math.hypot(dx, dy) || 1;
+          const maxOff = Math.max(off, Math.min(20, Math.floor(projectedTilePixels * 0.4)));
+          for (let n = off; n <= maxOff; n++) {
+            const pixel = { x: Math.floor(edgeScreen.x + dx / d * n),
+              y: Math.floor(edgeScreen.y + dy / d * n) };
+            if (pixel.x < 1 || pixel.x >= width - 1 || pixel.y < 1 || pixel.y >= height - 1) continue;
+            if (hitAt(meshes[which], pixel)) return pixel;
+          }
+          throw new Error('尺度 ' + scale.name + ' 無法在共用邊兩側命中對應地表。');
+        };
+        const pixels = [choosePixel(0), choosePixel(1)];
+        const lods = entries.map((entry, i) => mipLod(entry, projectCenter(positions[i])));
+        const samples = pixels.map((pixel, i) => {
+          const hit = hitAt(meshes[i], pixel);
+          const sourceUv = attrAt(hit, 'rooGndSourceUv');
+          const localUv = attrAt(hit, 'uv');
+          const atlasUv = attrAt(hit, 'uv2');
+          const color = attrAt(hit, 'color');
+          const normal = attrAt(hit, 'rooGndVertexNormal');
+          const hasLightmap = attrAt(hit, 'rooGndHasLightmap');
+          if (!sourceUv || !localUv || !atlasUv || !color || !normal || !hasLightmap) {
+            throw new Error('GPU sample 缺少 source UV、UV2、頂點色或光照屬性。');
+          }
+          const surface = i === 0 ? pair.surfaceA : pair.surfaceB;
+          const lightmap = sampleGndLightmapSourceAtUv(surface, atlasUv);
+          const light = rswInfo && rswInfo.light;
+          const rswMultiplier = light ? computeGndLightMultiplier(
+            normal, computeGndLightDirection(light.longitude, light.latitude), light.ambient, light.diffuse
+          ) : [1, 1, 1];
+          return {
+            side: i === 0 ? 'A' : 'B',
+            surfaceIndex: entries[i].surfaceIndex,
+            pixel,
+            sourceUv: sourceUv.map(v => Number(v.toFixed(6))),
+            localUv: localUv.map(v => Number(v.toFixed(6))),
+            atlasUv: atlasUv.map(v => Number(v.toFixed(6))),
+            vertexColor: color.map(v => Number(v.toFixed(6))),
+            hasLightmap: hasLightmap[0],
+            lod: Number(lods[i].toFixed(3)),
+            expected: {
+              diffuseRgb: sampleGndAuditMip(mips, sourceUv, lods[i]),
+              vertexColorRgb: color.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255)),
+              rswLightRgb: rswMultiplier.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255)),
+              rgbLightmap: lightmap && lightmap.filteredRgb
+                ? lightmap.filteredRgb.map(v => Math.round(v)) : null,
+              ao: lightmap ? Number(lightmap.filteredAo.toFixed(3)) : null,
+              lightmapSource: lightmap ? { texel: [lightmap.x, lightmap.y],
+                rawRgb: lightmap.rgb, rawAo: lightmap.ao, samplePosition: lightmap.samplePosition } : null,
+            },
+            framebuffer: {},
+          };
+        });
+        for (const mode of modes) {
+          GND_DEBUG_MODE_UNIFORM.value = mode.value;
+          renderer.setClearColor(0x000000, 1);
+          renderer.clear(true, true, true);
+          renderer.render(auditScene, auditCamera);
+          samples.forEach((sample, index) => { sample.framebuffer[mode.key] = readPixel(pixels[index]); });
+        }
+        for (const sample of samples) {
+          sample.errors = {
+            diffuseMipRgb: maxDelta(sample.framebuffer.diffuse, sample.expected.diffuseRgb),
+            vertexColorRgb: maxDelta(sample.framebuffer.vertexColor, sample.expected.vertexColorRgb),
+            rswLightRgb: maxDelta(sample.framebuffer.rswLight, sample.expected.rswLightRgb),
+            rgbLightmap: maxDelta(sample.framebuffer.rgbLightmap, sample.expected.rgbLightmap),
+            ao: maxDelta(sample.framebuffer.ao, [sample.expected.ao, sample.expected.ao, sample.expected.ao]),
+          };
+          const a = sample.framebuffer, strength = sample.hasLightmap > 0.5 ? GND_PREVIEW_AO_STRENGTH : 0;
+          sample.expected.combinedFromGpuComponents = [0, 1, 2].map(c => Math.round(Math.max(0, Math.min(1,
+            a.diffuse[c] / 255 * a.vertexColor[c] / 255 * a.rswLight[c] / 255
+              * (1 + (a.ao[0] / 255 - 1) * strength) + a.rgbLightmap[c] / 255
+          )) * 255));
+          sample.errors.combinedFromComponents = maxDelta(a.combined, sample.expected.combinedFromGpuComponents);
+        }
+        const max = key => Math.max(...samples.map(s => s.errors[key] === null ? 999 : s.errors[key]));
+        scaleReports.push({
+          scale: scale.name, targetTilePixels: scale.pixels,
+          projectedTilePixels: Number(projectedTilePixels.toFixed(3)),
+          effectiveLod: samples.map(s => s.lod),
+          maxDelta: {
+            diffuseMipRgb: max('diffuseMipRgb'), vertexColorRgb: max('vertexColorRgb'),
+            rswLightRgb: max('rswLightRgb'), rgbLightmap: max('rgbLightmap'), ao: max('ao'),
+            combinedFromComponents: max('combinedFromComponents'),
+          },
+          samples,
+        });
+      }
+      const limits = { diffuseMipRgb: 12, vertexColorRgb: 3, rswLightRgb: 4,
+        rgbLightmap: 4, ao: 4, combinedFromComponents: 4 };
+      const failures = scaleReports.flatMap(s => Object.entries(limits)
+        .filter(([key, limit]) => s.maxDelta[key] > limit)
+        .map(([key, limit]) => ({ scale: s.scale, channel: key, maxDelta: s.maxDelta[key], limit })));
+      return {
+        status: failures.length ? 'mismatch' : 'passed',
+        mapId: mapInfo && mapInfo.mapId, texture: gndInfo.textures[pair.surfaceA.textureIndex],
+        axis: pair.axis, grid: pair.grid, surfaces: [pair.surfaceIndexA, pair.surfaceIndexB],
+        sharedUv: pair.sharedUv, diffuseRects: [pair.rectA, pair.rectB],
+        cropPixelRects: [pair.cropA, pair.cropB],
+        lightmaps: [pair.surfaceA.lightmapIndex, pair.surfaceB.lightmapIndex],
+        sourceImage: { width: sourceWidth, height: sourceHeight }, mipLevels: mips.length,
+        sampler: { minFilter: meshes[0].material.map.minFilter, magFilter: meshes[0].material.map.magFilter,
+          generateMipmaps: meshes[0].material.map.generateMipmaps },
+        limits, failures, scales: scaleReports,
+      };
+    } finally {
+      renderer.setRenderTarget(originalTarget);
+      renderer.setViewport(originalViewport);
+      renderer.setScissor(originalScissor);
+      renderer.setScissorTest(originalScissorTest);
+      renderer.setClearColor(originalClear, originalClearAlpha);
+      GND_DEBUG_MODE_UNIFORM.value = originalMode;
+      if (target) target.dispose();
+    }
+  } catch (error) {
+    if (target) target.dispose();
+    return { status: 'error', message: error && error.message ? error.message : String(error) };
+  }
+}
+
+if (explorerParams.get('roo-gnd-gpu-audit') === '1') {
+  window.__rooGndGpuBoundaryAudit = { run: runGndSharedUvGpuBoundaryAudit };
+}
+
 function handleRenderPageHide(event) {
   // BFCache pages must keep their visibility listener so rendering resumes on pageshow.
   if (event.persisted) return;
