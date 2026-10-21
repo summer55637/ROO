@@ -613,6 +613,32 @@ assert.deepEqual(tintAtVertex(3), [1, 1, 1],
 assert.deepEqual(tintAtVertex(6), [1, 1, 1],
   'an unanchored north-west vertex must use the same neutral white, not the right quad tint');
 
+// East wall corners arrive in geometric order NE, SE, NW, SW, while the
+// color array remains indexed by source UV corner. Catch accidental NE/SW swaps.
+const eastWallTintMesh = buildGndMeshData({
+  width: 2,
+  height: 1,
+  textures: ['grass.bmp'],
+  surfaces: [
+    { textureIndex: 0, lightmapIndex: -1, color: [1, 0, 0, 1],
+      uv: [[0, 0], [1, 0], [0, 1], [1, 1]] },
+    { textureIndex: 0, lightmapIndex: -1, color: [0, 1, 0, 1],
+      uv: [[0, 0], [1, 0], [0, 1], [1, 1]] },
+    { textureIndex: 0, lightmapIndex: -1, color: [0, 0, 0, 1],
+      uv: [[0, 0], [1, 0], [0, 1], [1, 1]] },
+  ],
+  cubes: [
+    { hSW: 0, hSE: 0, hNW: 0, hNE: 2, topSurface: 0, northSurface: -1, eastSurface: 2 },
+    { hSW: 0, hSE: 0, hNW: 0, hNE: 0, topSurface: 1, northSurface: -1, eastSurface: -1 },
+  ],
+});
+const eastWallBucket = eastWallTintMesh.buckets[0];
+const eastTintAtVertex = vertex => eastWallBucket.colors.slice(vertex * 3, vertex * 3 + 3);
+assert.deepEqual(eastTintAtVertex(3), eastTintAtVertex(4),
+  'the east wall north-east corner must match the coincident top-surface vertex');
+assert.deepEqual(eastTintAtVertex(8), eastTintAtVertex(7),
+  'the east wall south-west corner must match the coincident top-surface vertex');
+
 const splitDiffuseRegions = buildGndMeshData({
   width: 3,
   height: 1,
