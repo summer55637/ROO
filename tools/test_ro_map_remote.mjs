@@ -629,6 +629,7 @@ async function validateMap(mapId) {
   assert.equal(lightmapAtlas.uvsBySlice.length, gnd.lightmapCount, mapId + ' lightmap atlas UV count');
   assert.ok(lightmapAtlas.width <= 4096 && lightmapAtlas.height <= 4096, mapId + ' atlas fits common GPU limits');
   const rsw = parseRswBuffer(rswBytes);
+  mkdirSync('artifacts/gnd-source-textures', { recursive: true });
   const rswLightmapContext = {
     mapId,
     gndLightmapLayout: lightmapPipelineAudit.layout,
