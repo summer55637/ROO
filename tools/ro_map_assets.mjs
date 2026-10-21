@@ -1705,11 +1705,19 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
   const buckets = new Map();
   let quadCount = 0;
 
-  function topColor(tileX, tileY, fallback) {
-    if (tileX < 0 || tileY < 0 || tileX >= width || tileY >= height) return fallback;
+  // In legacy 40-byte GND surfaces, one tint belongs to the tile's
+  // south-west grid vertex. If no tile anchors a grid vertex, use neutral white
+  // rather than borrowing whichever neighboring face happens to be built first.
+  const neutralVertexColor = [1, 1, 1, 1];
+  function topColor(tileX, tileY) {
+    if (tileX < 0 || tileY < 0 || tileX >= width || tileY >= height) {
+      return neutralVertexColor;
+    }
     const neighbor = cubes[tileX + tileY * width];
-    if (!neighbor || neighbor.topSurface < 0 || neighbor.topSurface >= surfaces.length) return fallback;
-    return surfaces[neighbor.topSurface].color || fallback;
+    if (!neighbor || neighbor.topSurface < 0 || neighbor.topSurface >= surfaces.length) {
+      return neutralVertexColor;
+    }
+    return surfaces[neighbor.topSurface].color || neutralVertexColor;
   }
 
   function diffuseUvRectForSurface(surface) {
@@ -1805,13 +1813,11 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
     const x = i % width;
     const y = Math.floor(i / width);
     const cube = cubes[i];
-    const baseSurface = surfaces[cube.topSurface];
-    const fallbackColor = baseSurface && baseSurface.color || [1, 1, 1, 1];
     const vertexColors = [
-      fallbackColor,
-      topColor(x + 1, y, fallbackColor),
-      topColor(x, y + 1, fallbackColor),
-      topColor(x + 1, y + 1, fallbackColor),
+      topColor(x, y),
+      topColor(x + 1, y),
+      topColor(x, y + 1),
+      topColor(x + 1, y + 1),
     ];
     addQuad(cube.topSurface, [
       { x, z: y, h: cube.hSW, uvIndex: 0 },
@@ -1822,16 +1828,13 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
 
     if (cube.northSurface >= 0 && y + 1 < height) {
       const neighbor = cubes[i + width];
-      const wallSurface = surfaces[cube.northSurface];
-      const wallFallback = wallSurface && wallSurface.color || fallbackColor;
-      // Legacy 40-byte surfaces only store a single BGRA tint. Reuse the
-      // shared ground-grid vertex colors across both sides of each wall edge,
-      // matching the way adjacent top surfaces blend their common vertices.
+      // Wall surfaces use the same coordinate-anchored ground vertex colors.
+      // An unanchored grid coordinate stays neutral, avoiding face-specific tint leaks.
       const northVertexColors = [
-        topColor(x, y + 1, wallFallback),
-        topColor(x + 1, y + 1, wallFallback),
-        topColor(x, y + 1, wallFallback),
-        topColor(x + 1, y + 1, wallFallback),
+        topColor(x, y + 1),
+        topColor(x + 1, y + 1),
+        topColor(x, y + 1),
+        topColor(x + 1, y + 1),
       ];
       addQuad(cube.northSurface, [
         { x, z: y + 1, h: cube.hNW, uvIndex: 2 },
@@ -1843,13 +1846,11 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
 
     if (cube.eastSurface >= 0 && x + 1 < width) {
       const neighbor = cubes[i + 1];
-      const wallSurface = surfaces[cube.eastSurface];
-      const wallFallback = wallSurface && wallSurface.color || fallbackColor;
       const eastVertexColors = [
-        topColor(x + 1, y + 1, wallFallback),
-        topColor(x + 1, y, wallFallback),
-        topColor(x + 1, y + 1, wallFallback),
-        topColor(x + 1, y, wallFallback),
+        topColor(x + 1, y + 1),
+        topColor(x + 1, y),
+        topColor(x + 1, y + 1),
+        topColor(x + 1, y),
       ];
       addQuad(cube.eastSurface, [
         { x: x + 1, z: y + 1, h: cube.hNE, uvIndex: 3 },
