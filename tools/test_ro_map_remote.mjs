@@ -607,6 +607,55 @@ async function validateMap(mapId) {
       topSurfaceIndexes.add(cube.topSurface);
     }
   }
+
+  if (mapId === 'prontera') {
+    const usedUvRegions = new Map();
+    for (let cubeIndex = 0; cubeIndex < gnd.cubes.length; cubeIndex++) {
+      const cube = gnd.cubes[cubeIndex];
+      const surfaceIndex = cube.topSurface;
+      if (!topSurfaceIndexes.has(surfaceIndex)) continue;
+      const surface = gnd.surfaces[surfaceIndex];
+      if (!surface || !usedTextureIndexes.has(surface.textureIndex)
+        || !Array.isArray(surface.uv) || surface.uv.length !== 4) continue;
+      const values = surface.uv.flat();
+      if (!values.every(Number.isFinite)) continue;
+      const bounds = {
+        minU: Math.min(...surface.uv.map(uv => uv[0])),
+        maxU: Math.max(...surface.uv.map(uv => uv[0])),
+        minV: Math.min(...surface.uv.map(uv => uv[1])),
+        maxV: Math.max(...surface.uv.map(uv => uv[1])),
+      };
+      const key = surface.textureIndex + '|' + [
+        bounds.minU, bounds.maxU, bounds.minV, bounds.maxV,
+      ].map(value => value.toFixed(5)).join(':');
+      if (!usedUvRegions.has(key)) {
+        usedUvRegions.set(key, {
+          textureIndex: surface.textureIndex,
+          textureName: normalizeTextureName(gnd.textures[surface.textureIndex] || ''),
+          uvBounds: bounds,
+          surfaceCount: 0,
+          examples: [],
+        });
+      }
+      const record = usedUvRegions.get(key);
+      record.surfaceCount++;
+      if (record.examples.length < 8) {
+        record.examples.push({
+          cube: [cubeIndex % gnd.width, Math.floor(cubeIndex / gnd.width)],
+          surfaceIndex,
+          heights: [cube.hSW, cube.hSE, cube.hNW, cube.hNE],
+        });
+      }
+    }
+    const uvRegionReport = [...usedUvRegions.values()].sort((a, b) =>
+      a.textureName.localeCompare(b.textureName) || a.uvBounds.minV - b.uvBounds.minV
+        || a.uvBounds.minU - b.uvBounds.minU);
+    writeFileSync(
+      'artifacts/gnd-source-textures/prontera-used-texture-uv-regions.json',
+      JSON.stringify(uvRegionReport, null, 2) + '\\n'
+    );
+  }
+
   let sampleCandidate = null;
   for (const index of topSurfaceIndexes) {
     const surface = gnd.surfaces[index];
