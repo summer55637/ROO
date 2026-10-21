@@ -259,6 +259,7 @@ function auditGndSharedTopEdges(gnd, worldScale = 0.2) {
     uncoveredByAxis: { east: 0, north: 0 },
     uncoveredByTexture: { sameTextureIndex: 0, differentTextureIndex: 0 },
     uncoveredTexturePairs: {},
+    uncoveredSameTextureExamples: [],
     uncoveredByRegion: regionCounts,
     examples: [],
     examplesByRegion: regionExamples,
@@ -316,6 +317,9 @@ function auditGndSharedTopEdges(gnd, worldScale = 0.2) {
       wallTexture: wall ? (Number.isInteger(wall.textureIndex) ? gnd.textures[wall.textureIndex] || null : null) : null,
     };
     if (result.examples.length < 8) result.examples.push(sample);
+    if (sameTextureIndex && result.uncoveredSameTextureExamples.length < 20) {
+      result.uncoveredSameTextureExamples.push(sample);
+    }
     if (!regionExamples[region]) regionExamples[region] = [];
     if (regionExamples[region].length < 2) regionExamples[region].push(sample);
   };
@@ -744,6 +748,7 @@ async function validateMap(mapId) {
       + ', uncovered by map quadrant=' + JSON.stringify(sharedTopEdgeAudit.uncoveredByRegion)
       + ', frequent uncovered texture pairs=' + JSON.stringify(Object.entries(sharedTopEdgeAudit.uncoveredTexturePairs)
         .sort((a, b) => b[1] - a[1]).slice(0, 10))
+      + ', same-texture uncovered examples=' + JSON.stringify(sharedTopEdgeAudit.uncoveredSameTextureExamples)
       + ', maximum adjacent edge height delta=' + sharedTopEdgeAudit.maximumHeightDelta.toFixed(5)
       + ', first uncovered examples=' + JSON.stringify(sharedTopEdgeAudit.examples)
       + ', examples by map quadrant=' + JSON.stringify(sharedTopEdgeAudit.examplesByRegion)
