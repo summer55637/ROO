@@ -251,9 +251,9 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
       } else {
         assert.ok(groundProbe, mapSlug + ' 未先找到純 Diffuse 的可見地表取樣點。');
         await targetPage.mouse.move(groundProbe.x, groundProbe.y);
-        await targetPage.waitForFunction(() => {
+        await targetPage.waitForFunction(({ value, label }) => {
           const text = document.getElementById('gnd-surface-inspector-content')?.textContent || '';
-          return text.includes('目前診斷模式：' + mode.value + '／' + mode.label)
+          return text.includes('目前診斷模式：' + value + '／' + label)
             && text.includes('Surface #') && text.includes('真實材質路徑')
             && text.includes('原始四角 UV')
             && text.includes('原始 RGB lightmap / AO 四角取樣')
@@ -267,7 +267,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
             && text.includes('游標處 Lightmap atlas UV2：')
             && text.includes('游標處來源 RGB lightmap / AO 最近像素（原始 GND bytes）：RGB (')
             && /GPU 最終畫面取樣 RGBA：\(\d+,\s*\d+,\s*\d+,\s*\d+\)/.test(text);
-        }, null, { timeout: 5000 });
+        }, { value: mode.value, label: mode.label }, { timeout: 5000 });
         const diagnosticText = await inspector.innerText();
         const pixelMatch = diagnosticText.match(/GPU 最終畫面取樣 RGBA：\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)/);
         assert.ok(pixelMatch, mapSlug + ' 的 ' + mode.label + ' 模式沒有取得 GPU 畫面像素。');
