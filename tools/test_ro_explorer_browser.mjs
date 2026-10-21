@@ -230,6 +230,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
         }
         let foundVisibleGround = false;
         const probeObservations = [];
+        const sourceRejectObservations = [];
         for (const [dx, dy] of offsets) {
           const point = {
             x: Math.max(box.x + 8, Math.min(box.x + box.width - 8, centerX + dx)),
@@ -286,7 +287,19 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             const atlasUv = uvMatch ? uvMatch[1].split(',').map(value => Number(value.trim())) : null;
             if (!sourceRgb || Math.max(...posterizedRgb) < 32
               || !surfaceMatch || !lightmapMatch || !atlasUv || atlasUv.length !== 2
-              || !atlasUv.every(Number.isFinite)) continue;
+              || !atlasUv.every(Number.isFinite)) {
+              if (sourceRejectObservations.length < 8) {
+                sourceRejectObservations.push({
+                  point: [Math.round(point.x - box.x), Math.round(point.y - box.y)],
+                  surfaceIndex: surfaceMatch ? Number(surfaceMatch[1]) : null,
+                  lightmapIndex: lightmapMatch ? Number(lightmapMatch[1]) : null,
+                  sourceRgb,
+                  posterizedRgb,
+                  atlasUv,
+                });
+              }
+              continue;
+            }
             candidateLightmapProbe = {
               surfaceIndex: Number(surfaceMatch[1]),
               lightmapIndex: Number(lightmapMatch[1]),
@@ -309,8 +322,13 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
           break;
         }
         assert.ok(foundVisibleGround,
-          mapSlug + ' 找不到未被前景模型遮住且可讀取 GPU 像素的地表位置。'
-            + (options.requireNonzeroLightmap ? ' 探測樣本=' + JSON.stringify(probeObservations) : ''));
+          (options.requireNonzeroLightmap
+            ? mapSlug + ' 找不到 RGB lightmap 非零亮點的可見地表取樣點。'
+            : mapSlug + ' 找不到未被前景模型遮住且可讀取 GPU 像素的地表位置。')
+            + (options.requireNonzeroLightmap
+              ? ' 無地表樣本=' + JSON.stringify(probeObservations)
+                + ' 來源被排除樣本=' + JSON.stringify(sourceRejectObservations)
+              : ''));
       } else {
         assert.ok(groundProbe, mapSlug + ' 未先找到純 Diffuse 的可見地表取樣點。');
         await targetPage.mouse.move(groundProbe.x, groundProbe.y);
@@ -596,7 +614,7 @@ async function run() {
     '冰城原生地圖沒有有效畫面尺寸。');
   await page.mouse.move(icecastleStage.x + icecastleStage.width / 2,
     icecastleStage.y + icecastleStage.height / 2);
-  for (let zoomStep = 0; zoomStep < 4; zoomStep++) {
+  for (let zoomStep = 0; zoomStep < 14; zoomStep++) {
     await page.mouse.wheel(0, -100);
     await sleep(35);
   }
