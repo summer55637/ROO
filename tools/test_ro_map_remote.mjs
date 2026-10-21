@@ -652,7 +652,7 @@ async function validateMap(mapId) {
         || a.uvBounds.minU - b.uvBounds.minU);
     writeFileSync(
       'artifacts/gnd-source-textures/prontera-used-texture-uv-regions.json',
-      JSON.stringify(uvRegionReport, null, 2) + '\\n'
+      JSON.stringify(uvRegionReport, null, 2) + '\n'
     );
   }
 
