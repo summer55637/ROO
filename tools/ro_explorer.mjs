@@ -1667,6 +1667,10 @@ async function loadRagassetsMap(mapName) {
 
   const abortController = new AbortController();
   nativeMapLoadAbortController = abortController;
+  // Browser GPU audits only inspect GND surfaces; they do not need thousands of RSW model instances
+  // or animated water frames. This query flag is only used by the automated diagnostic harness.
+  const gndGpuAuditOnly = new URLSearchParams(window.location.search)
+    .get('roo-gnd-gpu-audit-only') === '1';
   setStatus('正在從公開素材來源載入 ' + mapId + ' 的 GND／GAT／RSW…');
   try {
     const manifestUrl = new URL('/maps/' + mapId + '/manifest.json', RAGASSETS_BASE_URL);
@@ -1911,9 +1915,14 @@ async function loadRagassetsMap(mapName) {
       });
     }
 
-    setStatus('地表已建立，正在載入 RSW 模型資源…');
+    setStatus(gndGpuAuditOnly
+      ? '地表已建立，正在準備 GPU 光照診斷…'
+      : '地表已建立，正在載入 RSW 模型資源…');
+    // In audit-only mode, keep the real parsed RSW lighting but skip unrelated RSM instance
+    // downloads so the GPU can validate the actual GND material pipeline deterministically.
+    const rswForPlacement = gndGpuAuditOnly ? { ...parsedRsw, models: [] } : parsedRsw;
     const nextRenderStats = await loadAndPlaceRswModels(
-      parsedRsw, urls, stagedRoot, nextScale, isCurrentRequest, abortController.signal
+      rswForPlacement, urls, stagedRoot, nextScale, isCurrentRequest, abortController.signal
     );
     if (!isCurrentRequest() || nextRenderStats.aborted) {
       disposeObject(stagedRoot);
@@ -1922,8 +1931,19 @@ async function loadRagassetsMap(mapName) {
     }
     const { animations: nextRsmAnimations, ...modelRenderStats } = nextRenderStats;
     const waterConfig = parsedGnd.water || parsedRsw.water;
-    setStatus('模型已載入，正在建立水域…');
-    stagedWaterStats = await addNativeWater(stagedRoot, parsedGat, waterConfig, urls, nextScale);
+    if (gndGpuAuditOnly) {
+      // GND boundary sampling uses isolated terrain quads and the source RSW light;
+      // animated water assets are not part of the component/framebuffer comparison.
+      stagedWaterStats = {
+        waterTileCount: 0,
+        waterFrameCount: 0,
+        waterTextureFallbackPlanes: 0,
+        animations: [],
+      };
+    } else {
+      setStatus('模型已載入，正在建立水域…');
+      stagedWaterStats = await addNativeWater(stagedRoot, parsedGat, waterConfig, urls, nextScale);
+    }
     if (!isCurrentRequest()) {
       disposeNativeWaterAnimationTextures(stagedWaterStats.animations);
       disposeObject(stagedRoot);
