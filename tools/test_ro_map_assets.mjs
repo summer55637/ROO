@@ -586,6 +586,33 @@ assert.deepEqual(mesh.buckets[0].diffuseUvRect, {
   minU: 0, maxU: 1, minV: 0, maxV: 1,
 }, 'full-texture GND surfaces retain their source UV rectangle while using local UVs');
 
+// Legacy single-tint surfaces assign their tint to the south-west grid vertex.
+// Both quads sharing a position must receive the same color; coordinates with
+// no source tile must remain neutral instead of inheriting face-local fallback.
+const sharedTintBoundary = buildGndMeshData({
+  width: 2,
+  height: 1,
+  textures: ['grass.bmp'],
+  surfaces: [
+    { textureIndex: 0, lightmapIndex: -1, color: [1, 0, 0, 1],
+      uv: [[0, 0], [1, 0], [0, 1], [1, 1]] },
+    { textureIndex: 0, lightmapIndex: -1, color: [0, 1, 0, 1],
+      uv: [[0, 0], [1, 0], [0, 1], [1, 1]] },
+  ],
+  cubes: [
+    { hSW: 0, hSE: 0, hNW: 0, hNE: 0, topSurface: 0, northSurface: -1, eastSurface: -1 },
+    { hSW: 0, hSE: 0, hNW: 0, hNE: 0, topSurface: 1, northSurface: -1, eastSurface: -1 },
+  ],
+});
+const sharedTintBucket = sharedTintBoundary.buckets[0];
+const tintAtVertex = vertex => sharedTintBucket.colors.slice(vertex * 3, vertex * 3 + 3);
+assert.deepEqual(tintAtVertex(1), tintAtVertex(4),
+  'adjacent legacy top surfaces must share the color anchored at their common grid vertex');
+assert.deepEqual(tintAtVertex(3), [1, 1, 1],
+  'an unanchored north-east vertex must use neutral white, not the left quad tint');
+assert.deepEqual(tintAtVertex(6), [1, 1, 1],
+  'an unanchored north-west vertex must use the same neutral white, not the right quad tint');
+
 const splitDiffuseRegions = buildGndMeshData({
   width: 3,
   height: 1,
