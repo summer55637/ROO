@@ -1871,6 +1871,89 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
   };
 }
 
+function floorPowerOfTwo(value) {
+  if (!Number.isFinite(value) || value < 1) return 1;
+  return 2 ** Math.floor(Math.log2(value));
+}
+
+// Isolate each atlas UV region without throwing away the neighbouring texels
+// needed to reproduce the source texture's bilinear filtering at shared edges.
+// Crop boundaries and guards are aligned to a power-of-two texel grid so the
+// mapping stays stable through the useful mip levels.
+export function resolveGndDiffuseCropRect(uvRect, sourceWidth, sourceHeight) {
+  if (!uvRect || ![uvRect.minU, uvRect.maxU, uvRect.minV, uvRect.maxV].every(Number.isFinite)
+    || uvRect.minU < 0 || uvRect.minV < 0 || uvRect.maxU > 1 || uvRect.maxV > 1
+    || uvRect.maxU - uvRect.minU <= 1e-7 || uvRect.maxV - uvRect.minV <= 1e-7) {
+    throw new TypeError('GND diffuse crop 需要有效的來源 UV 矩形。');
+  }
+  if (!Number.isInteger(sourceWidth) || !Number.isInteger(sourceHeight)
+    || sourceWidth < 1 || sourceHeight < 1) {
+    throw new TypeError('GND diffuse crop 需要正整數貼圖尺寸。');
+  }
+
+  const coreX0 = Math.max(0, Math.min(sourceWidth - 1, Math.round(uvRect.minU * sourceWidth)));
+  const coreX1 = Math.max(coreX0 + 1,
+    Math.min(sourceWidth, Math.round(uvRect.maxU * sourceWidth)));
+  const coreY0 = Math.max(0, Math.min(sourceHeight - 1,
+    Math.round((1 - uvRect.maxV) * sourceHeight)));
+  const coreY1 = Math.max(coreY0 + 1,
+    Math.min(sourceHeight, Math.round((1 - uvRect.minV) * sourceHeight)));
+  const guardX = floorPowerOfTwo(coreX1 - coreX0);
+  const guardY = floorPowerOfTwo(coreY1 - coreY0);
+  const x0 = Math.max(0, Math.floor((coreX0 - guardX) / guardX) * guardX);
+  const x1 = Math.min(sourceWidth, Math.ceil((coreX1 + guardX) / guardX) * guardX);
+  const y0 = Math.max(0, Math.floor((coreY0 - guardY) / guardY) * guardY);
+  const y1 = Math.min(sourceHeight, Math.ceil((coreY1 + guardY) / guardY) * guardY);
+  return {
+    x0, y0, x1, y1,
+    width: x1 - x0,
+    height: y1 - y0,
+    coreX0, coreY0, coreX1, coreY1,
+    guardX, guardY,
+  };
+}
+
+// Map an original GND UV into the padded isolated texture and report the
+// source-image texel coordinate sampled by linear filtering at mip level zero.
+// Image pixels are top-left-origin; texture V coordinates are bottom-left-origin.
+export function mapGndDiffuseUvToSourcePixel(
+  uv, uvRect, sourceWidth, sourceHeight, sourcePixelRect = null
+) {
+  if (!Array.isArray(uv) || uv.length < 2 || !uv.every(Number.isFinite)
+    || uv[0] < 0 || uv[0] > 1 || uv[1] < 0 || uv[1] > 1) {
+    throw new TypeError('GND diffuse UV 必須是 0 到 1 之間的有限座標。');
+  }
+  const computedCrop = sourcePixelRect
+    ? null : resolveGndDiffuseCropRect(uvRect, sourceWidth, sourceHeight);
+  const crop = sourcePixelRect || computedCrop;
+  const x0 = crop.x0;
+  const y0 = crop.y0;
+  const x1 = crop.x1;
+  const y1 = crop.y1;
+  const cropWidth = Number.isInteger(crop.width) ? crop.width : x1 - x0;
+  const cropHeight = Number.isInteger(crop.height) ? crop.height : y1 - y0;
+  if (![x0, y0, x1, y1, cropWidth, cropHeight].every(Number.isInteger)
+    || x0 < 0 || y0 < 0 || x1 > sourceWidth || y1 > sourceHeight
+    || cropWidth < 1 || cropHeight < 1 || x1 - x0 !== cropWidth || y1 - y0 !== cropHeight) {
+    throw new TypeError('GND diffuse crop 像素範圍無效。');
+  }
+
+  const localUv = [
+    (uv[0] * sourceWidth - x0) / cropWidth,
+    (uv[1] * sourceHeight - (sourceHeight - y1)) / cropHeight,
+  ];
+  const sourcePosition = [
+    Math.max(0, Math.min(sourceWidth - 1, uv[0] * sourceWidth - 0.5)),
+    Math.max(0, Math.min(sourceHeight - 1, sourceHeight - 0.5 - uv[1] * sourceHeight)),
+  ];
+  return {
+    crop: { x0, y0, x1, y1, width: cropWidth, height: cropHeight },
+    localUv,
+    sourcePosition,
+    nearestPixel: [Math.round(sourcePosition[0]), Math.round(sourcePosition[1])],
+  };
+}
+
 export function insetGndTextureUvs(uvs, textureWidth, textureHeight) {
   if (!uvs || typeof uvs.length !== 'number' || uvs.length % 2 !== 0) {
     throw new TypeError('UV 必須是偶數長度的陣列。');
