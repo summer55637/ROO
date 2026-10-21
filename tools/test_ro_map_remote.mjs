@@ -664,7 +664,7 @@ async function validateMap(mapId) {
   // whether the shape is baked into the bitmap or introduced by texture mapping.
   if (mapId === 'prontera') {
     const targetTextureIndex = gnd.textures.findIndex(name =>
-      /(?:^|\\/)prt_d_01\\.bmp$/i.test(normalizeTextureName(name)));
+      normalizeTextureName(name).endsWith('prt_d_01.bmp'));
     assert.ok(targetTextureIndex >= 0, 'Prontera has the prt_D_01.bmp diagnostic texture');
     const boundsForSurface = surface => ({
       minU: Math.min(...surface.uv.map(uv => uv[0])),
