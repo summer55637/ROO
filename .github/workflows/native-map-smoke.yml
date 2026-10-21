@@ -8,6 +8,13 @@ on:
       - 'tools/ro_map_assets.mjs'
       - 'tools/test_ro_map_remote.mjs'
       - '.github/workflows/native-map-smoke.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'tools/ro_map_assets.mjs'
+      - 'tools/test_ro_map_remote.mjs'
+      - '.github/workflows/native-map-smoke.yml'
 
 permissions:
   contents: read
