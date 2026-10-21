@@ -3888,7 +3888,7 @@ function findGndSharedUvAuditPair() {
     const ra = rect(sa), rb = rect(sb);
     if (!ra || !rb || (Math.abs(ra.minU - rb.minU) < 1e-6
       && Math.abs(ra.maxU - rb.maxU) < 1e-6 && Math.abs(ra.minV - rb.minV) < 1e-6
-      && Math.abs(ra.maxV - rb.maxV) < 1e-6) return null;
+      && Math.abs(ra.maxV - rb.maxV) < 1e-6)) return null;
     if (Math.abs((ra.maxU - ra.minU) - (rb.maxU - rb.minU)) > 1e-6
       || Math.abs((ra.maxV - ra.minV) - (rb.maxV - rb.minV)) > 1e-6) return null;
     const corners = axis === 'east' ? { a: [1, 3], b: [0, 2] } : { a: [2, 3], b: [0, 1] };
