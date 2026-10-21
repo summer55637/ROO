@@ -245,6 +245,8 @@ function auditGndSharedTopEdges(gnd, worldScale = 0.2) {
     const surface = gnd.surfaces[cube.topSurface];
     return surface.textureIndex >= 0 && surface.textureIndex < gnd.textures.length;
   };
+  const regionCounts = {};
+  const regionExamples = {};
   const result = {
     adjacentTexturedTopEdges: 0,
     continuousEdges: 0,
@@ -253,7 +255,10 @@ function auditGndSharedTopEdges(gnd, worldScale = 0.2) {
     uncoveredHeightSteps: 0,
     microscopicUncoveredSteps: 0,
     maximumHeightDelta: 0,
+    uncoveredByAxis: { east: 0, north: 0 },
+    uncoveredByRegion: regionCounts,
     examples: [],
+    examplesByRegion: regionExamples,
   };
   const epsilon = 1e-5;
   const microscopicWorldDelta = 0.02;
@@ -275,21 +280,34 @@ function auditGndSharedTopEdges(gnd, worldScale = 0.2) {
       return;
     }
     result.uncoveredHeightSteps++;
+    result.uncoveredByAxis[axis]++;
     if (delta <= microscopicWorldDelta) result.microscopicUncoveredSteps++;
-    if (result.examples.length < 8) {
-      const wall = Number.isInteger(wallSurfaceIndex)
-        && wallSurfaceIndex >= 0 && wallSurfaceIndex < gnd.surfaces.length
-        ? gnd.surfaces[wallSurfaceIndex] : null;
-      result.examples.push({
-        axis,
-        grid: [x, y],
-        topSurfaces: [cube.topSurface, neighbor.topSurface],
-        endpointHeightDeltaWorld: endpointDeltas.map(value => Number(value.toFixed(5))),
-        maxHeightDeltaWorld: Number(delta.toFixed(5)),
-        wallSurface: wallSurfaceIndex,
-        wallTexture: wall ? wall.textureIndex : null,
-      });
-    }
+    const binX = Math.min(3, Math.floor(x * 4 / gnd.width));
+    const binY = Math.min(3, Math.floor(y * 4 / gnd.height));
+    const region = 'x' + binX + '-y' + binY;
+    regionCounts[region] = (regionCounts[region] || 0) + 1;
+    const surface = gnd.surfaces[cube.topSurface];
+    const neighborSurface = gnd.surfaces[neighbor.topSurface];
+    const wall = Number.isInteger(wallSurfaceIndex)
+      && wallSurfaceIndex >= 0 && wallSurfaceIndex < gnd.surfaces.length
+      ? gnd.surfaces[wallSurfaceIndex] : null;
+    const sample = {
+      axis,
+      grid: [x, y],
+      topSurfaces: [cube.topSurface, neighbor.topSurface],
+      topTextures: [
+        surface && gnd.textures[surface.textureIndex],
+        neighborSurface && gnd.textures[neighborSurface.textureIndex],
+      ],
+      endpointHeights: [heightsA, heightsB],
+      endpointHeightDeltaWorld: endpointDeltas.map(value => Number(value.toFixed(5))),
+      maxHeightDeltaWorld: Number(delta.toFixed(5)),
+      wallSurface: wallSurfaceIndex,
+      wallTexture: wall ? (Number.isInteger(wall.textureIndex) ? gnd.textures[wall.textureIndex] || null : null) : null,
+    };
+    if (result.examples.length < 8) result.examples.push(sample);
+    if (!regionExamples[region]) regionExamples[region] = [];
+    if (regionExamples[region].length < 2) regionExamples[region].push(sample);
   };
 
   for (let y = 0; y < gnd.height; y++) {
