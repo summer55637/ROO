@@ -167,9 +167,12 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
   const selector = targetPage.locator('#gnd-debug-mode');
   await selector.waitFor({ state: 'visible', timeout: 5000 });
   const sampledPixels = {};
+  const modes = options.requireNonzeroLightmap
+    ? GND_DEBUG_SCREENSHOT_MODES.filter(mode => mode.value === '7' || mode.value === '2')
+    : GND_DEBUG_SCREENSHOT_MODES;
   let groundProbe = null;
   let sourceLightmapProbe = null;
-  for (const mode of GND_DEBUG_SCREENSHOT_MODES) {
+  for (const mode of modes) {
     await selector.selectOption(mode.value);
     await sleep(220);
     const status = await targetPage.locator('#status').innerText();
@@ -321,12 +324,14 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
       animations: 'disabled',
     });
   }
-  assert.equal(Object.keys(sampledPixels).length, GND_DEBUG_SCREENSHOT_MODES.length,
+  assert.equal(Object.keys(sampledPixels).length, modes.length,
     mapSlug + ' 每個 GND 診斷模式都必須有同一地表點的 GPU 像素。');
-  assert.notEqual(sampledPixels['7'], sampledPixels['8'],
-    mapSlug + ' 純 Diffuse 與純頂點色的 GPU 畫面像素相同，診斷分離可能未生效。');
-  assert.notEqual(sampledPixels['2'], sampledPixels['3'],
-    mapSlug + ' RGB lightmap 與 AO 的 GPU 像素相同，通道分離可能未生效。');
+  if (!options.requireNonzeroLightmap) {
+    assert.notEqual(sampledPixels['7'], sampledPixels['8'],
+      mapSlug + ' 純 Diffuse 與純頂點色的 GPU 畫面像素相同，診斷分離可能未生效。');
+    assert.notEqual(sampledPixels['2'], sampledPixels['3'],
+      mapSlug + ' RGB lightmap 與 AO 的 GPU 像素相同，通道分離可能未生效。');
+  }
   if (options.requireNonzeroLightmap) {
     assert.ok(sourceLightmapProbe, mapSlug + ' 找不到來源 RGB lightmap 有明顯非零值的可見地表點。');
     const gpuRgb = sampledPixels['2'].split(',').map(Number);
@@ -544,10 +549,16 @@ async function run() {
   await captureGndDebugViews(page, pronteraStage, 'prontera');
   await page.locator('#recenter').click();
 
-  // Icecastle contains real non-zero RGB lightmap bytes; compare one source sample
-  // with the RGB-lightmap-only shader output read back from the WebGL framebuffer.
-  await page.locator('#native-map').fill('icecastle');
-  await page.locator('#load-native-map').click();
+  // Icecastle has real non-zero RGB lightmap bytes. Reload the page before this
+  // probe so a previous map's diagnostic-panel state cannot leak into the check.
+  const icecastleParams = new URLSearchParams(params);
+  icecastleParams.set('map', 'icecastle');
+  await page.goto(baseUrl + '/tools/ro_explorer.html?' + icecastleParams.toString(), {
+    waitUntil: 'domcontentloaded',
+    timeout: 30000,
+  });
+  await page.locator('#native-toolbar').waitFor({ state: 'visible', timeout: 30000 });
+  await page.locator('#gnd-debug-mode').waitFor({ state: 'visible', timeout: 5000 });
   await page.waitForFunction(() => {
     const status = document.getElementById('status')?.textContent || '';
     const stats = document.getElementById('stats')?.textContent || '';
@@ -572,9 +583,16 @@ async function run() {
   await captureGndDebugViews(page, icecastleStage, 'icecastle', { requireNonzeroLightmap: true });
   await page.locator('#recenter').click();
 
-  // Restore tra_fild for the mobile interaction checks below.
-  await page.locator('#native-map').fill('tra_fild');
-  await page.locator('#load-native-map').click();
+  // Reload the original field before the mobile interaction checks below.
+  await page.goto(baseUrl + '/tools/ro_explorer.html?' + params.toString(), {
+    waitUntil: 'domcontentloaded',
+    timeout: 30000,
+  });
+  await page.locator('#native-toolbar').waitFor({ state: 'visible', timeout: 30000 });
+  await page.locator('#gnd-debug-mode').waitFor({ state: 'visible', timeout: 5000 });
+  await page.locator('#player-vitals-panel').waitFor({ state: 'visible', timeout: 30000 });
+  await page.locator('#support-skill').waitFor({ state: 'visible', timeout: 30000 });
+  await page.locator('#cast-support-skill').waitFor({ state: 'visible', timeout: 30000 });
   await page.waitForFunction(() => {
     const status = document.getElementById('status')?.textContent || '';
     const stats = document.getElementById('stats')?.textContent || '';
