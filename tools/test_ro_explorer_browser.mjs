@@ -198,6 +198,11 @@ async function runGndGpuBoundaryAudit(targetPage, mapSlug, options = {}) {
       mapSlug + ' 未從共用邊界的來源 RGB lightmap 找到非零樣本：' + JSON.stringify(report.coverage));
     assert.ok(report.coverage.nonzeroRgbLightmapPairs > 0 && report.coverage.nonzeroRgbLightmapSamples > 0,
       mapSlug + ' GPU 邊界讀回沒有取得非零 RGB lightmap 像素：' + JSON.stringify(report.coverage));
+    if (options.requireAoRgbContrast) {
+      assert.ok(report.coverage.aoRgbJointPairs > 0,
+        mapSlug + ' 沒找到同時有非零 RGB lightmap 與 AO 明暗差異的相鄰 surface：'
+          + JSON.stringify(report.coverage));
+    }
     const litSamples = report.audits.flatMap(audit => (audit.scales || [])
       .flatMap(scale => (scale.samples || []).map(sample => ({
         surface: audit.surfaces, scale: scale.scale, sample,
@@ -802,6 +807,46 @@ async function run() {
   await sleep(500);
   await captureGndDebugViews(page, icecastleStage, 'icecastle', { requireNonzeroLightmap: true });
   await page.locator('#recenter').click();
+
+  // Expand the real-map sample beyond Icecastle: cold dungeon floors and a lava dungeon.
+  // Each map must expose non-zero source RGB lightmap values that also match GPU readback.
+  for (const mapSlug of ['ice_dun02', 'thor_v03']) {
+    const mapParams = new URLSearchParams(icecastleParams);
+    mapParams.set('map', mapSlug);
+    await page.goto(baseUrl + '/tools/ro_explorer.html?' + mapParams.toString(), {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000,
+    });
+    await page.locator('#native-toolbar').waitFor({ state: 'visible', timeout: 30000 });
+    await page.locator('#gnd-debug-mode').waitFor({ state: 'visible', timeout: 5000 });
+    await page.waitForFunction(map => {
+      const status = document.getElementById('status')?.textContent || '';
+      const stats = document.getElementById('stats')?.textContent || '';
+      return status.includes('原生地圖已載入') && stats.includes('GAT：' + map + '.gat');
+    }, mapSlug, { timeout: 150000 });
+    await page.waitForFunction(() => {
+      const stats = document.getElementById('stats')?.textContent || '';
+      const match = stats.match(/GND 地表貼圖：已解析 (\\d+)\\/(\\d+)；載入成功 (\\d+)；失敗 (\\d+)；缺少匹配 (\\d+)/);
+      return match && Number(match[1]) > 0 && Number(match[3]) > 0;
+    }, null, { timeout: 30000 });
+    await runGndGpuBoundaryAudit(page, mapSlug, {
+      requireNonzeroRgbLightmap: true,
+      requireAoRgbContrast: true,
+    });
+    await page.locator('#recenter').click();
+    const auditStage = await page.locator('#stage').boundingBox();
+    assert.ok(auditStage && auditStage.width > 0 && auditStage.height > 0,
+      mapSlug + ' 原生地圖沒有有效畫面尺寸。');
+    await page.mouse.move(auditStage.x + auditStage.width / 2,
+      auditStage.y + auditStage.height / 2);
+    for (let zoomStep = 0; zoomStep < 14; zoomStep++) {
+      await page.mouse.wheel(0, -100);
+      await sleep(35);
+    }
+    await sleep(500);
+    await captureGndDebugViews(page, auditStage, mapSlug, { requireNonzeroLightmap: true });
+    await page.locator('#recenter').click();
+  }
 
   // Reload the original field before the mobile interaction checks below.
   await page.goto(baseUrl + '/tools/ro_explorer.html?' + params.toString(), {

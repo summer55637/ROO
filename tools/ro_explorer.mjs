@@ -3954,6 +3954,13 @@ function findGndSharedUvAuditPairs() {
       const edgeRgbMax = Math.max(...edgeLightmapA.filteredRgb, ...edgeLightmapB.filteredRgb);
       const edgeRgbSignal = [...edgeLightmapA.filteredRgb, ...edgeLightmapB.filteredRgb]
         .reduce((sum, value) => sum + value, 0);
+      const edgeRgbChroma = rgb => Math.max(...rgb) - Math.min(...rgb);
+      const edgeRgbColorVariation = Math.max(
+        edgeRgbChroma(edgeLightmapA.filteredRgb),
+        edgeRgbChroma(edgeLightmapB.filteredRgb),
+        maxVectorDelta(edgeLightmapA.filteredRgb, edgeLightmapB.filteredRgb),
+        rgbLightmapDelta
+      );
       candidates.push({
         status: 'ready', axis, grid: [x, y], surfaceIndexA: ia, surfaceIndexB: ib,
         surfaceA: sa, surfaceB: sb, entryA: ea, entryB: eb, rectA: ra, rectB: rb,
@@ -3984,6 +3991,7 @@ function findGndSharedUvAuditPairs() {
           },
           hasNonzeroEdgeRgbLightmap: edgeRgbMax >= 16,
           edgeRgbSignal: Number(edgeRgbSignal.toFixed(3)),
+          edgeRgbColorVariation: Number(edgeRgbColorVariation.toFixed(3)),
           aoDelta: Number(aoDelta.toFixed(3)),
           rgbLightmapDelta: Number(rgbLightmapDelta.toFixed(3)),
           selectedFor: [],
@@ -4015,20 +4023,21 @@ function findGndSharedUvAuditPairs() {
     selectedKeys.add(options[0]);
     options[0].coverage.selectedFor.push(label);
   };
+  // Spend the first audit slot on the strongest genuine RGB-lightmap + AO contrast.
+  // Then keep axis coverage while preferring chromatic, brighter lightmap boundaries.
+  addBest('非零 RGB＋AO 強對比', pair => pair.coverage.hasNonzeroEdgeRgbLightmap
+    && pair.coverage.aoDelta >= 8,
+  pair => pair.coverage.edgeRgbColorVariation * 2 + pair.coverage.edgeRgbSignal
+    + pair.coverage.aoDelta * 2 + pair.coverage.rgbLightmapDelta);
+  addBest('RGB 色彩變化最大', pair => pair.coverage.hasNonzeroEdgeRgbLightmap,
+    pair => pair.coverage.edgeRgbColorVariation * 2 + pair.coverage.edgeRgbSignal);
   addBest('UV 東向', pair => pair.axis === 'east',
     pair => pair.coverage.aoDelta + pair.coverage.rgbLightmapDelta + pair.coverage.vertexColorMeanDelta * 255);
   addBest('UV 北向', pair => pair.axis === 'north',
     pair => pair.coverage.aoDelta + pair.coverage.rgbLightmapDelta + pair.coverage.vertexColorMeanDelta * 255);
-  addBest('非零 RGB lightmap 邊界', pair => pair.coverage.hasNonzeroEdgeRgbLightmap,
-    pair => pair.coverage.edgeRgbSignal);
   addBest('AO 差異', pair => pair.coverage.aoDelta >= 8, pair => pair.coverage.aoDelta);
-  addBest('不同 RGB lightmap 切片', pair => pair.coverage.lightmapIndices[0] !== pair.coverage.lightmapIndices[1],
-    pair => pair.coverage.edgeRgbSignal);
   addBest('頂點色差異', pair => pair.coverage.vertexColorMeanDelta >= 0.04,
     pair => pair.coverage.vertexColorMeanDelta);
-  addBest('AO＋RGB lightmap 差異', pair => pair.coverage.aoDelta >= 8
-    && pair.coverage.rgbLightmapDelta >= 8,
-  pair => pair.coverage.aoDelta + pair.coverage.rgbLightmapDelta);
   const diversityScore = pair => pair.coverage.aoDelta / 255
     + pair.coverage.rgbLightmapDelta / 255
     + pair.coverage.vertexColorMeanDelta;
@@ -4341,6 +4350,14 @@ function runGndSharedUvGpuBoundaryAudit() {
     vertexColorContrastPairs: audits.filter(audit => audit.coverage && audit.coverage.vertexColorMeanDelta >= 0.04).length,
     nonzeroEdgeRgbLightmapPairs: audits.filter(audit =>
       audit.coverage && audit.coverage.hasNonzeroEdgeRgbLightmap).length,
+    aoRgbJointPairs: audits.filter(audit => audit.coverage
+      && audit.coverage.hasNonzeroEdgeRgbLightmap && audit.coverage.aoDelta >= 8).length,
+    rgbColorVariationPairs: audits.filter(audit => audit.coverage
+      && audit.coverage.hasNonzeroEdgeRgbLightmap && audit.coverage.edgeRgbColorVariation >= 16).length,
+    maxEdgeRgbColorVariation: Math.max(0, ...audits.map(audit =>
+      audit.coverage ? audit.coverage.edgeRgbColorVariation : 0)),
+    maxAoContrastDelta: Math.max(0, ...audits.map(audit =>
+      audit.coverage ? audit.coverage.aoDelta : 0)),
     nonzeroRgbLightmapPairs,
     nonzeroRgbLightmapSamples,
     uniqueUvRegionPairs: new Set(audits.map(audit => audit.coverage && audit.coverage.uvRegionKey)).size,
