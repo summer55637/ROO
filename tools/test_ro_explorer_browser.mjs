@@ -152,14 +152,15 @@ async function clickMinimapUntilMoving(targetPage, useTouch, label) {
 }
 
 const GND_DEBUG_SCREENSHOT_MODES = [
+  // Find one valid visible ground point first, then sample every shader mode at it.
+  { value: '7', label: '純 Diffuse 貼圖', file: 'diffuse-only' },
+  { value: '8', label: '純頂點色 RGB', file: 'vertex-color-only' },
   { value: '1', label: '貼圖＋頂點色', file: 'diffuse-vertex' },
   { value: '2', label: 'RGB 光照圖', file: 'rgb-lightmap' },
   { value: '3', label: 'AO／陰影圖', file: 'ao-shadow' },
   { value: '4', label: 'RSW 方向光', file: 'rsw-light' },
   { value: '5', label: '貼圖×AO', file: 'diffuse-times-ao' },
   { value: '6', label: '貼圖×方向光', file: 'diffuse-times-rsw' },
-  { value: '7', label: '純 Diffuse 貼圖', file: 'diffuse-only' },
-  { value: '8', label: '純頂點色 RGB', file: 'vertex-color-only' },
 ];
 
 async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
@@ -173,7 +174,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
     const status = await targetPage.locator('#status').innerText();
     assert.ok(status.includes('GND 診斷模式：' + mode.label),
       mapSlug + ' 未切換到 GND 診斷模式：' + mode.label + '；' + status);
-    if (mode.value === '7' || mode.value === '8') {
+    if (mode.value !== '0') {
       const box = await targetPage.locator('#stage').boundingBox();
       assert.ok(box && box.width > 0 && box.height > 0, mapSlug + ' 缺少有效地表檢視範圍。');
       const inspector = targetPage.locator('#gnd-surface-inspector-content');
@@ -213,7 +214,8 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
           try {
             await targetPage.waitForFunction(() => {
               const text = document.getElementById('gnd-surface-inspector-content')?.textContent || '';
-              return text.includes('真實材質路徑') && text.includes('原始四角 UV')
+              return text.includes('目前診斷模式：7／純 Diffuse 貼圖')
+                && text.includes('真實材質路徑') && text.includes('原始四角 UV')
                 && text.includes('原始 RGB lightmap / AO 四角取樣')
                 && text.includes('相鄰 TOP surface 對照')
                 && text.includes('Diffuse 貼圖採樣：mipmap=on')
@@ -251,7 +253,8 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
         await targetPage.mouse.move(groundProbe.x, groundProbe.y);
         await targetPage.waitForFunction(() => {
           const text = document.getElementById('gnd-surface-inspector-content')?.textContent || '';
-          return text.includes('Surface #') && text.includes('真實材質路徑')
+          return text.includes('目前診斷模式：' + mode.value + '／' + mode.label)
+            && text.includes('Surface #') && text.includes('真實材質路徑')
             && text.includes('原始四角 UV')
             && text.includes('原始 RGB lightmap / AO 四角取樣')
                 && text.includes('相鄰 TOP surface 對照')
@@ -267,8 +270,8 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
         }, null, { timeout: 5000 });
         const diagnosticText = await inspector.innerText();
         const pixelMatch = diagnosticText.match(/GPU 最終畫面取樣 RGBA：\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)/);
-        assert.ok(pixelMatch, mapSlug + ' 沒有取得純頂點色模式的 GPU 畫面像素。');
-        sampledPixels['8'] = pixelMatch.slice(1, 4).join(',');
+        assert.ok(pixelMatch, mapSlug + ' 的 ' + mode.label + ' 模式沒有取得 GPU 畫面像素。');
+        sampledPixels[mode.value] = pixelMatch.slice(1, 4).join(',');
       }
     }
     await targetPage.screenshot({
@@ -277,8 +280,13 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
       animations: 'disabled',
     });
   }
+  assert.equal(Object.keys(sampledPixels).length, GND_DEBUG_SCREENSHOT_MODES.length,
+    mapSlug + ' 每個 GND 診斷模式都必須有同一地表點的 GPU 像素。');
   assert.notEqual(sampledPixels['7'], sampledPixels['8'],
     mapSlug + ' 純 Diffuse 與純頂點色的 GPU 畫面像素相同，診斷分離可能未生效。');
+  assert.notEqual(sampledPixels['2'], sampledPixels['3'],
+    mapSlug + ' RGB lightmap 與 AO 的 GPU 像素相同，通道分離可能未生效。');
+  console.log(mapSlug + ' GND debug GPU RGB at the same ground point: ' + JSON.stringify(sampledPixels));
   await selector.selectOption('0');
   assert.ok((await targetPage.locator('#status').innerText()).includes('GND 診斷模式：完整合成'),
     mapSlug + ' 無法切回完整 GND 合成畫面。');
