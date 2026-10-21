@@ -833,19 +833,8 @@ async function run() {
       requireNonzeroRgbLightmap: true,
       requireAoRgbContrast: true,
     });
-    await page.locator('#recenter').click();
-    const auditStage = await page.locator('#stage').boundingBox();
-    assert.ok(auditStage && auditStage.width > 0 && auditStage.height > 0,
-      mapSlug + ' 原生地圖沒有有效畫面尺寸。');
-    await page.mouse.move(auditStage.x + auditStage.width / 2,
-      auditStage.y + auditStage.height / 2);
-    for (let zoomStep = 0; zoomStep < 14; zoomStep++) {
-      await page.mouse.wheel(0, -100);
-      await sleep(35);
-    }
-    await sleep(500);
-    await captureGndDebugViews(page, auditStage, mapSlug, { requireNonzeroLightmap: true });
-    await page.locator('#recenter').click();
+    // The multiscale GPU audit already reads every isolated channel at near/mid/far.
+    // Keep the extra maps' acceptance report, and avoid repeating the slower cursor-probe scan.
   }
 
   // Reload the original field before the mobile interaction checks below.
