@@ -246,6 +246,16 @@ function auditGndSharedTopEdges(gnd, worldScale = 0.2) {
     const surface = gnd.surfaces[cube.topSurface];
     return surface.textureIndex >= 0 && surface.textureIndex < gnd.textures.length;
   };
+  const topCornerColor = (tileX, tileY, surfaceIndex, cornerIndex) => {
+    const surface = gnd.surfaces[surfaceIndex];
+    if (surface && Array.isArray(surface.colors) && surface.colors[cornerIndex]) {
+      return surface.colors[cornerIndex];
+    }
+    const offsets = [[0, 0], [1, 0], [0, 1], [1, 1]][cornerIndex];
+    const anchor = offsets && gnd.cubes[tileX + offsets[0] + (tileY + offsets[1]) * gnd.width];
+    const anchorSurface = anchor && gnd.surfaces[anchor.topSurface];
+    return anchorSurface && anchorSurface.color || [1, 1, 1, 1];
+  };
   const regionCounts = {};
   const regionExamples = {};
   const result = {
@@ -302,6 +312,34 @@ function auditGndSharedTopEdges(gnd, worldScale = 0.2) {
     const wall = Number.isInteger(wallSurfaceIndex)
       && wallSurfaceIndex >= 0 && wallSurfaceIndex < gnd.surfaces.length
       ? gnd.surfaces[wallSurfaceIndex] : null;
+    const cornerPairs = axis === 'east' ? [[1, 0], [3, 2]] : [[2, 0], [3, 1]];
+    const otherX = axis === 'east' ? x + 1 : x;
+    const otherY = axis === 'north' ? y + 1 : y;
+    const endpoints = cornerPairs.map(([cornerA, cornerB], endpointIndex) => {
+      const uvA = surface && surface.uv && surface.uv[cornerA] || null;
+      const uvB = neighborSurface && neighborSurface.uv && neighborSurface.uv[cornerB] || null;
+      const colorA = topCornerColor(x, y, cube.topSurface, cornerA);
+      const colorB = topCornerColor(otherX, otherY, neighbor.topSurface, cornerB);
+      return {
+        endpointIndex,
+        cornerA,
+        cornerB,
+        heightA: heightsA[endpointIndex],
+        heightB: heightsB[endpointIndex],
+        uvA,
+        uvB,
+        uvDelta: uvA && uvB
+          ? [Number(Math.abs(uvA[0] - uvB[0]).toFixed(6)),
+            Number(Math.abs(uvA[1] - uvB[1]).toFixed(6))]
+          : null,
+        renderedColorA: colorA,
+        renderedColorB: colorB,
+        renderedColorDelta: colorA && colorB
+          ? Number(Math.max(...colorA.slice(0, 3).map((value, channel) =>
+            Math.abs(value - colorB[channel]))).toFixed(6))
+          : null,
+      };
+    });
     const sample = {
       axis,
       grid: [x, y],
@@ -310,6 +348,15 @@ function auditGndSharedTopEdges(gnd, worldScale = 0.2) {
         surface && gnd.textures[surface.textureIndex],
         neighborSurface && gnd.textures[neighborSurface.textureIndex],
       ],
+      topSurfaceData: [surface, neighborSurface].map(item => item ? {
+        textureIndex: item.textureIndex,
+        textureName: gnd.textures[item.textureIndex] || null,
+        lightmapIndex: item.lightmapIndex,
+        uv: item.uv,
+        color: item.color,
+        colors: item.colors,
+      } : null),
+      edgeEndpoints: endpoints,
       endpointHeights: [heightsA, heightsB],
       endpointHeightDeltaWorld: endpointDeltas.map(value => Number(value.toFixed(5))),
       maxHeightDeltaWorld: Number(delta.toFixed(5)),
@@ -574,6 +621,7 @@ async function validateMap(mapId) {
   const usedTextures = [...usedTextureIndexes]
     .map(index => normalizeTextureName(gnd.textures[index]))
     .filter(name => name && urls.textures[name]);
+  const usedTexturePixels = new Map();
   assert.ok(usedTextures.length > 0, mapId + ' at least one used ground texture resolves');
 
   // Capture every used Prontera diffuse atlas to identify whether the visible
@@ -593,6 +641,7 @@ async function validateMap(mapId) {
       'Prontera used texture is a valid PNG: ' + textureName);
       const filename = 'prontera-used-texture-' + String(textureIndex).padStart(2, '0') + '.png';
       writeFileSync(allTextureArtifactDir + '/' + filename, bytes);
+      usedTexturePixels.set(textureName, decodePngPixels(bytes));
       capturedTextures.push({ index: textureIndex, name: textureName, url: textureUrl, filename });
     }
     writeFileSync(
@@ -654,6 +703,70 @@ async function validateMap(mapId) {
       'artifacts/gnd-source-textures/prontera-used-texture-uv-regions.json',
       JSON.stringify(uvRegionReport, null, 2) + '\n'
     );
+
+    const sourcePixelAtUv = (textureIndex, uv) => {
+      if (!Array.isArray(uv) || uv.length < 2 || !uv.every(Number.isFinite)) return null;
+      const textureName = normalizeTextureName(gnd.textures[textureIndex] || '');
+      const pixels = usedTexturePixels.get(textureName);
+      if (!pixels) return null;
+      const x = Math.min(pixels.width - 1, Math.floor(wrapUv(uv[0]) * pixels.width));
+      // GND V=0 maps to the PNG's bottom row in the Three.js texture loader.
+      const y = pixels.height - 1
+        - Math.min(pixels.height - 1, Math.floor(wrapUv(uv[1]) * pixels.height));
+      return { xy: [x, y], rgba: pixels.pixelAt(x, y) };
+    };
+    const edgeSamples = sharedTopEdgeAudit.uncoveredSameTextureExamples.map(edge => ({
+      ...edge,
+      edgeEndpoints: edge.edgeEndpoints.map(endpoint => ({
+        ...endpoint,
+        sourcePixelA: sourcePixelAtUv(edge.topSurfaceData[0].textureIndex, endpoint.uvA),
+        sourcePixelB: sourcePixelAtUv(edge.topSurfaceData[1].textureIndex, endpoint.uvB),
+      })),
+    }));
+    const uvEndpointMismatches = edgeSamples.reduce((count, edge) => count
+      + edge.edgeEndpoints.filter(endpoint => endpoint.uvDelta
+        && (endpoint.uvDelta[0] > 1e-5 || endpoint.uvDelta[1] > 1e-5)).length, 0);
+    const tintEndpointMismatches = edgeSamples.reduce((count, edge) => count
+      + edge.edgeEndpoints.filter(endpoint => endpoint.renderedColorDelta > 1e-5).length, 0);
+    const sourcePixelMismatches = edgeSamples.reduce((count, edge) => count
+      + edge.edgeEndpoints.filter(endpoint => endpoint.sourcePixelA && endpoint.sourcePixelB
+        && endpoint.sourcePixelA.rgba.some((value, channel) =>
+          value !== endpoint.sourcePixelB.rgba[channel])).length, 0);
+    const edgeReport = {
+      mapId,
+      source: 'live public Prontera GND plus the exact diffuse PNGs loaded by this smoke test',
+      candidateCount: edgeSamples.length,
+      endpointCount: edgeSamples.reduce((count, edge) => count + edge.edgeEndpoints.length, 0),
+      uvEndpointMismatches,
+      renderedTintEndpointMismatches: tintEndpointMismatches,
+      sourcePixelEndpointMismatches,
+      edges: edgeSamples,
+    };
+    writeFileSync(
+      'artifacts/gnd-source-textures/prontera-uncovered-same-texture-edges.json',
+      JSON.stringify(edgeReport, null, 2) + '\n'
+    );
+    console.log('Prontera same-texture edge pixel audit: ' + JSON.stringify({
+      candidates: edgeReport.candidateCount,
+      endpoints: edgeReport.endpointCount,
+      uvEndpointMismatches,
+      renderedTintEndpointMismatches: tintEndpointMismatches,
+      sourcePixelEndpointMismatches,
+      examples: edgeSamples.map(edge => ({
+        axis: edge.axis,
+        grid: edge.grid,
+        surfaces: edge.topSurfaces,
+        texture: edge.topTextures[0],
+        heightDelta: edge.endpointHeightDeltaWorld,
+        uvDelta: edge.edgeEndpoints.map(endpoint => endpoint.uvDelta),
+        tintDelta: edge.edgeEndpoints.map(endpoint => endpoint.renderedColorDelta),
+        sourceRgba: edge.edgeEndpoints.map(endpoint => [
+          endpoint.sourcePixelA && endpoint.sourcePixelA.rgba,
+          endpoint.sourcePixelB && endpoint.sourcePixelB.rgba,
+        ]),
+        lightmaps: edge.topSurfaceData.map(surface => surface.lightmapIndex),
+      })),
+    }));
   }
 
   let sampleCandidate = null;
