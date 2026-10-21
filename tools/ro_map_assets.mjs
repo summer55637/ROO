@@ -1846,11 +1846,14 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
 
     if (cube.eastSurface >= 0 && x + 1 < width) {
       const neighbor = cubes[i + 1];
+      // vertexColors is indexed by GND UV corner (SW, SE, NW, NE),
+      // not by this wall quad's geometric vertex order. Both southern corners
+      // use the color anchored at (x+1, y); both northern corners use (x+1, y+1).
       const eastVertexColors = [
-        topColor(x + 1, y + 1),
+        topColor(x + 1, y),
         topColor(x + 1, y),
         topColor(x + 1, y + 1),
-        topColor(x + 1, y),
+        topColor(x + 1, y + 1),
       ];
       addQuad(cube.eastSurface, [
         { x: x + 1, z: y + 1, h: cube.hNE, uvIndex: 3 },
