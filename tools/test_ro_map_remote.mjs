@@ -4,6 +4,7 @@ import {
   RAGASSETS_BASE_URL,
   analyzeRswPlacementBounds,
   buildGndLightmapAtlasData,
+  buildGndMeshData,
   computeGndLightDirection,
   computeGndLightMultiplier,
   transformGndNormalToRoSpace,
@@ -132,6 +133,105 @@ function wrapUv(value) {
   return value - Math.floor(value);
 }
 
+function auditGndVertexColors(meshData) {
+  const allColors = [];
+  const byPosition = new Map();
+  let quadCount = 0;
+
+  for (const bucket of meshData.buckets) {
+    const quadTotal = Array.isArray(bucket.surfaceIndices) ? bucket.surfaceIndices.length : 0;
+    for (let quad = 0; quad < quadTotal; quad++) {
+      const surfaceIndex = bucket.surfaceIndices[quad];
+      const firstVertex = quad * 4;
+      quadCount++;
+      for (let corner = 0; corner < 4; corner++) {
+        const vertex = firstVertex + corner;
+        const positionAt = vertex * 3;
+        const position = bucket.positions.slice(positionAt, positionAt + 3);
+        const color = bucket.colors.slice(positionAt, positionAt + 3);
+        if (position.length !== 3 || color.length !== 3
+          || !position.every(Number.isFinite) || !color.every(Number.isFinite)) continue;
+
+        const sample = { position, color, surfaceIndex };
+        allColors.push(sample);
+        // Compare equal-height vertices at the same X/Z location; different decks
+        // and bridge levels are deliberately kept separate.
+        const positionKey = position.map(value => Math.round(value * 1000)).join(':');
+        if (!byPosition.has(positionKey)) byPosition.set(positionKey, []);
+        byPosition.get(positionKey).push(sample);
+      }
+    }
+  }
+
+  let nonWhiteCorners = 0;
+  const colorKeys = new Set();
+  const sums = [0, 0, 0];
+  const minima = [1, 1, 1];
+  const maxima = [0, 0, 0];
+  for (const sample of allColors) {
+    const [r, g, b] = sample.color;
+    if (Math.max(Math.abs(1 - r), Math.abs(1 - g), Math.abs(1 - b)) > 1 / 255 + 1e-8) {
+      nonWhiteCorners++;
+    }
+    colorKeys.add(sample.color.map(value => Math.round(value * 255)).join(','));
+    for (let channel = 0; channel < 3; channel++) {
+      sums[channel] += sample.color[channel];
+      minima[channel] = Math.min(minima[channel], sample.color[channel]);
+      maxima[channel] = Math.max(maxima[channel], sample.color[channel]);
+    }
+  }
+
+  let sharedCornerGroups = 0;
+  let sharedCornerComparisons = 0;
+  let mismatchPairs = 0;
+  let maximumMismatch = 0;
+  let worstExample = null;
+  const mismatchThreshold = 1 / 255 + 1e-8;
+  for (const samples of byPosition.values()) {
+    if (samples.length < 2) continue;
+    sharedCornerGroups++;
+    for (let a = 0; a < samples.length; a++) {
+      for (let b = a + 1; b < samples.length; b++) {
+        sharedCornerComparisons++;
+        const difference = Math.max(...samples[a].color.map(
+          (value, channel) => Math.abs(value - samples[b].color[channel])
+        ));
+        if (difference > mismatchThreshold) {
+          mismatchPairs++;
+          if (difference > maximumMismatch) {
+            maximumMismatch = difference;
+            worstExample = {
+              position: samples[a].position.map(value => Number(value.toFixed(3))),
+              firstSurface: samples[a].surfaceIndex,
+              firstRgb: samples[a].color.map(value => Math.round(value * 255)),
+              secondSurface: samples[b].surfaceIndex,
+              secondRgb: samples[b].color.map(value => Math.round(value * 255)),
+            };
+          }
+        }
+      }
+    }
+  }
+
+  const toBytes = values => values.map(value => Math.round(value * 255));
+  return {
+    quadCount,
+    cornerSamples: allColors.length,
+    nonWhiteCorners,
+    nonWhitePercent: allColors.length ? nonWhiteCorners * 100 / allColors.length : 0,
+    uniqueColors: colorKeys.size,
+    meanRgb: allColors.length ? toBytes(sums.map(value => value / allColors.length)) : [0, 0, 0],
+    minRgb: toBytes(minima),
+    maxRgb: toBytes(maxima),
+    sharedCornerGroups,
+    sharedCornerComparisons,
+    mismatchPairs,
+    mismatchPercent: sharedCornerComparisons ? mismatchPairs * 100 / sharedCornerComparisons : 0,
+    maximumMismatchBytes: Math.round(maximumMismatch * 255),
+    worstExample,
+  };
+}
+
 async function validateMap(mapId) {
   const manifestUrl = RAGASSETS_BASE_URL + '/maps/' + mapId + '/manifest.json';
   const manifestResponse = await fetchResponse(manifestUrl, mapId + ' manifest');
@@ -162,6 +262,9 @@ async function validateMap(mapId) {
     ? ' standard layout stores separate RGB lightmap and grayscale AO'
     : ' global-dimension layout stores 64 AO bytes followed by 192 RGB lightmap bytes'));
   const lightmapAtlas = buildGndLightmapAtlasData(gnd, 16);
+  const terrainMeshData = buildGndMeshData(gnd, 0.2, lightmapAtlas);
+  const vertexColorAudit = auditGndVertexColors(terrainMeshData);
+  assert.ok(vertexColorAudit.cornerSamples > 0, mapId + ' rendered top surfaces have vertex-color samples');
   assert.equal(lightmapAtlas.sourceGutter, 1,
     mapId + ' atlas excludes the source lightmap/AO border ring');
   assert.ok(lightmapAtlas, mapId + ' lightmap atlas was built');
@@ -462,6 +565,24 @@ async function validateMap(mapId) {
   const vertexColor = [0, 1, 2].map(channel => surfaceColors.reduce(
     (sum, color) => sum + (Number.isFinite(color[channel]) ? color[channel] : 1), 0
   ) / surfaceColors.length);
+
+  console.log(
+    mapId + ' GND vertex-color audit: rendered quads=' + vertexColorAudit.quadCount
+      + ', corners=' + vertexColorAudit.cornerSamples
+      + ', non-white=' + vertexColorAudit.nonWhiteCorners + ' ('
+      + vertexColorAudit.nonWhitePercent.toFixed(2) + '%)'
+      + ', unique RGB colors=' + vertexColorAudit.uniqueColors
+      + ', mean/min/max RGB=' + JSON.stringify([
+        vertexColorAudit.meanRgb, vertexColorAudit.minRgb, vertexColorAudit.maxRgb,
+      ])
+      + ', shared corner groups=' + vertexColorAudit.sharedCornerGroups
+      + ', same-position color comparisons=' + vertexColorAudit.sharedCornerComparisons
+      + ', mismatched pairs=' + vertexColorAudit.mismatchPairs + ' ('
+      + vertexColorAudit.mismatchPercent.toFixed(2) + '%)'
+      + ', largest mismatch=' + vertexColorAudit.maximumMismatchBytes + '/255'
+      + (vertexColorAudit.worstExample
+        ? ', example=' + JSON.stringify(vertexColorAudit.worstExample) : '')
+  );
 
   console.log(
     mapId + ' GND pixel trace: diffuse=' + gnd.textures[sampleSurface.textureIndex]
