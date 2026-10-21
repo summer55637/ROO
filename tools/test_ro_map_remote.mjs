@@ -706,6 +706,42 @@ async function validateMap(mapId) {
         surfaceUvs: targetSurface.uv,
       }, null, 2) + '\n'
     );
+
+    const neighboringTextureIndex = gnd.textures.findIndex(name =>
+      normalizeTextureName(name).endsWith('prt_도시02.bmp'));
+    assert.ok(neighboringTextureIndex >= 0, 'Prontera has the neighboring prt_도시02.bmp texture');
+    const neighboringTextureName = normalizeTextureName(gnd.textures[neighboringTextureIndex]);
+    const neighboringTextureUrl = urls.textures[neighboringTextureName];
+    assert.ok(neighboringTextureUrl, 'Prontera prt_도시02 diffuse URL resolves');
+    const neighboringResponse = await fetchResponse(neighboringTextureUrl, 'prontera prt_도시02 diagnostic texture');
+    const neighboringBytes = Buffer.from(await neighboringResponse.arrayBuffer());
+    const neighboringImage = decodePngPixels(neighboringBytes);
+    writeFileSync(sourceArtifactDir + '/prontera-prt-city-02-source.png', neighboringBytes);
+    const neighboringUvRegions = new Map();
+    for (let surfaceIndex = 0; surfaceIndex < gnd.surfaces.length; surfaceIndex++) {
+      const surface = gnd.surfaces[surfaceIndex];
+      if (surface.textureIndex !== neighboringTextureIndex) continue;
+      const bounds = boundsForSurface(surface);
+      const key = [bounds.minU, bounds.maxU, bounds.minV, bounds.maxV]
+        .map(value => value.toFixed(5)).join(':');
+      if (!neighboringUvRegions.has(key)) {
+        neighboringUvRegions.set(key, {
+          surfaceIndex,
+          uvBounds: bounds,
+          surfaceUvs: surface.uv,
+        });
+      }
+    }
+    writeFileSync(
+      sourceArtifactDir + '/prontera-prt-city-02-source-uv.json',
+      JSON.stringify({
+        mapId,
+        textureName: gnd.textures[neighboringTextureIndex],
+        textureUrl: neighboringTextureUrl,
+        imageSize: [neighboringImage.width, neighboringImage.height],
+        usedUvRegions: [...neighboringUvRegions.values()],
+      }, null, 2) + '\n'
+    );
   }
   const diffuseX = Math.min(diffuse.width - 1, Math.floor(wrapUv(diffuseUv[0]) * diffuse.width));
   // TextureLoader flips source images into Three.js UV space; V=0 is the PNG bottom row.
