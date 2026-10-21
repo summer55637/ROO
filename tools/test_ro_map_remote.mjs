@@ -24,6 +24,7 @@ import {
   parseRswBuffer,
   resolveRagassetsMapUrls,
   resolveWaterFramesForType,
+  mapGndDiffuseUvToSourcePixel,
 } from './ro_map_assets.mjs';
 
 async function fetchResponse(url, label) {
@@ -917,23 +918,88 @@ async function validateMap(mapId) {
       JSON.stringify(uvRegionReport, null, 2) + '\n'
     );
 
-    const sourcePixelAtUv = (textureIndex, uv) => {
-      if (!Array.isArray(uv) || uv.length < 2 || !uv.every(Number.isFinite)) return null;
-      const textureName = normalizeTextureName(gnd.textures[textureIndex] || '');
+    const bilinearRgbaAtSourcePosition = (pixels, sourcePosition) => {
+      const x = Math.max(0, Math.min(pixels.width - 1, sourcePosition[0]));
+      const y = Math.max(0, Math.min(pixels.height - 1, sourcePosition[1]));
+      const x0 = Math.floor(x);
+      const y0 = Math.floor(y);
+      const x1 = Math.min(pixels.width - 1, x0 + 1);
+      const y1 = Math.min(pixels.height - 1, y0 + 1);
+      const fx = x - x0;
+      const fy = y - y0;
+      const samples = [
+        [pixels.pixelAt(x0, y0), (1 - fx) * (1 - fy)],
+        [pixels.pixelAt(x1, y0), fx * (1 - fy)],
+        [pixels.pixelAt(x0, y1), (1 - fx) * fy],
+        [pixels.pixelAt(x1, y1), fx * fy],
+      ];
+      return [0, 1, 2, 3].map(channel => Number(samples.reduce(
+        (sum, [rgba, weight]) => sum + rgba[channel] * weight, 0
+      ).toFixed(4)));
+    };
+    const surfaceUvBounds = surface => ({
+      minU: Math.min(...surface.uv.map(uv => uv[0])),
+      maxU: Math.max(...surface.uv.map(uv => uv[0])),
+      minV: Math.min(...surface.uv.map(uv => uv[1])),
+      maxV: Math.max(...surface.uv.map(uv => uv[1])),
+    });
+    const sourcePixelAtUv = (surface, uv) => {
+      if (!surface || !Array.isArray(surface.uv) || !Array.isArray(uv)
+        || uv.length < 2 || !uv.every(Number.isFinite)) return null;
+      const textureName = normalizeTextureName(gnd.textures[surface.textureIndex] || '');
       const pixels = usedTexturePixels.get(textureName);
       if (!pixels) return null;
-      const x = Math.min(pixels.width - 1, Math.floor(wrapUv(uv[0]) * pixels.width));
-      // GND V=0 maps to the PNG's bottom row in the Three.js texture loader.
-      const y = pixels.height - 1
-        - Math.min(pixels.height - 1, Math.floor(wrapUv(uv[1]) * pixels.height));
-      return { xy: [x, y], rgba: pixels.pixelAt(x, y) };
+      const uvRect = surfaceUvBounds(surface);
+      const mapping = mapGndDiffuseUvToSourcePixel(uv, uvRect, pixels.width, pixels.height);
+      return {
+        xy: mapping.nearestPixel,
+        sourcePosition: mapping.sourcePosition.map(value => Number(value.toFixed(5))),
+        rgba: bilinearRgbaAtSourcePosition(pixels, mapping.sourcePosition),
+        localUv: mapping.localUv.map(value => Number(value.toFixed(6))),
+        crop: mapping.crop,
+        sampling: 'padded crop UV mapped to the same global source coordinate (LOD0 bilinear)',
+      };
+    };
+    const legacyInsetCropPixelAtUv = (surface, uv) => {
+      if (!surface || !Array.isArray(surface.uv) || !Array.isArray(uv)
+        || uv.length < 2 || !uv.every(Number.isFinite)) return null;
+      const textureName = normalizeTextureName(gnd.textures[surface.textureIndex] || '');
+      const pixels = usedTexturePixels.get(textureName);
+      if (!pixels) return null;
+      const rect = surfaceUvBounds(surface);
+      const x0 = Math.max(0, Math.min(pixels.width - 1, Math.round(rect.minU * pixels.width)));
+      const x1 = Math.max(x0 + 1, Math.min(pixels.width, Math.round(rect.maxU * pixels.width)));
+      const y0 = Math.max(0, Math.min(pixels.height - 1,
+        Math.round((1 - rect.maxV) * pixels.height)));
+      const y1 = Math.max(y0 + 1, Math.min(pixels.height,
+        Math.round((1 - rect.minV) * pixels.height)));
+      const cropWidth = x1 - x0;
+      const cropHeight = y1 - y0;
+      let localU = Math.max(0, Math.min(1,
+        (uv[0] - rect.minU) / (rect.maxU - rect.minU)));
+      let localV = Math.max(0, Math.min(1,
+        (uv[1] - rect.minV) / (rect.maxV - rect.minV)));
+      if (cropWidth > 1) localU = 0.5 / cropWidth + localU * (1 - 1 / cropWidth);
+      if (cropHeight > 1) localV = 0.5 / cropHeight + localV * (1 - 1 / cropHeight);
+      const localX = Math.max(0, Math.min(cropWidth - 1, localU * cropWidth - 0.5));
+      const localY = Math.max(0, Math.min(cropHeight - 1, localV * cropHeight - 0.5));
+      const sourcePosition = [x0 + localX, y0 + cropHeight - 1 - localY];
+      return {
+        xy: sourcePosition.map(value => Math.round(value)),
+        sourcePosition: sourcePosition.map(value => Number(value.toFixed(5))),
+        rgba: bilinearRgbaAtSourcePosition(pixels, sourcePosition),
+        crop: { x0, y0, x1, y1, width: cropWidth, height: cropHeight },
+        sampling: 'previous unpadded crop + half-texel UV inset',
+      };
     };
     const edgeSamples = sharedTopEdgeAudit.uncoveredSameTextureExamples.map(edge => ({
       ...edge,
       edgeEndpoints: edge.edgeEndpoints.map(endpoint => ({
         ...endpoint,
-        sourcePixelA: sourcePixelAtUv(edge.topSurfaceData[0].textureIndex, endpoint.uvA),
-        sourcePixelB: sourcePixelAtUv(edge.topSurfaceData[1].textureIndex, endpoint.uvB),
+        sourcePixelA: sourcePixelAtUv(edge.topSurfaceData[0], endpoint.uvA),
+        sourcePixelB: sourcePixelAtUv(edge.topSurfaceData[1], endpoint.uvB),
+        legacyInsetPixelA: legacyInsetCropPixelAtUv(edge.topSurfaceData[0], endpoint.uvA),
+        legacyInsetPixelB: legacyInsetCropPixelAtUv(edge.topSurfaceData[1], endpoint.uvB),
       })),
     }));
     const uvEndpointMismatches = edgeSamples.reduce((count, edge) => count
@@ -944,7 +1010,23 @@ async function validateMap(mapId) {
     const sourcePixelEndpointMismatches = edgeSamples.reduce((count, edge) => count
       + edge.edgeEndpoints.filter(endpoint => endpoint.sourcePixelA && endpoint.sourcePixelB
         && endpoint.sourcePixelA.rgba.some((value, channel) =>
-          value !== endpoint.sourcePixelB.rgba[channel])).length, 0);
+          Math.abs(value - endpoint.sourcePixelB.rgba[channel]) > 1e-4)).length, 0);
+    const sharedUvEndpoints = edgeSamples.flatMap(edge => edge.edgeEndpoints).filter(endpoint =>
+      endpoint.uvA && endpoint.uvB
+      && Math.abs(endpoint.uvA[0] - endpoint.uvB[0]) <= 1e-5
+      && Math.abs(endpoint.uvA[1] - endpoint.uvB[1]) <= 1e-5);
+    const sharedUvSourceCoordinateMismatches = sharedUvEndpoints.filter(endpoint =>
+      endpoint.sourcePixelA && endpoint.sourcePixelB
+      && endpoint.sourcePixelA.sourcePosition.some((value, channel) =>
+        Math.abs(value - endpoint.sourcePixelB.sourcePosition[channel]) > 1e-5)).length;
+    const sharedUvLod0ColorMismatches = sharedUvEndpoints.filter(endpoint =>
+      endpoint.sourcePixelA && endpoint.sourcePixelB
+      && endpoint.sourcePixelA.rgba.some((value, channel) =>
+        Math.abs(value - endpoint.sourcePixelB.rgba[channel]) > 1e-4)).length;
+    const legacyInsetSharedUvColorMismatches = sharedUvEndpoints.filter(endpoint =>
+      endpoint.legacyInsetPixelA && endpoint.legacyInsetPixelB
+      && endpoint.legacyInsetPixelA.rgba.some((value, channel) =>
+        Math.abs(value - endpoint.legacyInsetPixelB.rgba[channel]) > 1e-4)).length;
     const lightmapRgbMismatches = edgeSamples.reduce((count, edge) => count
       + edge.edgeEndpoints.filter(endpoint => endpoint.lightmapRgbDelta
         && endpoint.lightmapRgbDelta.some(value => value !== 0)).length, 0);
@@ -962,6 +1044,10 @@ async function validateMap(mapId) {
       uvEndpointMismatches,
       renderedTintEndpointMismatches: tintEndpointMismatches,
       sourcePixelEndpointMismatches,
+      sharedUvEndpointCount: sharedUvEndpoints.length,
+      sharedUvSourceCoordinateMismatches,
+      sharedUvLod0ColorMismatches,
+      legacyInsetSharedUvColorMismatches,
       lightmapRgbMismatches,
       aoMismatches,
       maximumLightmapRgbDelta,
@@ -978,6 +1064,10 @@ async function validateMap(mapId) {
       uvEndpointMismatches,
       renderedTintEndpointMismatches: tintEndpointMismatches,
       sourcePixelEndpointMismatches,
+      sharedUvEndpointCount: sharedUvEndpoints.length,
+      sharedUvSourceCoordinateMismatches,
+      sharedUvLod0ColorMismatches,
+      legacyInsetSharedUvColorMismatches,
       lightmapRgbMismatches,
       aoMismatches,
       maximumLightmapRgbDelta,
@@ -990,9 +1080,18 @@ async function validateMap(mapId) {
         heightDelta: edge.endpointHeightDeltaWorld,
         uvDelta: edge.edgeEndpoints.map(endpoint => endpoint.uvDelta),
         tintDelta: edge.edgeEndpoints.map(endpoint => endpoint.renderedColorDelta),
-        sourceRgba: edge.edgeEndpoints.map(endpoint => [
+        sourceUv: edge.edgeEndpoints.map(endpoint => [endpoint.uvA, endpoint.uvB]),
+        sourceRgbaLod0Expected: edge.edgeEndpoints.map(endpoint => [
           endpoint.sourcePixelA && endpoint.sourcePixelA.rgba,
           endpoint.sourcePixelB && endpoint.sourcePixelB.rgba,
+        ]),
+        sourceSamplePositions: edge.edgeEndpoints.map(endpoint => [
+          endpoint.sourcePixelA && endpoint.sourcePixelA.sourcePosition,
+          endpoint.sourcePixelB && endpoint.sourcePixelB.sourcePosition,
+        ]),
+        legacyInsetCropRgba: edge.edgeEndpoints.map(endpoint => [
+          endpoint.legacyInsetPixelA && endpoint.legacyInsetPixelA.rgba,
+          endpoint.legacyInsetPixelB && endpoint.legacyInsetPixelB.rgba,
         ]),
         lightmaps: edge.topSurfaceData.map(surface => surface.lightmapIndex),
         lightmapRgb: edge.edgeEndpoints.map(endpoint => [
