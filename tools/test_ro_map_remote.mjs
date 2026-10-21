@@ -233,6 +233,139 @@ function auditGndVertexColors(meshData) {
   };
 }
 
+function auditGndLightmapPipeline(gnd, atlas, meshData, posterizationLevel = 16) {
+  const columns = atlas.columns;
+  const cellWidth = atlas.cellWidth;
+  const cellHeight = atlas.cellHeight;
+  const gutter = atlas.gutter;
+  let rawRgbBytes = 0;
+  let nonZeroRgbBytes = 0;
+  let rawRgbPixels = 0;
+  let nonZeroRgbPixels = 0;
+  let rawMinimum = 255;
+  let rawMaximum = 0;
+  let rawAoMinimum = 255;
+  let rawAoMaximum = 0;
+  let atlasRgbMismatches = 0;
+  let atlasAoMismatches = 0;
+  let meshLightmapCorners = 0;
+  let meshLightmapUvMismatches = 0;
+  let meshLightmapEnabledMismatches = 0;
+  let zeroRgbSlices = 0;
+  let nonZeroRgbSlices = 0;
+  const valueBuckets = Array(16).fill(0);
+  const nonZeroExamples = [];
+
+  for (let sliceIndex = 0; sliceIndex < gnd.lightmapSlices.length; sliceIndex++) {
+    const slice = gnd.lightmapSlices[sliceIndex];
+    const channels = slice.channels || 4;
+    const expectedBytes = slice.width * slice.height * channels;
+    if (!slice.width || !slice.height || !slice.colorPixels
+      || slice.colorPixels.length !== expectedBytes) {
+      throw new Error('GND lightmap slice ' + sliceIndex + ' RGB 像素長度不符。');
+    }
+    const pixelCount = slice.width * slice.height;
+    let sliceNonZeroPixels = 0;
+    const column = sliceIndex % columns;
+    const row = Math.floor(sliceIndex / columns);
+    const baseX = column * cellWidth + gutter;
+    const baseY = row * cellHeight + gutter;
+    for (let y = 0; y < slice.height; y++) {
+      for (let x = 0; x < slice.width; x++) {
+        const pixelIndex = y * slice.width + x;
+        const sourceAt = pixelIndex * channels;
+        const rgb = [
+          slice.colorPixels[sourceAt],
+          slice.colorPixels[sourceAt + 1],
+          slice.colorPixels[sourceAt + 2],
+        ];
+        const ao = slice.shadowPixels
+          ? slice.shadowPixels[pixelIndex]
+          : channels === 4 ? slice.colorPixels[sourceAt + 3] : 255;
+        rawRgbPixels++;
+        rawAoMinimum = Math.min(rawAoMinimum, ao);
+        rawAoMaximum = Math.max(rawAoMaximum, ao);
+        if (rgb.some(value => value !== 0)) {
+          nonZeroRgbPixels++;
+          sliceNonZeroPixels++;
+          if (nonZeroExamples.length < 12) {
+            nonZeroExamples.push({ slice: sliceIndex, xy: [x, y], rgb });
+          }
+        }
+        for (const value of rgb) {
+          rawRgbBytes++;
+          if (value !== 0) nonZeroRgbBytes++;
+          rawMinimum = Math.min(rawMinimum, value);
+          rawMaximum = Math.max(rawMaximum, value);
+          valueBuckets[Math.min(15, Math.floor(value / 16))]++;
+        }
+        const atlasPixel = ((baseY + y) * atlas.width + baseX + x) * 4;
+        const expectedRgb = rgb.map(value => Math.floor(value / posterizationLevel) * posterizationLevel);
+        if (expectedRgb.some((value, channel) => atlas.lightMapPixels[atlasPixel + channel] !== value)) {
+          atlasRgbMismatches++;
+        }
+        if (atlas.aoMapPixels[atlasPixel] !== ao
+          || atlas.aoMapPixels[atlasPixel + 1] !== ao
+          || atlas.aoMapPixels[atlasPixel + 2] !== ao) {
+          atlasAoMismatches++;
+        }
+      }
+    }
+    if (sliceNonZeroPixels === 0) zeroRgbSlices++;
+    else nonZeroRgbSlices++;
+    if (pixelCount === 0) throw new Error('GND lightmap slice pixel count is zero.');
+  }
+
+  for (const bucket of meshData.buckets) {
+    const surfaces = Array.isArray(bucket.surfaceIndices) ? bucket.surfaceIndices : [];
+    for (let quad = 0; quad < surfaces.length; quad++) {
+      const surfaceIndex = surfaces[quad];
+      const surface = gnd.surfaces[surfaceIndex];
+      const index = surface && surface.lightmapIndex;
+      const valid = Number.isInteger(index) && index >= 0 && index < atlas.uvsBySlice.length;
+      const expectedUvs = valid ? atlas.uvsBySlice[index] : null;
+      for (let corner = 0; corner < 4; corner++) {
+        meshLightmapCorners++;
+        const vertex = quad * 4 + corner;
+        const actualU = bucket.lightmapUvs[vertex * 2];
+        const actualV = bucket.lightmapUvs[vertex * 2 + 1];
+        const expected = expectedUvs ? expectedUvs[corner] : [0, 0];
+        if (!Number.isFinite(actualU) || !Number.isFinite(actualV)
+          || Math.abs(actualU - expected[0]) > 1e-7
+          || Math.abs(actualV - expected[1]) > 1e-7) {
+          meshLightmapUvMismatches++;
+        }
+        const enabled = bucket.lightmapEnabled[vertex];
+        if (enabled !== (valid ? 1 : 0)) meshLightmapEnabledMismatches++;
+      }
+    }
+  }
+
+  return {
+    layout: gnd.lightmapLayout,
+    sliceCount: gnd.lightmapSlices.length,
+    totalRgbPixels: rawRgbPixels,
+    rgbNonZeroPixels: nonZeroRgbPixels,
+    rgbNonZeroPixelPercent: rawRgbPixels ? nonZeroRgbPixels * 100 / rawRgbPixels : 0,
+    rgbZeroSlices: zeroRgbSlices,
+    rgbNonZeroSlices: nonZeroRgbSlices,
+    rgbNonZeroBytes: nonZeroRgbBytes,
+    rgbBytes: rawRgbBytes,
+    rgbNonZeroBytePercent: rawRgbBytes ? nonZeroRgbBytes * 100 / rawRgbBytes : 0,
+    rgbMin: rawMinimum,
+    rgbMax: rawMaximum,
+    rgb16LevelHistogram: valueBuckets,
+    aoMin: rawAoMinimum,
+    aoMax: rawAoMaximum,
+    atlasRgbMismatches,
+    atlasAoMismatches,
+    meshLightmapCorners,
+    meshLightmapUvMismatches,
+    meshLightmapEnabledMismatches,
+    nonZeroExamples,
+  };
+}
+
 function auditGndSharedTopEdges(gnd, worldScale = 0.2) {
   const surfaceIsDrawn = surfaceIndex => {
     if (!Number.isInteger(surfaceIndex) || surfaceIndex < 0 || surfaceIndex >= gnd.surfaces.length) {
@@ -451,7 +584,16 @@ async function validateMap(mapId) {
   const lightmapAtlas = buildGndLightmapAtlasData(gnd, 16);
   const terrainMeshData = buildGndMeshData(gnd, 0.2, lightmapAtlas);
   const vertexColorAudit = auditGndVertexColors(terrainMeshData);
+  const lightmapPipelineAudit = auditGndLightmapPipeline(gnd, lightmapAtlas, terrainMeshData, 16);
   const sharedTopEdgeAudit = auditGndSharedTopEdges(gnd, 0.2);
+  assert.equal(lightmapPipelineAudit.atlasRgbMismatches, 0,
+    mapId + ' RGB lightmap atlas must exactly preserve source pixels after RO 16-level posterization');
+  assert.equal(lightmapPipelineAudit.atlasAoMismatches, 0,
+    mapId + ' AO atlas must exactly preserve source shadow pixels');
+  assert.equal(lightmapPipelineAudit.meshLightmapUvMismatches, 0,
+    mapId + ' every GND surface corner must use the referenced lightmap slice UV');
+  assert.equal(lightmapPipelineAudit.meshLightmapEnabledMismatches, 0,
+    mapId + ' every GND mesh corner must have the right lightmap enabled flag');
   assert.ok(vertexColorAudit.cornerSamples > 0, mapId + ' rendered top surfaces have vertex-color samples');
   assert.equal(vertexColorAudit.mismatchPairs, 0,
     mapId + ' every shared 3D vertex must use the same ground-grid tint');
@@ -1035,6 +1177,13 @@ async function validateMap(mapId) {
   const vertexColor = [0, 1, 2].map(channel => surfaceColors.reduce(
     (sum, color) => sum + (Number.isFinite(color[channel]) ? color[channel] : 1), 0
   ) / surfaceColors.length);
+
+  mkdirSync('artifacts/gnd-source-textures', { recursive: true });
+  writeFileSync(
+    'artifacts/gnd-source-textures/' + mapId + '-lightmap-pipeline-audit.json',
+    JSON.stringify(lightmapPipelineAudit, null, 2) + '\n'
+  );
+  console.log(mapId + ' GND raw RGB/AO and GPU UV pipeline audit: ' + JSON.stringify(lightmapPipelineAudit));
 
   console.log(
     mapId + ' GND vertex-color audit: rendered quads=' + vertexColorAudit.quadCount
