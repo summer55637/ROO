@@ -629,9 +629,29 @@ async function validateMap(mapId) {
   assert.equal(lightmapAtlas.uvsBySlice.length, gnd.lightmapCount, mapId + ' lightmap atlas UV count');
   assert.ok(lightmapAtlas.width <= 4096 && lightmapAtlas.height <= 4096, mapId + ' atlas fits common GPU limits');
   const rsw = parseRswBuffer(rswBytes);
+  const rswLightmapContext = {
+    mapId,
+    gndLightmapLayout: lightmapPipelineAudit.layout,
+    rawRgbNonZeroPixelPercent: Number(lightmapPipelineAudit.rgbNonZeroPixelPercent.toFixed(4)),
+    rawRgbNonZeroSlices: lightmapPipelineAudit.rgbNonZeroSlices,
+    rawRgbZeroSlices: lightmapPipelineAudit.rgbZeroSlices,
+    rawRgbMin: lightmapPipelineAudit.rgbMin,
+    rawRgbMax: lightmapPipelineAudit.rgbMax,
+    rswVersion: rsw.version,
+    directionalLight: rsw.light,
+    pointLightCount: rsw.lights.length,
+    pointLights: rsw.lights.slice(0, 8),
+  };
+  writeFileSync(
+    'artifacts/gnd-source-textures/' + mapId + '-rsw-lightmap-context.json',
+    JSON.stringify(rswLightmapContext, null, 2) + '\n'
+  );
+  console.log(mapId + ' RSW/lightmap source context: ' + JSON.stringify(rswLightmapContext));
   assert.ok(rsw.models.length > 0, mapId + ' RSW has map model instances');
   assert.ok(rsw.light.ambient.every(Number.isFinite), mapId + ' RSW ambient light is finite');
   assert.ok(rsw.light.diffuse.every(Number.isFinite), mapId + ' RSW diffuse light is finite');
+  assert.ok(rsw.lights.every(light => [...light.position, ...light.color, light.range].every(Number.isFinite)),
+    mapId + ' RSW point-light data is finite');
 
   const candidates = [...new Set(rsw.models
     .map(model => normalizeModelName(model.modelName))
