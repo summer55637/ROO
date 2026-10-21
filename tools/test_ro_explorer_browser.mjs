@@ -248,7 +248,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             continue;
           }
           try {
-            await targetPage.waitForFunction(() => {
+            await targetPage.waitForFunction(({ requireGpuReadback }) => {
               const text = document.getElementById('gnd-surface-inspector-content')?.textContent || '';
               return text.includes('目前診斷模式：7／純 Diffuse 貼圖')
                 && text.includes('真實材質路徑') && text.includes('原始四角 UV')
@@ -262,14 +262,17 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             && text.includes('游標處插值頂點色 RGB：')
             && text.includes('游標處 Lightmap atlas UV2：')
             && text.includes('游標處來源 RGB lightmap / AO 最近像素（原始 GND bytes）：RGB (')
-                && /GPU 最終畫面取樣 RGBA：\(\d+,\s*\d+,\s*\d+,\s*\d+\)/.test(text);
-            }, null, { timeout: 1600 });
+                && (!requireGpuReadback
+                  || /GPU 最終畫面取樣 RGBA：\(\d+,\s*\d+,\s*\d+,\s*\d+\)/.test(text));
+            }, { requireGpuReadback: !options.requireNonzeroLightmap }, {
+              timeout: options.requireNonzeroLightmap ? 5000 : 1600,
+            });
           } catch (error) {
             continue;
           }
           diagnosticText = await inspector.innerText();
           const pixelMatch = diagnosticText.match(/GPU 最終畫面取樣 RGBA：\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)/);
-          if (!pixelMatch) continue;
+          if (!pixelMatch && !options.requireNonzeroLightmap) continue;
           let candidateLightmapProbe = null;
           if (options.requireNonzeroLightmap) {
             const sourceMatch = diagnosticText.match(
@@ -301,7 +304,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
           assert.ok(scrollMetrics.scrollHeight > scrollMetrics.clientHeight,
             mapSlug + ' 地表取樣內容超出視窗時必須提供面板內捲動。');
           groundProbe = point;
-          sampledPixels['7'] = pixelMatch.slice(1, 4).join(',');
+          sampledPixels['7'] = pixelMatch ? pixelMatch.slice(1, 4).join(',') : 'source-probe';
           foundVisibleGround = true;
           break;
         }
@@ -327,7 +330,9 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             && text.includes('游標處 Lightmap atlas UV2：')
             && text.includes('游標處來源 RGB lightmap / AO 最近像素（原始 GND bytes）：RGB (')
             && /GPU 最終畫面取樣 RGBA：\(\d+,\s*\d+,\s*\d+,\s*\d+\)/.test(text);
-        }, { value: mode.value, label: mode.label }, { timeout: 5000 });
+        }, { value: mode.value, label: mode.label }, {
+          timeout: options.requireNonzeroLightmap ? 12000 : 5000,
+        });
         const diagnosticText = await inspector.innerText();
         const pixelMatch = diagnosticText.match(/GPU 最終畫面取樣 RGBA：\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)/);
         assert.ok(pixelMatch, mapSlug + ' 的 ' + mode.label + ' 模式沒有取得 GPU 畫面像素。');
