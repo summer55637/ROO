@@ -728,7 +728,7 @@ async function validateMap(mapId) {
         && (endpoint.uvDelta[0] > 1e-5 || endpoint.uvDelta[1] > 1e-5)).length, 0);
     const tintEndpointMismatches = edgeSamples.reduce((count, edge) => count
       + edge.edgeEndpoints.filter(endpoint => endpoint.renderedColorDelta > 1e-5).length, 0);
-    const sourcePixelMismatches = edgeSamples.reduce((count, edge) => count
+    const sourcePixelEndpointMismatches = edgeSamples.reduce((count, edge) => count
       + edge.edgeEndpoints.filter(endpoint => endpoint.sourcePixelA && endpoint.sourcePixelB
         && endpoint.sourcePixelA.rgba.some((value, channel) =>
           value !== endpoint.sourcePixelB.rgba[channel])).length, 0);
