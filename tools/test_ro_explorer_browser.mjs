@@ -204,7 +204,7 @@ async function runGndGpuBoundaryAudit(targetPage, mapSlug) {
         for (let side = 0; side < 2; side++) {
           assert.ok(audit.scales[scaleIndex - 1].effectiveLod[side] < scale.effectiveLod[side],
             mapSlug + ' surface ' + audit.surfaces + ' mipmap LOD 應隨距離增加：'
-              + JSON.stringify(audit.scales.map(item => ({ scale: item.scale, lod: item.effectiveLod })));
+              + JSON.stringify(audit.scales.map(item => ({ scale: item.scale, lod: item.effectiveLod }))));
         }
       }
       for (const sample of scale.samples) {
