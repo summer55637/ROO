@@ -35,6 +35,7 @@ jobs:
           node --check tools/map_preview.mjs
           node --check tools/ro_map_assets.mjs
           node --check tools/test_ro_map_assets.mjs
+          node --check tools/test_ro_map_remote.mjs
           node --check tools/ro_explorer.mjs
           node --check tools/test_ro_explorer_browser.mjs
           node --check tools/test_ro_explorer_live_combat.mjs
@@ -68,6 +69,8 @@ jobs:
         run: node tools/test_map_pathfinding.js
       - name: Test native GND map pipeline
         run: node tools/test_ro_map_assets.mjs
+      - name: Audit real RO map vertex colors and shared corners
+        run: node tools/test_ro_map_remote.mjs
       - name: Test map explorer direct-entry mode
         run: node tools/test_ro_explorer_bootstrap.mjs
       - name: Test native exploration minimap
