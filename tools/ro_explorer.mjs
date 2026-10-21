@@ -3231,6 +3231,33 @@ function sampleGndAttributeAtHit(hit, attributeName) {
   );
 }
 
+function getGndLightmapAtlasUvForCorner(surface, corner) {
+  const slices = gndInfo && gndInfo.lightmapSlices;
+  const index = surface && surface.lightmapIndex;
+  if (!Number.isInteger(index) || index < 0 || !Array.isArray(slices) || index >= slices.length
+    || !Number.isInteger(corner) || corner < 0 || corner > 3) return null;
+  const slice = slices[index];
+  const width = slice.width;
+  const height = slice.height;
+  if (!width || !height) return null;
+  const columns = Math.ceil(Math.sqrt(slices.length));
+  const rows = Math.ceil(slices.length / columns);
+  const gutter = 4;
+  const cellWidth = width + gutter * 2;
+  const cellHeight = height + gutter * 2;
+  const atlasWidth = columns * cellWidth;
+  const atlasHeight = rows * cellHeight;
+  const column = index % columns;
+  const row = Math.floor(index / columns);
+  const sourceGutter = width >= 4 && height >= 4 ? 1 : 0;
+  const sourceSampleInset = sourceGutter ? 0 : 0.5;
+  const u0 = (column * cellWidth + gutter + sourceGutter + sourceSampleInset) / atlasWidth;
+  const u1 = (column * cellWidth + gutter + width - sourceGutter - sourceSampleInset) / atlasWidth;
+  const v0 = (row * cellHeight + gutter + sourceGutter + sourceSampleInset) / atlasHeight;
+  const v1 = (row * cellHeight + gutter + height - sourceGutter - sourceSampleInset) / atlasHeight;
+  return [[u0, v0], [u1, v0], [u0, v1], [u1, v1]][corner];
+}
+
 function sampleGndLightmapSourceAtUv(surface, atlasUv) {
   const slices = gndInfo && gndInfo.lightmapSlices;
   const index = surface && surface.lightmapIndex;
@@ -3242,31 +3269,58 @@ function sampleGndLightmapSourceAtUv(surface, atlasUv) {
   const height = slice.height;
   if (!width || !height || !slice.colorPixels) return null;
 
-  // Convert the interpolated GPU atlas UV back to this surface's original GND slice.
-  // Round to the nearest source texel and clamp to the six interior pixels; the
-  // outer ring is a filtering border, not valid surface light data.
+  // Match the actual atlas's LinearFilter at mip level zero. UVs land on
+  // inner-border boundaries, so GPU sampling blends the border with the next
+  // texel; reporting only the nearest interior byte hides that distinction.
   const columns = Math.ceil(Math.sqrt(slices.length));
-  const rows = Math.ceil(slices.length / columns);
   const gutter = 4;
   const cellWidth = width + gutter * 2;
   const cellHeight = height + gutter * 2;
   const atlasWidth = columns * cellWidth;
-  const atlasHeight = rows * cellHeight;
+  const atlasHeight = Math.ceil(slices.length / columns) * cellHeight;
   const baseX = (index % columns) * cellWidth + gutter;
   const baseY = Math.floor(index / columns) * cellHeight + gutter;
-  const x = Math.max(width >= 4 ? 1 : 0,
-    Math.min(width >= 4 ? width - 2 : width - 1,
-      Math.round(atlasUv[0] * atlasWidth - baseX - 0.5)));
-  const y = Math.max(height >= 4 ? 1 : 0,
-    Math.min(height >= 4 ? height - 2 : height - 1,
-      Math.round(atlasUv[1] * atlasHeight - baseY - 0.5)));
+  const sampleX = Math.max(0, Math.min(width - 1,
+    atlasUv[0] * atlasWidth - baseX - 0.5));
+  const sampleY = Math.max(0, Math.min(height - 1,
+    atlasUv[1] * atlasHeight - baseY - 0.5));
+  const x = Math.round(sampleX);
+  const y = Math.round(sampleY);
   const channels = slice.channels || 4;
-  const pixelOffset = (y * width + x) * channels;
-  const rgb = Array.from(slice.colorPixels.slice(pixelOffset, pixelOffset + 3));
-  const ao = slice.shadowPixels
-    ? slice.shadowPixels[y * width + x]
-    : channels === 4 ? slice.colorPixels[pixelOffset + 3] : 255;
-  return { x, y, rgb, ao };
+  const sourceRgbAt = (px, py, channel) => {
+    const value = slice.colorPixels[(py * width + px) * channels + channel];
+    return Math.floor(value / 16) * 16;
+  };
+  const sourceAoAt = (px, py) => slice.shadowPixels
+    ? slice.shadowPixels[py * width + px]
+    : channels === 4 ? slice.colorPixels[(py * width + px) * channels + 3] : 255;
+  const x0 = Math.floor(sampleX);
+  const y0 = Math.floor(sampleY);
+  const x1 = Math.min(width - 1, x0 + 1);
+  const y1 = Math.min(height - 1, y0 + 1);
+  const fx = sampleX - x0;
+  const fy = sampleY - y0;
+  const bilinear = getter => {
+    const top = getter(x0, y0) * (1 - fx) + getter(x1, y0) * fx;
+    const bottom = getter(x0, y1) * (1 - fx) + getter(x1, y1) * fx;
+    return Number((top * (1 - fy) + bottom * fy).toFixed(3));
+  };
+  const nearestAt = (px, py) => {
+    const at = (py * width + px) * channels;
+    return {
+      rgb: Array.from(slice.colorPixels.slice(at, at + 3)),
+      ao: slice.shadowPixels
+        ? slice.shadowPixels[py * width + px]
+        : channels === 4 ? slice.colorPixels[at + 3] : 255,
+    };
+  };
+  const nearest = nearestAt(x, y);
+  return {
+    x, y, rgb: nearest.rgb, ao: nearest.ao,
+    samplePosition: [Number(sampleX.toFixed(3)), Number(sampleY.toFixed(3))],
+    filteredRgb: [0, 1, 2].map(channel => bilinear((px, py) => sourceRgbAt(px, py, channel))),
+    filteredAo: bilinear(sourceAoAt),
+  };
 }
 
 function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
@@ -3532,10 +3586,17 @@ function updateGndSurfaceInspector(event) {
   const colorLines = actualColors.map((color, corner) => (
     '  幾何角 ' + corner + ': RGB (' + formatGndDiagnosticVector(color) + ')'
   ));
-  const lightmapLines = [0, 1, 2, 3].map(corner => (
-    '  ' + ['SW', 'SE', 'NW', 'NE'][corner] + ': '
-      + sampleGndLightmapSourceCorner(surface, corner)
-  ));
+  const lightmapLines = [0, 1, 2, 3].map(corner => {
+    const label = ['SW', 'SE', 'NW', 'NE'][corner];
+    const atlasUv = getGndLightmapAtlasUvForCorner(surface, corner);
+    const expected = atlasUv ? sampleGndLightmapSourceAtUv(surface, atlasUv) : null;
+    return '  ' + label + ': 來源有效角落 texel ' + sampleGndLightmapSourceCorner(surface, corner)
+      + (atlasUv && expected
+        ? '; atlas UV (' + formatGndDiagnosticVector(atlasUv) + ')'
+          + '; GPU LOD0 預期 RGB (' + expected.filteredRgb.join(', ') + ')'
+          + ' AO ' + expected.filteredAo + '，參與 texel 約 (' + expected.samplePosition.join(', ') + ')'
+        : '');
+  });
   const cursorLightmapUv = sampleGndAttributeAtHit(hit, 'uv2');
   const cursorVertexColor = sampleGndAttributeAtHit(hit, 'color');
   const cursorSourceUv = sampleGndAttributeAtHit(hit, 'rooGndSourceUv')
@@ -3591,6 +3652,12 @@ function updateGndSurfaceInspector(event) {
       + (cursorLightmapSample
         ? 'RGB (' + cursorLightmapSample.rgb.join(', ') + '); AO ' + cursorLightmapSample.ao
           + ' @ (' + cursorLightmapSample.x + ', ' + cursorLightmapSample.y + ')'
+        : '無法取樣'),
+    '游標處 RGB lightmap / AO 預期 GPU LOD0 線性取樣（RGB 已套用 RO 16階量化）：'
+      + (cursorLightmapSample
+        ? 'RGB (' + cursorLightmapSample.filteredRgb.join(', ') + '); AO '
+          + cursorLightmapSample.filteredAo + ' @ texel ('
+          + cursorLightmapSample.samplePosition.join(', ') + ')'
         : '無法取樣'),
     '原始 RGB lightmap / AO 四角取樣（來源 GND 像素，不是渲染猜測）：',
     ...lightmapLines,
