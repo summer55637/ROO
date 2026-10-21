@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
@@ -163,11 +163,12 @@ const GND_DEBUG_SCREENSHOT_MODES = [
   { value: '6', label: '貼圖×方向光', file: 'diffuse-times-rsw' },
 ];
 
-async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
+async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {}) {
   const selector = targetPage.locator('#gnd-debug-mode');
   await selector.waitFor({ state: 'visible', timeout: 5000 });
   const sampledPixels = {};
   let groundProbe = null;
+  let sourceLightmapProbe = null;
   for (const mode of GND_DEBUG_SCREENSHOT_MODES) {
     await selector.selectOption(mode.value);
     await sleep(220);
@@ -201,6 +202,23 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
           [-0.28 * box.width, -0.18 * box.height], [0.28 * box.width, -0.18 * box.height],
           [-0.28 * box.width, 0.18 * box.height], [0.28 * box.width, 0.18 * box.height],
         ];
+        if (options.requireNonzeroLightmap) {
+          offsets.push(
+            [-0.32 * box.width, -0.28 * box.height], [-0.16 * box.width, -0.28 * box.height],
+            [0, -0.28 * box.height], [0.16 * box.width, -0.28 * box.height],
+            [0.32 * box.width, -0.28 * box.height],
+            [-0.32 * box.width, -0.14 * box.height], [-0.16 * box.width, -0.14 * box.height],
+            [0, -0.14 * box.height], [0.16 * box.width, -0.14 * box.height],
+            [0.32 * box.width, -0.14 * box.height],
+            [-0.32 * box.width, 0], [0.32 * box.width, 0],
+            [-0.32 * box.width, 0.14 * box.height], [-0.16 * box.width, 0.14 * box.height],
+            [0, 0.14 * box.height], [0.16 * box.width, 0.14 * box.height],
+            [0.32 * box.width, 0.14 * box.height],
+            [-0.32 * box.width, 0.28 * box.height], [-0.16 * box.width, 0.28 * box.height],
+            [0, 0.28 * box.height], [0.16 * box.width, 0.28 * box.height],
+            [0.32 * box.width, 0.28 * box.height],
+          );
+        }
         let foundVisibleGround = false;
         for (const [dx, dy] of offsets) {
           const point = {
@@ -234,6 +252,27 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
           diagnosticText = await inspector.innerText();
           const pixelMatch = diagnosticText.match(/GPU 最終畫面取樣 RGBA：\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)/);
           if (!pixelMatch) continue;
+          if (options.requireNonzeroLightmap) {
+            const sourceMatch = diagnosticText.match(
+              /游標處來源 RGB lightmap \/ AO 最近像素（原始 GND bytes）：RGB \((\d+),\s*(\d+),\s*(\d+)\); AO \d+/
+            );
+            const sourceRgb = sourceMatch ? sourceMatch.slice(1, 4).map(Number) : null;
+            const posterizedRgb = sourceRgb && sourceRgb.map(value => Math.floor(value / 16) * 16);
+            const surfaceMatch = diagnosticText.match(/Surface #(\d+)/);
+            const lightmapMatch = diagnosticText.match(/材質索引：-?\d+；lightmap 索引：(\d+)/);
+            const uvMatch = diagnosticText.match(/游標處 Lightmap atlas UV2：\(([^)]+)\)/);
+            const atlasUv = uvMatch ? uvMatch[1].split(',').map(value => Number(value.trim())) : null;
+            if (!sourceRgb || Math.max(...posterizedRgb) < 32
+              || !surfaceMatch || !lightmapMatch || !atlasUv || atlasUv.length !== 2
+              || !atlasUv.every(Number.isFinite)) continue;
+            sourceLightmapProbe = {
+              surfaceIndex: Number(surfaceMatch[1]),
+              lightmapIndex: Number(lightmapMatch[1]),
+              atlasUv,
+              sourceRgb,
+              posterizedRgb,
+            };
+          }
           if (!/(?:SW|SE|NW|NE): RGB \(\d+, \d+, \d+\); AO \d+/.test(diagnosticText)) continue;
           const scrollMetrics = await targetPage.locator('#gnd-surface-inspector').evaluate(el => ({
             scrollHeight: el.scrollHeight,
@@ -286,6 +325,33 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug) {
     mapSlug + ' 純 Diffuse 與純頂點色的 GPU 畫面像素相同，診斷分離可能未生效。');
   assert.notEqual(sampledPixels['2'], sampledPixels['3'],
     mapSlug + ' RGB lightmap 與 AO 的 GPU 像素相同，通道分離可能未生效。');
+  if (options.requireNonzeroLightmap) {
+    assert.ok(sourceLightmapProbe, mapSlug + ' 找不到來源 RGB lightmap 有明顯非零值的可見地表點。');
+    const gpuRgb = sampledPixels['2'].split(',').map(Number);
+    const expectedRgb = sourceLightmapProbe.posterizedRgb;
+    const channelDelta = expectedRgb.map((value, channel) => Math.abs(value - gpuRgb[channel]));
+    const audit = {
+      mapId: mapSlug,
+      shaderMode: 'RGB lightmap',
+      surfaceIndex: sourceLightmapProbe.surfaceIndex,
+      lightmapIndex: sourceLightmapProbe.lightmapIndex,
+      atlasUv: sourceLightmapProbe.atlasUv,
+      sourceRgbBytes: sourceLightmapProbe.sourceRgb,
+      expectedPosterizedRgb: expectedRgb,
+      gpuReadbackRgb: gpuRgb,
+      absoluteChannelDelta: channelDelta,
+      maxAbsoluteChannelDelta: Math.max(...channelDelta),
+    };
+    assert.ok(expectedRgb.some((value, channel) => value >= 32 && gpuRgb[channel] >= 8),
+      mapSlug + ' 原始 RGB lightmap 有明顯亮值，但 GPU 讀回仍接近全黑：' + JSON.stringify(audit));
+    assert.ok(audit.maxAbsoluteChannelDelta <= 40,
+      mapSlug + ' GPU RGB lightmap 讀回與原始來源／16 階 posterization 對不上：' + JSON.stringify(audit));
+    await writeFile(
+      path.join(artifactDir, mapSlug + '-rgb-lightmap-gpu-readback.json'),
+      JSON.stringify(audit, null, 2) + '\n'
+    );
+    console.log(mapSlug + ' RGB lightmap source-to-GPU readback audit: ' + JSON.stringify(audit));
+  }
   console.log(mapSlug + ' GND debug GPU RGB at the same ground point: ' + JSON.stringify(sampledPixels));
   await selector.selectOption('0');
   assert.ok((await targetPage.locator('#status').innerText()).includes('GND 診斷模式：完整合成'),
@@ -474,6 +540,34 @@ async function run() {
     animations: 'disabled',
   });
   await captureGndDebugViews(page, pronteraStage, 'prontera');
+  await page.locator('#recenter').click();
+
+  // Icecastle contains real non-zero RGB lightmap bytes; compare one source sample
+  // with the RGB-lightmap-only shader output read back from the WebGL framebuffer.
+  await page.locator('#native-map').fill('icecastle');
+  await page.locator('#load-native-map').click();
+  await page.waitForFunction(() => {
+    const status = document.getElementById('status')?.textContent || '';
+    const stats = document.getElementById('stats')?.textContent || '';
+    return status.includes('原生地圖已載入') && stats.includes('GAT：icecastle.gat');
+  }, null, { timeout: 150000 });
+  await page.waitForFunction(() => {
+    const stats = document.getElementById('stats')?.textContent || '';
+    const match = stats.match(/GND 地表貼圖：已解析 (\d+)\/(\d+)；載入成功 (\d+)；失敗 (\d+)；缺少匹配 (\d+)/);
+    return match && Number(match[1]) > 0 && Number(match[3]) > 0;
+  }, null, { timeout: 30000 });
+  await page.locator('#recenter').click();
+  const icecastleStage = await page.locator('#stage').boundingBox();
+  assert.ok(icecastleStage && icecastleStage.width > 0 && icecastleStage.height > 0,
+    '冰城原生地圖沒有有效畫面尺寸。');
+  await page.mouse.move(icecastleStage.x + icecastleStage.width / 2,
+    icecastleStage.y + icecastleStage.height / 2);
+  for (let zoomStep = 0; zoomStep < 14; zoomStep++) {
+    await page.mouse.wheel(0, -100);
+    await sleep(35);
+  }
+  await sleep(500);
+  await captureGndDebugViews(page, icecastleStage, 'icecastle', { requireNonzeroLightmap: true });
   await page.locator('#recenter').click();
 
   // Restore tra_fild for the mobile interaction checks below.
