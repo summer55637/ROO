@@ -170,7 +170,7 @@ function auditGndVertexColors(meshData) {
   const maxima = [0, 0, 0];
   for (const sample of allColors) {
     const [r, g, b] = sample.color;
-    if (Math.max(Math.abs(1 - r), Math.abs(1 - g), Math.abs(1 - b)) > 1 / 255 + 1e-8) {
+    if (Math.max(Math.abs(1 - r), Math.abs(1 - g), Math.abs(1 - b)) > 1e-8) {
       nonWhiteCorners++;
     }
     colorKeys.add(sample.color.map(value => Math.round(value * 255)).join(','));
@@ -186,7 +186,7 @@ function auditGndVertexColors(meshData) {
   let mismatchPairs = 0;
   let maximumMismatch = 0;
   let worstExample = null;
-  const mismatchThreshold = 1 / 255 + 1e-8;
+  const mismatchThreshold = 1e-8;
   for (const samples of byPosition.values()) {
     if (samples.length < 2) continue;
     sharedCornerGroups++;
