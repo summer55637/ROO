@@ -163,6 +163,46 @@ const GND_DEBUG_SCREENSHOT_MODES = [
   { value: '6', label: '貼圖×方向光', file: 'diffuse-times-rsw' },
 ];
 
+
+async function runGndGpuBoundaryAudit(targetPage, mapSlug) {
+  await targetPage.waitForFunction(() =>
+    typeof window.__rooGndGpuBoundaryAudit?.run === 'function', null, { timeout: 10000 });
+  let report = null;
+  for (let attempt = 0; attempt < 30; attempt++) {
+    report = await targetPage.evaluate(() => window.__rooGndGpuBoundaryAudit.run());
+    if (!report || report.status !== 'pending') break;
+    await sleep(250);
+  }
+  assert.ok(report, mapSlug + ' 未取得 GND GPU 邊界稽核報告。');
+  assert.equal(report.status, 'passed',
+    mapSlug + ' GND 相鄰 surface GPU diffuse／光照比對未通過：' + JSON.stringify(report));
+  assert.equal(report.scales.length, 3, mapSlug + ' 應涵蓋 near／mid／far 三種 mipmap 尺度。');
+  assert.deepEqual(report.scales.map(scale => scale.scale), ['near', 'mid', 'far']);
+  assert.ok(report.scales[0].effectiveLod[0] < report.scales[1].effectiveLod[0]
+    && report.scales[1].effectiveLod[0] < report.scales[2].effectiveLod[0],
+    mapSlug + ' mipmap LOD 應隨視距增加：' + JSON.stringify(
+      report.scales.map(scale => ({ scale: scale.scale, lod: scale.effectiveLod }))
+    ));
+  for (const scale of report.scales) {
+    assert.equal(scale.samples.length, 2, mapSlug + ' ' + scale.scale + ' 必須讀回邊界兩側像素。');
+    for (const sample of scale.samples) {
+      for (const mode of ['diffuse', 'vertexColor', 'rgbLightmap', 'ao', 'rswLight', 'combined']) {
+        assert.ok(Array.isArray(sample.framebuffer[mode]) && sample.framebuffer[mode].length === 3,
+          mapSlug + ' ' + scale.scale + ' ' + sample.side + ' 缺少 ' + mode + ' RGB 讀回。');
+      }
+      assert.ok(sample.expected.lightmapSource,
+        mapSlug + ' ' + scale.scale + ' ' + sample.side + ' 缺少 AO／RGB lightmap 來源值。');
+    }
+  }
+  console.log('GND 多尺度 GPU 邊界稽核：' + JSON.stringify({
+    mapId: report.mapId, texture: report.texture, axis: report.axis, grid: report.grid,
+    surfaces: report.surfaces, sharedUv: report.sharedUv, diffuseRects: report.diffuseRects,
+    cropPixelRects: report.cropPixelRects, sampler: report.sampler, limits: report.limits,
+    scales: report.scales, failures: report.failures,
+  }));
+  return report;
+}
+
 async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {}) {
   const selector = targetPage.locator('#gnd-debug-mode');
   await selector.waitFor({ state: 'visible', timeout: 5000 });
@@ -559,6 +599,7 @@ async function run() {
     pjobexpneed: '5000',
     pzeny: '1234567',
   });
+  params.set('roo-gnd-gpu-audit', '1');
   await page.goto(baseUrl + '/tools/ro_explorer.html?' + params.toString(), {
     waitUntil: 'domcontentloaded',
     timeout: 30000,
@@ -655,6 +696,7 @@ async function run() {
     const match = stats.match(/GND 地表貼圖：已解析 (\d+)\/(\d+)；載入成功 (\d+)；失敗 (\d+)；缺少匹配 (\d+)/);
     return match && Number(match[1]) > 0 && Number(match[3]) > 0;
   }, null, { timeout: 30000 });
+  await runGndGpuBoundaryAudit(page, 'prontera');
   await page.locator('#recenter').click();
   const pronteraStage = await page.locator('#stage').boundingBox();
   assert.ok(pronteraStage && pronteraStage.width > 0 && pronteraStage.height > 0,
