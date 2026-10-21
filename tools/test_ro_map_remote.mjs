@@ -664,8 +664,8 @@ async function validateMap(mapId) {
   // whether the shape is baked into the bitmap or introduced by texture mapping.
   if (mapId === 'prontera') {
     const targetTextureIndex = gnd.textures.findIndex(name =>
-      normalizeTextureName(name).endsWith('prt_d_01.bmp'));
-    assert.ok(targetTextureIndex >= 0, 'Prontera has the prt_D_01.bmp diagnostic texture');
+      normalizeTextureName(name).endsWith('prt_도시01.bmp'));
+    assert.ok(targetTextureIndex >= 0, 'Prontera has the prt_도시01.bmp diagnostic texture');
     const boundsForSurface = surface => ({
       minU: Math.min(...surface.uv.map(uv => uv[0])),
       maxU: Math.max(...surface.uv.map(uv => uv[0])),
@@ -680,16 +680,16 @@ async function validateMap(mapId) {
         && Math.abs(bounds.minV - 0.5) < 1e-5
         && Math.abs(bounds.maxV - 0.75) < 1e-5;
     });
-    assert.ok(targetSurfaceIndex >= 0, 'Prontera prt_D_01 has the UV region shown by the browser inspector');
+    assert.ok(targetSurfaceIndex >= 0, 'Prontera prt_도시01 has the UV region shown by the browser inspector');
     const targetTextureName = normalizeTextureName(gnd.textures[targetTextureIndex]);
     const targetTextureUrl = urls.textures[targetTextureName];
     assert.ok(targetTextureUrl, 'Prontera diagnostic diffuse URL resolves');
-    const targetTextureResponse = await fetchResponse(targetTextureUrl, 'prontera prt_D_01 diagnostic texture');
+    const targetTextureResponse = await fetchResponse(targetTextureUrl, 'prontera prt_도시01 diagnostic texture');
     const targetTextureBytes = Buffer.from(await targetTextureResponse.arrayBuffer());
-    writeFileSync(sourceArtifactDir + '/prontera-prt-d-01-source.png', targetTextureBytes);
+    writeFileSync(sourceArtifactDir + '/prontera-prt-city-01-source.png', targetTextureBytes);
     const targetSurface = gnd.surfaces[targetSurfaceIndex];
     writeFileSync(
-      sourceArtifactDir + '/prontera-prt-d-01-source-uv.json',
+      sourceArtifactDir + '/prontera-prt-city-01-source-uv.json',
       JSON.stringify({
         mapId,
         textureName: gnd.textures[targetTextureIndex],
