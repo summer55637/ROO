@@ -256,6 +256,22 @@ function auditGndSharedTopEdges(gnd, worldScale = 0.2) {
     const anchorSurface = anchor && gnd.surfaces[anchor.topSurface];
     return anchorSurface && anchorSurface.color || [1, 1, 1, 1];
   };
+  const lightmapCorner = (surface, cornerIndex) => {
+    const slice = surface && Number.isInteger(surface.lightmapIndex)
+      ? gnd.lightmapSlices[surface.lightmapIndex] : null;
+    if (!slice || !slice.colorPixels || !slice.width || !slice.height) return null;
+    const x = cornerIndex === 1 || cornerIndex === 3
+      ? Math.max(0, slice.width - (slice.width >= 4 ? 2 : 1)) : Math.min(1, slice.width - 1);
+    const y = cornerIndex === 2 || cornerIndex === 3
+      ? Math.max(0, slice.height - (slice.height >= 4 ? 2 : 1)) : Math.min(1, slice.height - 1);
+    const pixel = y * slice.width + x;
+    const channels = slice.channels || 4;
+    const at = pixel * channels;
+    const rgb = [...slice.colorPixels.slice(at, at + 3)];
+    const ao = slice.shadowPixels ? slice.shadowPixels[pixel]
+      : channels === 4 ? slice.colorPixels[at + 3] : 255;
+    return { pixel: [x, y], rgb, ao };
+  };
   const regionCounts = {};
   const regionExamples = {};
   const result = {
@@ -320,6 +336,8 @@ function auditGndSharedTopEdges(gnd, worldScale = 0.2) {
       const uvB = neighborSurface && neighborSurface.uv && neighborSurface.uv[cornerB] || null;
       const colorA = topCornerColor(x, y, cube.topSurface, cornerA);
       const colorB = topCornerColor(otherX, otherY, neighbor.topSurface, cornerB);
+      const lightmapA = lightmapCorner(surface, cornerA);
+      const lightmapB = lightmapCorner(neighborSurface, cornerB);
       return {
         endpointIndex,
         cornerA,
@@ -338,6 +356,12 @@ function auditGndSharedTopEdges(gnd, worldScale = 0.2) {
           ? Number(Math.max(...colorA.slice(0, 3).map((value, channel) =>
             Math.abs(value - colorB[channel]))).toFixed(6))
           : null,
+        lightmapA,
+        lightmapB,
+        lightmapRgbDelta: lightmapA && lightmapB
+          ? lightmapA.rgb.map((value, channel) => Math.abs(value - lightmapB.rgb[channel]))
+          : null,
+        aoDelta: lightmapA && lightmapB ? Math.abs(lightmapA.ao - lightmapB.ao) : null,
       };
     });
     const sample = {
@@ -732,14 +756,27 @@ async function validateMap(mapId) {
       + edge.edgeEndpoints.filter(endpoint => endpoint.sourcePixelA && endpoint.sourcePixelB
         && endpoint.sourcePixelA.rgba.some((value, channel) =>
           value !== endpoint.sourcePixelB.rgba[channel])).length, 0);
+    const lightmapRgbMismatches = edgeSamples.reduce((count, edge) => count
+      + edge.edgeEndpoints.filter(endpoint => endpoint.lightmapRgbDelta
+        && endpoint.lightmapRgbDelta.some(value => value !== 0)).length, 0);
+    const aoMismatches = edgeSamples.reduce((count, edge) => count
+      + edge.edgeEndpoints.filter(endpoint => endpoint.aoDelta !== null && endpoint.aoDelta !== 0).length, 0);
+    const maximumLightmapRgbDelta = Math.max(0, ...edgeSamples.flatMap(edge =>
+      edge.edgeEndpoints.flatMap(endpoint => endpoint.lightmapRgbDelta || [])));
+    const maximumAoDelta = Math.max(0, ...edgeSamples.flatMap(edge =>
+      edge.edgeEndpoints.map(endpoint => endpoint.aoDelta || 0)));
     const edgeReport = {
       mapId,
-      source: 'live public Prontera GND plus the exact diffuse PNGs loaded by this smoke test',
+      source: 'live public Prontera GND plus exact diffuse, AO, and RGB lightmap samples',
       candidateCount: edgeSamples.length,
       endpointCount: edgeSamples.reduce((count, edge) => count + edge.edgeEndpoints.length, 0),
       uvEndpointMismatches,
       renderedTintEndpointMismatches: tintEndpointMismatches,
       sourcePixelEndpointMismatches,
+      lightmapRgbMismatches,
+      aoMismatches,
+      maximumLightmapRgbDelta,
+      maximumAoDelta,
       edges: edgeSamples,
     };
     writeFileSync(
@@ -752,6 +789,10 @@ async function validateMap(mapId) {
       uvEndpointMismatches,
       renderedTintEndpointMismatches: tintEndpointMismatches,
       sourcePixelEndpointMismatches,
+      lightmapRgbMismatches,
+      aoMismatches,
+      maximumLightmapRgbDelta,
+      maximumAoDelta,
       examples: edgeSamples.map(edge => ({
         axis: edge.axis,
         grid: edge.grid,
@@ -765,6 +806,14 @@ async function validateMap(mapId) {
           endpoint.sourcePixelB && endpoint.sourcePixelB.rgba,
         ]),
         lightmaps: edge.topSurfaceData.map(surface => surface.lightmapIndex),
+        lightmapRgb: edge.edgeEndpoints.map(endpoint => [
+          endpoint.lightmapA && endpoint.lightmapA.rgb,
+          endpoint.lightmapB && endpoint.lightmapB.rgb,
+        ]),
+        ao: edge.edgeEndpoints.map(endpoint => [
+          endpoint.lightmapA && endpoint.lightmapA.ao,
+          endpoint.lightmapB && endpoint.lightmapB.ao,
+        ]),
       })),
     }));
   }
