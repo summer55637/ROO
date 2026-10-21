@@ -5,6 +5,7 @@ import {
   RAGASSETS_BASE_URL,
   buildGndLightmapAtlasData,
   computeGndLightDirection,
+  computeGndLightMultiplier,
   transformGndNormalToRoSpace,
   buildGndMeshData,
   GND_PREVIEW_AO_STRENGTH,
