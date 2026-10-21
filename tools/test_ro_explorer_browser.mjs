@@ -382,7 +382,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
               posterizedRgb,
             };
           }
-          if (!/(?:SW|SE|NW|NE): RGB \(\d+, \d+, \d+\); AO \d+/.test(diagnosticText)) continue;
+          if (!/(?:SW|SE|NW|NE): 來源有效角落 texel RGB \(\d+, \d+, \d+\); AO \d+/.test(diagnosticText)) continue;
           if (options.requireNonzeroLightmap) sourceLightmapProbe = candidateLightmapProbe;
           const scrollMetrics = await targetPage.locator('#gnd-surface-inspector').evaluate(el => ({
             scrollHeight: el.scrollHeight,
