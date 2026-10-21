@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
 import {
   RAGASSETS_BASE_URL,
@@ -623,6 +624,36 @@ async function validateMap(mapId) {
     sampleSurface.uv.reduce((sum, uv) => sum + uv[0], 0) / sampleSurface.uv.length,
     sampleSurface.uv.reduce((sum, uv) => sum + uv[1], 0) / sampleSurface.uv.length,
   ];
+  // Retain the raw atlas and the exact sampled UV rectangle so browser-rendered
+  // triangles can be compared with the untouched public source texture.
+  const sourceArtifactDir = 'artifacts/gnd-source-textures';
+  mkdirSync(sourceArtifactDir, { recursive: true });
+  writeFileSync(sourceArtifactDir + '/' + mapId + '-source.png', Buffer.from(pngBytes));
+  const sourceUvBounds = {
+    minU: Math.min(...sampleSurface.uv.map(uv => uv[0])),
+    maxU: Math.max(...sampleSurface.uv.map(uv => uv[0])),
+    minV: Math.min(...sampleSurface.uv.map(uv => uv[1])),
+    maxV: Math.max(...sampleSurface.uv.map(uv => uv[1])),
+  };
+  const sourcePixelBounds = {
+    x0: Math.round(sourceUvBounds.minU * diffuse.width),
+    x1: Math.round(sourceUvBounds.maxU * diffuse.width),
+    y0: Math.round((1 - sourceUvBounds.maxV) * diffuse.height),
+    y1: Math.round((1 - sourceUvBounds.minV) * diffuse.height),
+  };
+  writeFileSync(
+    sourceArtifactDir + '/' + mapId + '-source-uv.txt',
+    JSON.stringify({
+      mapId,
+      textureName: sampleTextureName,
+      textureUrl: sampleTextureUrl,
+      surfaceIndex: sampleSurfaceIndex,
+      imageSize: [diffuse.width, diffuse.height],
+      sourceUvBounds,
+      sourcePixelBounds,
+      surfaceUvs: sampleSurface.uv,
+    }, null, 2) + '\\n'
+  );
   const diffuseX = Math.min(diffuse.width - 1, Math.floor(wrapUv(diffuseUv[0]) * diffuse.width));
   // TextureLoader flips source images into Three.js UV space; V=0 is the PNG bottom row.
   const diffuseY = diffuse.height - 1
