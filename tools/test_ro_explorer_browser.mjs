@@ -249,6 +249,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
         let foundVisibleGround = false;
         const probeObservations = [];
         const sourceRejectObservations = [];
+        const inspectorFailureObservations = [];
         const visitedPoints = new Set();
         let canvasCandidateCount = 0;
         let groundSurfaceCount = 0;
@@ -318,6 +319,28 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
               timeout: options.requireNonzeroLightmap ? 5000 : 1600,
             });
           } catch (error) {
+            if (inspectorFailureObservations.length < 6) {
+              const audit = await targetPage.evaluate(() => {
+                const text = document.getElementById('gnd-surface-inspector-content')?.innerText || '';
+                return {
+                  hasSurface: text.includes('Surface #'),
+                  hasMode: text.includes('目前診斷模式：7／純 Diffuse 貼圖'),
+                  hasMaterial: text.includes('真實材質路徑'),
+                  hasVertexColor: text.includes('游標處插值頂點色 RGB：'),
+                  hasUv2: text.includes('游標處 Lightmap atlas UV2：'),
+                  hasRawLightmap: text.includes('游標處來源 RGB lightmap / AO 最近像素（原始 GND bytes）：RGB ('),
+                  hasCrop: text.includes('GPU 使用的 diffuse crop 像素範圍：'),
+                  hasExpectedGpuSample: text.includes('游標處 RGB lightmap / AO 預期 GPU LOD0 線性取樣'),
+                  framebuffer: (text.match(/GPU 最終畫面取樣 RGBA：[\s\S]{0,80}/) || [])[0] || '',
+                  tail: text.slice(-650),
+                };
+              });
+              inspectorFailureObservations.push({
+                point: [Math.round(point.x - box.x), Math.round(point.y - box.y)],
+                error: String(error).slice(0, 100),
+                audit,
+              });
+            }
             continue;
           }
           diagnosticText = await inspector.innerText();
@@ -386,7 +409,8 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
                 })
                 + ' 無地表樣本=' + JSON.stringify(probeObservations)
                 + ' 來源被排除樣本=' + JSON.stringify(sourceRejectObservations)
-              : ''));
+              : '')
+            + ' 診斷面板等待失敗樣本=' + JSON.stringify(inspectorFailureObservations));
       } else {
         assert.ok(groundProbe, mapSlug + ' 未先找到純 Diffuse 的可見地表取樣點。');
         await targetPage.mouse.move(groundProbe.x, groundProbe.y);
@@ -514,7 +538,10 @@ async function run() {
   await bridgePage.goto(baseUrl + '/tools/ro_explorer.html?mode=public', { waitUntil: 'domcontentloaded' });
 
   page = await context.newPage();
-  page.on('pageerror', error => pageErrors.push(String(error)));
+  page.on('pageerror', error => {
+    pageErrors.push(String(error));
+    console.log('瀏覽器未處理錯誤：' + String(error));
+  });
   await page.route('https://visuais.latam-tools.com.br/**', route => route.abort());
   const params = new URLSearchParams({
     mode: 'native',
