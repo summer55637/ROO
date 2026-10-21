@@ -3411,7 +3411,7 @@ function describeGndAdjacentTopSurfaces(gnd, surfaceIndex, root) {
 }
 
 function updateGndSurfaceInspector(event) {
-  if (GND_DEBUG_MODE_UNIFORM.value !== 7 && GND_DEBUG_MODE_UNIFORM.value !== 8) {
+  if (GND_DEBUG_MODE_UNIFORM.value === 0) {
     gndSurfaceInspector.hidden = true;
     pendingGndInspectorReadback = null;
     return;
@@ -3505,7 +3505,11 @@ function updateGndSurfaceInspector(event) {
       + '; mag=' + filterName(sampler.magFilter)
       + '; colorSpace=' + colorSpaceName;
   };
+  const modeSelect = document.getElementById('gnd-debug-mode');
+  const debugModeLabel = modeSelect && modeSelect.options[modeSelect.selectedIndex]
+    ? modeSelect.options[modeSelect.selectedIndex].textContent : '未知';
   const detail = [
+    '目前診斷模式：' + GND_DEBUG_MODE_UNIFORM.value + '／' + debugModeLabel,
     '地圖：' + (mapInfo && mapInfo.mapId || '未知'),
     'Surface #' + surfaceIndex + '；triangle #' + hit.faceIndex + '；quad #' + quadIndex,
     '真實材質路徑：' + textureName,
@@ -3585,9 +3589,9 @@ document.getElementById('gnd-debug-mode').addEventListener('change', event => {
   GND_DEBUG_MODE_UNIFORM.value = Number.isInteger(mode) && mode >= 0 && mode <= 8 ? mode : 0;
   const label = selected.options[selected.selectedIndex]?.textContent || '完整合成';
   setStatus('GND 診斷模式：' + label + '。僅供分離材質通道排查；按「完整合成」回到一般地表畫面。');
-  if (GND_DEBUG_MODE_UNIFORM.value === 7 || GND_DEBUG_MODE_UNIFORM.value === 8) {
+  if (GND_DEBUG_MODE_UNIFORM.value !== 0) {
     gndSurfaceInspector.hidden = false;
-    gndSurfaceInspectorContent.textContent = '把滑鼠移到地表，即可查看來源貼圖路徑、四角 UV、貼圖像素、頂點色與 GPU 畫面取樣。';
+    gndSurfaceInspectorContent.textContent = '把滑鼠移到地表，即可查看目前模式的 GPU 像素，以及 Diffuse／頂點色／AO／RGB lightmap 的來源取樣。';
     if (lastGndDiagnosticPointer) updateGndSurfaceInspector(lastGndDiagnosticPointer);
   } else {
     gndSurfaceInspector.hidden = true;
