@@ -175,31 +175,61 @@ async function runGndGpuBoundaryAudit(targetPage, mapSlug) {
   }
   assert.ok(report, mapSlug + ' 未取得 GND GPU 邊界稽核報告。');
   assert.equal(report.status, 'passed',
-    mapSlug + ' GND 相鄰 surface GPU diffuse／光照比對未通過：' + JSON.stringify(report));
-  assert.equal(report.scales.length, 3, mapSlug + ' 應涵蓋 near／mid／far 三種 mipmap 尺度。');
-  assert.deepEqual(report.scales.map(scale => scale.scale), ['near', 'mid', 'far']);
-  assert.ok(report.scales[0].effectiveLod[0] < report.scales[1].effectiveLod[0]
-    && report.scales[1].effectiveLod[0] < report.scales[2].effectiveLod[0],
-    mapSlug + ' mipmap LOD 應隨視距增加：' + JSON.stringify(
-      report.scales.map(scale => ({ scale: scale.scale, lod: scale.effectiveLod }))
-    ));
-  for (const scale of report.scales) {
-    assert.equal(scale.samples.length, 2, mapSlug + ' ' + scale.scale + ' 必須讀回邊界兩側像素。');
-    for (const sample of scale.samples) {
-      for (const mode of ['diffuse', 'vertexColor', 'rgbLightmap', 'ao', 'rswLight', 'combined']) {
-        assert.ok(Array.isArray(sample.framebuffer[mode]) && sample.framebuffer[mode].length === 3,
-          mapSlug + ' ' + scale.scale + ' ' + sample.side + ' 缺少 ' + mode + ' RGB 讀回。');
+    mapSlug + ' 多組 GND 相鄰 surface GPU diffuse／光照比對未通過：' + JSON.stringify(report));
+  assert.ok(report.candidateCount >= 4,
+    mapSlug + ' 應先掃描到多組真實相鄰 surface：' + JSON.stringify(report));
+  assert.ok(report.selectedPairCount >= 4 && report.selectedPairCount <= 6,
+    mapSlug + ' 應選出 4–6 組可重現樣本：' + JSON.stringify(report));
+  assert.ok(report.axes.includes('east') && report.axes.includes('north'),
+    mapSlug + ' 必須涵蓋東向與北向相鄰 UV 邊界：' + JSON.stringify(report.axes));
+  assert.ok(report.coverage.aoContrastPairs > 0,
+    mapSlug + ' 所選樣本沒有真實 AO 來源差異，不能算覆蓋 AO 條件：' + JSON.stringify(report.coverage));
+  assert.ok(report.coverage.rgbLightmapContrastPairs > 0,
+    mapSlug + ' 所選樣本沒有真實 RGB lightmap 差異，不能算覆蓋烘焙光照：' + JSON.stringify(report.coverage));
+  assert.ok(report.coverage.uniqueUvRegionPairs >= 4,
+    mapSlug + ' 樣本未覆蓋足夠不同的 diffuse UV 子區域：' + JSON.stringify(report.coverage));
+  for (const audit of report.audits) {
+    assert.equal(audit.scales.length, 3, mapSlug + ' surface ' + audit.surfaces + ' 應涵蓋 near／mid／far。');
+    assert.deepEqual(audit.scales.map(scale => scale.scale), ['near', 'mid', 'far']);
+    assert.ok(audit.cropPixelRects.length === 2 && audit.diffuseRects.length === 2,
+      mapSlug + ' surface ' + audit.surfaces + ' 缺少兩側裁切範圍。');
+    assert.ok(audit.coverage && audit.coverage.centerLightmapA && audit.coverage.centerLightmapB,
+      mapSlug + ' surface ' + audit.surfaces + ' 缺少真實 AO／RGB lightmap 條件摘要。');
+    assert.ok(audit.sampler.generateMipmaps, mapSlug + ' surface ' + audit.surfaces + ' 沒有啟用 mipmap。');
+    for (let scaleIndex = 0; scaleIndex < audit.scales.length; scaleIndex++) {
+      const scale = audit.scales[scaleIndex];
+      assert.equal(scale.samples.length, 2,
+        mapSlug + ' surface ' + audit.surfaces + ' ' + scale.scale + ' 必須讀回邊界兩側。');
+      if (scaleIndex > 0) {
+        for (let side = 0; side < 2; side++) {
+          assert.ok(audit.scales[scaleIndex - 1].effectiveLod[side] < scale.effectiveLod[side],
+            mapSlug + ' surface ' + audit.surfaces + ' mipmap LOD 應隨距離增加：'
+              + JSON.stringify(audit.scales.map(item => ({ scale: item.scale, lod: item.effectiveLod })));
+        }
       }
-      assert.ok(sample.expected.lightmapSource,
-        mapSlug + ' ' + scale.scale + ' ' + sample.side + ' 缺少 AO／RGB lightmap 來源值。');
+      for (const sample of scale.samples) {
+        assert.ok(Array.isArray(sample.expected.diffuseRgb) && sample.expected.diffuseRgb.length === 3,
+          mapSlug + ' surface ' + audit.surfaces + ' 缺少來源 mipmap 預期 RGB。');
+        assert.ok(Array.isArray(sample.framebuffer.diffuse) && sample.framebuffer.diffuse.length === 3,
+          mapSlug + ' surface ' + audit.surfaces + ' 缺少 GPU diffuse framebuffer RGB。');
+        assert.ok(Array.isArray(sample.expected.vertexColorRgb) && Array.isArray(sample.framebuffer.vertexColor),
+          mapSlug + ' surface ' + audit.surfaces + ' 缺少頂點色預期值或 GPU 讀回。');
+        assert.ok(Array.isArray(sample.expected.rgbLightmap) && Array.isArray(sample.framebuffer.rgbLightmap)
+          && Number.isFinite(sample.expected.ao) && Array.isArray(sample.framebuffer.ao),
+        mapSlug + ' surface ' + audit.surfaces + ' 缺少 AO／RGB lightmap 的來源與 GPU 值。');
+        for (const mode of ['diffuse', 'vertexColor', 'rgbLightmap', 'ao', 'rswLight', 'combined']) {
+          assert.ok(Array.isArray(sample.framebuffer[mode]) && sample.framebuffer[mode].length === 3,
+            mapSlug + ' surface ' + audit.surfaces + ' ' + scale.scale + ' ' + sample.side
+              + ' 缺少 ' + mode + ' framebuffer RGB。');
+        }
+        assert.ok(sample.expected.lightmapSource,
+          mapSlug + ' surface ' + audit.surfaces + ' 缺少 AO／RGB lightmap 的來源像素值。');
+      }
     }
   }
-  console.log('GND 多尺度 GPU 邊界稽核：' + JSON.stringify({
-    mapId: report.mapId, texture: report.texture, axis: report.axis, grid: report.grid,
-    surfaces: report.surfaces, sharedUv: report.sharedUv, diffuseRects: report.diffuseRects,
-    cropPixelRects: report.cropPixelRects, sampler: report.sampler, limits: report.limits,
-    scales: report.scales, failures: report.failures,
-  }));
+  const artifactPath = path.join(artifactDir, mapSlug + '-gnd-multiscale-gpu-boundaries.json');
+  await writeFile(artifactPath, JSON.stringify(report, null, 2) + '\n');
+  console.log('GND 多組多尺度 GPU 邊界稽核：' + JSON.stringify(report));
   return report;
 }
 

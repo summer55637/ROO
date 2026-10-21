@@ -3844,7 +3844,7 @@ function sampleGndAuditMip(levels, uv, lod) {
   return a.map((channel, index) => Number((channel * (1 - mix) + b[index] * mix).toFixed(3)));
 }
 
-function findGndSharedUvAuditPair() {
+function findGndSharedUvAuditPairs() {
   if (!mapRoot || !gndInfo || !Array.isArray(gndInfo.cubes) || !Array.isArray(gndInfo.surfaces)) {
     return { status: 'pending', reason: '原生 GND 尚未載入。' };
   }
@@ -3875,10 +3875,30 @@ function findGndSharedUvAuditPair() {
       if (name === 'position') {
         return entry.object.localToWorld(new THREE.Vector3(attr.getX(i), attr.getY(i), attr.getZ(i))).toArray();
       }
-      if (attr.itemSize > 1) return [attr.getX(i), attr.getY(i)];
-      return [attr.getX(i)];
+      return Array.from({ length: attr.itemSize }, (_, component) => {
+        if (component === 0) return attr.getX(i);
+        if (component === 1) return attr.getY(i);
+        if (component === 2) return attr.getZ(i);
+        if (component === 3) return attr.getW(i);
+        return 0;
+      });
     });
   };
+  const meanVector = values => {
+    if (!values || !values.length) return null;
+    return values[0].map((_, component) =>
+      values.reduce((sum, value) => sum + value[component], 0) / values.length);
+  };
+  const maxVectorDelta = (a, b) => a && b && a.length === b.length
+    ? Math.max(...a.map((value, i) => Math.abs(value - b[i]))) : null;
+  const meanRgb = colors => {
+    const mean = meanVector(colors);
+    return mean ? mean.slice(0, 3) : null;
+  };
+  const uvRectKey = value => [value.minU, value.maxU, value.minV, value.maxV]
+    .map(number => number.toFixed(5)).join(',');
+  const candidates = [];
+  const seen = new Set();
   const attempt = (axis, x, y, aCube, bCube) => {
     const ia = aCube && aCube.topSurface, ib = bCube && bCube.topSurface;
     if (!Number.isInteger(ia) || !Number.isInteger(ib) || ia < 0 || ib < 0 || ia === ib) return null;
@@ -3908,33 +3928,102 @@ function findGndSharedUvAuditPair() {
         || mb.map.minFilter !== THREE.LinearMipmapLinearFilter) continue;
       const pa = cornerData(ea, 'position'), pb = cornerData(eb, 'position');
       const ua = cornerData(ea, 'rooGndSourceUv'), ub = cornerData(eb, 'rooGndSourceUv');
-      if (!pa || !pb || !ua || !ub) continue;
+      const ca = cornerData(ea, 'color'), cb = cornerData(eb, 'color');
+      const uv2a = cornerData(ea, 'uv2'), uv2b = cornerData(eb, 'uv2');
+      if (!pa || !pb || !ua || !ub || !ca || !cb || !uv2a || !uv2b) continue;
       if (!corners.a.every((c, i) => equalVec(pa[c], pb[corners.b[i]], 1e-5)
         && equalVec(ua[c], ub[corners.b[i]], 1e-6))) continue;
-      return {
+      const key = axis + ':' + ia + ':' + ib + ':' + uvRectKey(ra) + ':' + uvRectKey(rb);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const edgeColorsA = corners.a.map(c => ca[c].slice(0, 3));
+      const edgeColorsB = corners.b.map(c => cb[c].slice(0, 3));
+      const sharedEdgeVertexColorDelta = Math.max(...edgeColorsA.map((color, i) =>
+        maxVectorDelta(color, edgeColorsB[i])));
+      const meanColorA = meanRgb(ca), meanColorB = meanRgb(cb);
+      const centerLightmapA = sampleGndLightmapSourceAtUv(sa, meanVector(uv2a));
+      const centerLightmapB = sampleGndLightmapSourceAtUv(sb, meanVector(uv2b));
+      if (!centerLightmapA || !centerLightmapB) continue;
+      const vertexColorMeanDelta = maxVectorDelta(meanColorA, meanColorB);
+      const aoDelta = Math.abs(centerLightmapA.filteredAo - centerLightmapB.filteredAo);
+      const rgbLightmapDelta = maxVectorDelta(centerLightmapA.filteredRgb, centerLightmapB.filteredRgb);
+      candidates.push({
         status: 'ready', axis, grid: [x, y], surfaceIndexA: ia, surfaceIndexB: ib,
         surfaceA: sa, surfaceB: sb, entryA: ea, entryB: eb, rectA: ra, rectB: rb,
         corners, sharedUv: corners.a.map((c, i) => sa.uv[c]),
         sourceTexture: srcA, cropA, cropB,
-      };
+        coverage: {
+          uvRegionKey: uvRectKey(ra) + '|' + uvRectKey(rb),
+          lightmapIndices: [sa.lightmapIndex, sb.lightmapIndex],
+          meanVertexColorA: meanColorA.map(v => Number(v.toFixed(4))),
+          meanVertexColorB: meanColorB.map(v => Number(v.toFixed(4))),
+          vertexColorMeanDelta: Number(vertexColorMeanDelta.toFixed(4)),
+          sharedEdgeVertexColorDelta: Number(sharedEdgeVertexColorDelta.toFixed(4)),
+          centerLightmapA: {
+            rgb: centerLightmapA.filteredRgb, ao: centerLightmapA.filteredAo,
+            samplePosition: centerLightmapA.samplePosition,
+          },
+          centerLightmapB: {
+            rgb: centerLightmapB.filteredRgb, ao: centerLightmapB.filteredAo,
+            samplePosition: centerLightmapB.samplePosition,
+          },
+          aoDelta: Number(aoDelta.toFixed(3)),
+          rgbLightmapDelta: Number(rgbLightmapDelta.toFixed(3)),
+          selectedFor: [],
+        },
+      });
+      return candidates[candidates.length - 1];
     }
     return null;
   };
   for (let y = 0; y < gndInfo.height; y++) for (let x = 0; x < gndInfo.width; x++) {
     const index = y * gndInfo.width + x, cube = gndInfo.cubes[index];
     if (!cube || cube.topSurface < 0) continue;
-    if (x + 1 < gndInfo.width) {
-      const found = attempt('east', x, y, cube, gndInfo.cubes[index + 1]);
-      if (found) return found;
-    }
-    if (y + 1 < gndInfo.height) {
-      const found = attempt('north', x, y, cube, gndInfo.cubes[index + gndInfo.width]);
-      if (found) return found;
-    }
+    if (x + 1 < gndInfo.width) attempt('east', x, y, cube, gndInfo.cubes[index + 1]);
+    if (y + 1 < gndInfo.height) attempt('north', x, y, cube, gndInfo.cubes[index + gndInfo.width]);
   }
-  return { status: 'pending', reason: '尚未找到貼圖已載入、幾何邊與來源 UV 均連續的相鄰裁切面。' };
+  if (!candidates.length) {
+    return { status: 'pending', reason: '尚未找到貼圖已載入、幾何邊、來源 UV 與光照來源均可核對的相鄰裁切面。' };
+  }
+  const selected = [];
+  const selectedKeys = new Set();
+  const addBest = (label, predicate, score) => {
+    const options = candidates.filter(pair => !selectedKeys.has(pair)
+      && predicate(pair)).sort((a, b) => score(b) - score(a)
+        || a.grid[1] - b.grid[1] || a.grid[0] - b.grid[0]);
+    if (!options.length) return;
+    selected.push(options[0]);
+    selectedKeys.add(options[0]);
+    options[0].coverage.selectedFor.push(label);
+  };
+  addBest('UV 東向', pair => pair.axis === 'east',
+    pair => pair.coverage.aoDelta + pair.coverage.rgbLightmapDelta + pair.coverage.vertexColorMeanDelta * 255);
+  addBest('UV 北向', pair => pair.axis === 'north',
+    pair => pair.coverage.aoDelta + pair.coverage.rgbLightmapDelta + pair.coverage.vertexColorMeanDelta * 255);
+  addBest('AO 差異', pair => pair.coverage.aoDelta >= 8, pair => pair.coverage.aoDelta);
+  addBest('RGB lightmap 差異', pair => pair.coverage.rgbLightmapDelta >= 8, pair => pair.coverage.rgbLightmapDelta);
+  addBest('頂點色差異', pair => pair.coverage.vertexColorMeanDelta >= 0.04,
+    pair => pair.coverage.vertexColorMeanDelta);
+  addBest('AO＋RGB lightmap 差異', pair => pair.coverage.aoDelta >= 8
+    && pair.coverage.rgbLightmapDelta >= 8,
+  pair => pair.coverage.aoDelta + pair.coverage.rgbLightmapDelta);
+  const maxPairs = 6;
+  const diversityScore = pair => pair.coverage.aoDelta / 255
+    + pair.coverage.rgbLightmapDelta / 255
+    + pair.coverage.vertexColorMeanDelta;
+  const remainder = candidates.filter(pair => !selectedKeys.has(pair))
+    .sort((a, b) => diversityScore(b) - diversityScore(a)
+      || a.grid[1] - b.grid[1] || a.grid[0] - b.grid[0]);
+  for (const pair of remainder) {
+    if (selected.length >= maxPairs) break;
+    if (selected.some(existing => existing.axis === pair.axis
+      && existing.surfaceIndexA === pair.surfaceIndexA && existing.surfaceIndexB === pair.surfaceIndexB)) continue;
+    pair.coverage.selectedFor.push('補足樣本');
+    selected.push(pair);
+    selectedKeys.add(pair);
+  }
+  return { status: 'ready', candidateCount: candidates.length, pairs: selected };
 }
-
 function buildGndAuditQuad(entry) {
   const source = entry.object.geometry, geometry = new THREE.BufferGeometry(), start = entry.quadIndex * 4;
   for (const name of Object.keys(source.attributes)) {
@@ -3961,12 +4050,11 @@ function buildGndAuditQuad(entry) {
   return geometry;
 }
 
-function runGndSharedUvGpuBoundaryAudit() {
+function runSingleGndSharedUvGpuBoundaryAudit(pair) {
   if (!renderer.capabilities.isWebGL2 && !renderer.capabilities.isWebGL) {
     return { status: 'unavailable', reason: '瀏覽器沒有可用的 WebGL。' };
   }
-  const pair = findGndSharedUvAuditPair();
-  if (pair.status !== 'ready') return pair;
+  if (!pair || pair.status !== 'ready') return { status: 'unavailable', reason: '缺少已驗證的相鄰 surface 候選。' };
   let target = null;
   try {
     const image = pair.sourceTexture.image;
@@ -4188,7 +4276,7 @@ function runGndSharedUvGpuBoundaryAudit() {
         status: failures.length ? 'mismatch' : 'passed',
         mapId: mapInfo && mapInfo.mapId, texture: gndInfo.textures[pair.surfaceA.textureIndex],
         axis: pair.axis, grid: pair.grid, surfaces: [pair.surfaceIndexA, pair.surfaceIndexB],
-        sharedUv: pair.sharedUv, diffuseRects: [pair.rectA, pair.rectB],
+        sharedUv: pair.sharedUv, diffuseRects: [pair.rectA, pair.rectB], coverage: pair.coverage,
         cropPixelRects: [pair.cropA, pair.cropB],
         lightmaps: [pair.surfaceA.lightmapIndex, pair.surfaceB.lightmapIndex],
         sourceImage: { width: sourceWidth, height: sourceHeight }, mipLevels: mips.length,
@@ -4211,6 +4299,33 @@ function runGndSharedUvGpuBoundaryAudit() {
   }
 }
 
+
+function runGndSharedUvGpuBoundaryAudit() {
+  const scan = findGndSharedUvAuditPairs();
+  if (scan.status !== 'ready') return scan;
+  const audits = scan.pairs.map(pair => runSingleGndSharedUvGpuBoundaryAudit(pair));
+  const failures = audits.filter(audit => audit.status !== 'passed')
+    .map(audit => ({ surfaces: audit.surfaces || [], status: audit.status, failures: audit.failures || [],
+      reason: audit.reason || audit.message || null }));
+  const axes = [...new Set(audits.map(audit => audit.axis))];
+  const contrast = {
+    aoContrastPairs: audits.filter(audit => audit.coverage && audit.coverage.aoDelta >= 8).length,
+    rgbLightmapContrastPairs: audits.filter(audit => audit.coverage && audit.coverage.rgbLightmapDelta >= 8).length,
+    vertexColorContrastPairs: audits.filter(audit => audit.coverage && audit.coverage.vertexColorMeanDelta >= 0.04).length,
+    uniqueUvRegionPairs: new Set(audits.map(audit => audit.coverage && audit.coverage.uvRegionKey)).size,
+    uniqueLightmapIds: new Set(audits.flatMap(audit => audit.lightmaps || [])).size,
+  };
+  return {
+    status: failures.length ? 'mismatch' : 'passed',
+    mapId: mapInfo && mapInfo.mapId,
+    candidateCount: scan.candidateCount,
+    selectedPairCount: audits.length,
+    axes,
+    coverage: contrast,
+    audits,
+    failures,
+  };
+}
 if (explorerParams.get('roo-gnd-gpu-audit') === '1') {
   window.__rooGndGpuBoundaryAudit = { run: runGndSharedUvGpuBoundaryAudit };
 }
