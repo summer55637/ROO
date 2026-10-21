@@ -576,6 +576,31 @@ async function validateMap(mapId) {
     .filter(name => name && urls.textures[name]);
   assert.ok(usedTextures.length > 0, mapId + ' at least one used ground texture resolves');
 
+  // Capture every used Prontera diffuse atlas to identify whether the visible
+  // white triangle pattern is encoded in a different texture than city01/city02.
+  if (mapId === 'prontera') {
+    const allTextureArtifactDir = 'artifacts/gnd-source-textures';
+    mkdirSync(allTextureArtifactDir, { recursive: true });
+    const capturedTextures = [];
+    for (let textureIndex = 0; textureIndex < usedTextures.length; textureIndex++) {
+      const textureName = usedTextures[textureIndex];
+      const textureUrl = urls.textures[textureName];
+      if (!textureUrl) continue;
+      const response = await fetchResponse(textureUrl, 'prontera source texture ' + textureName);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      assert.ok(bytes.length > 8
+        && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
+      'Prontera used texture is a valid PNG: ' + textureName);
+      const filename = 'prontera-used-texture-' + String(textureIndex).padStart(2, '0') + '.png';
+      writeFileSync(allTextureArtifactDir + '/' + filename, bytes);
+      capturedTextures.push({ index: textureIndex, name: textureName, url: textureUrl, filename });
+    }
+    writeFileSync(
+      allTextureArtifactDir + '/prontera-used-texture-manifest.json',
+      JSON.stringify(capturedTextures, null, 2) + '\n'
+    );
+  }
+
   const topSurfaceIndexes = new Set();
   for (const cube of gnd.cubes) {
     if (cube.topSurface >= 0 && cube.topSurface < gnd.surfaces.length) {
