@@ -265,6 +265,8 @@ async function validateMap(mapId) {
   const terrainMeshData = buildGndMeshData(gnd, 0.2, lightmapAtlas);
   const vertexColorAudit = auditGndVertexColors(terrainMeshData);
   assert.ok(vertexColorAudit.cornerSamples > 0, mapId + ' rendered top surfaces have vertex-color samples');
+  assert.equal(vertexColorAudit.mismatchPairs, 0,
+    mapId + ' every shared 3D vertex must use the same ground-grid tint');
   assert.equal(lightmapAtlas.sourceGutter, 1,
     mapId + ' atlas excludes the source lightmap/AO border ring');
   assert.ok(lightmapAtlas, mapId + ' lightmap atlas was built');
