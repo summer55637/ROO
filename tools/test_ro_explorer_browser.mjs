@@ -220,9 +220,16 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             [-0.32 * box.width, 0.28 * box.height], [-0.16 * box.width, 0.28 * box.height],
             [0, 0.28 * box.height], [0.16 * box.width, 0.28 * box.height],
             [0.32 * box.width, 0.28 * box.height],
+            [-0.42 * box.width, -0.34 * box.height], [0.42 * box.width, -0.34 * box.height],
+            [-0.42 * box.width, 0.34 * box.height], [0.42 * box.width, 0.34 * box.height],
+            [-0.42 * box.width, 0], [0.42 * box.width, 0],
+            [0, -0.34 * box.height], [0, 0.34 * box.height],
+            [-0.38 * box.width, -0.24 * box.height], [0.38 * box.width, -0.24 * box.height],
+            [-0.38 * box.width, 0.24 * box.height], [0.38 * box.width, 0.24 * box.height],
           );
         }
         let foundVisibleGround = false;
+        const probeObservations = [];
         for (const [dx, dy] of offsets) {
           const point = {
             x: Math.max(box.x + 8, Math.min(box.x + box.width - 8, centerX + dx)),
@@ -231,7 +238,15 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
           await targetPage.mouse.move(point.x, point.y);
           await sleep(70);
           let diagnosticText = await inspector.innerText();
-          if (!diagnosticText.includes('Surface #')) continue;
+          if (!diagnosticText.includes('Surface #')) {
+            if (options.requireNonzeroLightmap && probeObservations.length < 12) {
+              probeObservations.push({
+                point: [Math.round(point.x - box.x), Math.round(point.y - box.y)],
+                result: diagnosticText.replace(/\s+/g, ' ').slice(0, 140),
+              });
+            }
+            continue;
+          }
           try {
             await targetPage.waitForFunction(() => {
               const text = document.getElementById('gnd-surface-inspector-content')?.textContent || '';
@@ -291,7 +306,8 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
           break;
         }
         assert.ok(foundVisibleGround,
-          mapSlug + ' 找不到未被前景模型遮住且可讀取 GPU 像素的地表位置。');
+          mapSlug + ' 找不到未被前景模型遮住且可讀取 GPU 像素的地表位置。'
+            + (options.requireNonzeroLightmap ? ' 探測樣本=' + JSON.stringify(probeObservations) : ''));
       } else {
         assert.ok(groundProbe, mapSlug + ' 未先找到純 Diffuse 的可見地表取樣點。');
         await targetPage.mouse.move(groundProbe.x, groundProbe.y);
@@ -575,7 +591,7 @@ async function run() {
     '冰城原生地圖沒有有效畫面尺寸。');
   await page.mouse.move(icecastleStage.x + icecastleStage.width / 2,
     icecastleStage.y + icecastleStage.height / 2);
-  for (let zoomStep = 0; zoomStep < 14; zoomStep++) {
+  for (let zoomStep = 0; zoomStep < 4; zoomStep++) {
     await page.mouse.wheel(0, -100);
     await sleep(35);
   }
