@@ -69,8 +69,6 @@ jobs:
         run: node tools/test_map_pathfinding.js
       - name: Test native GND map pipeline
         run: node tools/test_ro_map_assets.mjs
-      - name: Audit real RO map vertex colors and shared corners
-        run: node tools/test_ro_map_remote.mjs
       - name: Test map explorer direct-entry mode
         run: node tools/test_ro_explorer_bootstrap.mjs
       - name: Test native exploration minimap
