@@ -656,8 +656,57 @@ async function validateMap(mapId) {
       sourceUvBounds,
       sourcePixelBounds,
       surfaceUvs: sampleSurface.uv,
-    }, null, 2) + '\\n'
+    }, null, 2) + '\n'
   );
+
+  // The Prontera screenshot's suspicious white triangles came from this exact
+  // atlas/material region. Save that source tile separately instead of guessing
+  // whether the shape is baked into the bitmap or introduced by texture mapping.
+  if (mapId === 'prontera') {
+    const targetTextureIndex = gnd.textures.findIndex(name =>
+      /(?:^|\\/)prt_d_01\\.bmp$/i.test(normalizeTextureName(name)));
+    assert.ok(targetTextureIndex >= 0, 'Prontera has the prt_D_01.bmp diagnostic texture');
+    const boundsForSurface = surface => ({
+      minU: Math.min(...surface.uv.map(uv => uv[0])),
+      maxU: Math.max(...surface.uv.map(uv => uv[0])),
+      minV: Math.min(...surface.uv.map(uv => uv[1])),
+      maxV: Math.max(...surface.uv.map(uv => uv[1])),
+    });
+    const targetSurfaceIndex = gnd.surfaces.findIndex(surface => {
+      if (surface.textureIndex !== targetTextureIndex) return false;
+      const bounds = boundsForSurface(surface);
+      return Math.abs(bounds.minU - 0.5) < 1e-5
+        && Math.abs(bounds.maxU - 0.75) < 1e-5
+        && Math.abs(bounds.minV - 0.5) < 1e-5
+        && Math.abs(bounds.maxV - 0.75) < 1e-5;
+    });
+    assert.ok(targetSurfaceIndex >= 0, 'Prontera prt_D_01 has the UV region shown by the browser inspector');
+    const targetTextureName = normalizeTextureName(gnd.textures[targetTextureIndex]);
+    const targetTextureUrl = urls.textures[targetTextureName];
+    assert.ok(targetTextureUrl, 'Prontera diagnostic diffuse URL resolves');
+    const targetTextureResponse = await fetchResponse(targetTextureUrl, 'prontera prt_D_01 diagnostic texture');
+    const targetTextureBytes = Buffer.from(await targetTextureResponse.arrayBuffer());
+    writeFileSync(sourceArtifactDir + '/prontera-prt-d-01-source.png', targetTextureBytes);
+    const targetSurface = gnd.surfaces[targetSurfaceIndex];
+    writeFileSync(
+      sourceArtifactDir + '/prontera-prt-d-01-source-uv.json',
+      JSON.stringify({
+        mapId,
+        textureName: gnd.textures[targetTextureIndex],
+        textureUrl: targetTextureUrl,
+        surfaceIndex: targetSurfaceIndex,
+        imageSize: [diffuse.width, diffuse.height],
+        uvBounds: boundsForSurface(targetSurface),
+        sourcePixelBounds: {
+          x0: Math.round(0.5 * diffuse.width),
+          x1: Math.round(0.75 * diffuse.width),
+          y0: Math.round((1 - 0.75) * diffuse.height),
+          y1: Math.round((1 - 0.5) * diffuse.height),
+        },
+        surfaceUvs: targetSurface.uv,
+      }, null, 2) + '\n'
+    );
+  }
   const diffuseX = Math.min(diffuse.width - 1, Math.floor(wrapUv(diffuseUv[0]) * diffuse.width));
   // TextureLoader flips source images into Three.js UV space; V=0 is the PNG bottom row.
   const diffuseY = diffuse.height - 1
