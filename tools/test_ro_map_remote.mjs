@@ -232,6 +232,90 @@ function auditGndVertexColors(meshData) {
   };
 }
 
+function auditGndSharedTopEdges(gnd, worldScale = 0.2) {
+  const surfaceIsDrawn = surfaceIndex => {
+    if (!Number.isInteger(surfaceIndex) || surfaceIndex < 0 || surfaceIndex >= gnd.surfaces.length) {
+      return false;
+    }
+    const surface = gnd.surfaces[surfaceIndex];
+    return Boolean(surface && Number.isInteger(surface.textureIndex) && surface.textureIndex !== -1);
+  };
+  const topIsTextured = cube => {
+    if (!cube || !surfaceIsDrawn(cube.topSurface)) return false;
+    const surface = gnd.surfaces[cube.topSurface];
+    return surface.textureIndex >= 0 && surface.textureIndex < gnd.textures.length;
+  };
+  const result = {
+    adjacentTexturedTopEdges: 0,
+    continuousEdges: 0,
+    heightStepEdges: 0,
+    coveredHeightSteps: 0,
+    uncoveredHeightSteps: 0,
+    microscopicUncoveredSteps: 0,
+    maximumHeightDelta: 0,
+    examples: [],
+  };
+  const epsilon = 1e-5;
+  const microscopicWorldDelta = 0.02;
+  const addEdge = (axis, x, y, cube, neighbor, heightsA, heightsB, wallSurfaceIndex) => {
+    if (!topIsTextured(cube) || !topIsTextured(neighbor)) return;
+    if (![...heightsA, ...heightsB].every(Number.isFinite)) return;
+    result.adjacentTexturedTopEdges++;
+    const endpointDeltas = heightsA.map((value, index) =>
+      Math.abs(value - heightsB[index]) * worldScale);
+    const delta = Math.max(...endpointDeltas);
+    result.maximumHeightDelta = Math.max(result.maximumHeightDelta, delta);
+    if (delta <= epsilon) {
+      result.continuousEdges++;
+      return;
+    }
+    result.heightStepEdges++;
+    if (surfaceIsDrawn(wallSurfaceIndex)) {
+      result.coveredHeightSteps++;
+      return;
+    }
+    result.uncoveredHeightSteps++;
+    if (delta <= microscopicWorldDelta) result.microscopicUncoveredSteps++;
+    if (result.examples.length < 8) {
+      const wall = Number.isInteger(wallSurfaceIndex)
+        && wallSurfaceIndex >= 0 && wallSurfaceIndex < gnd.surfaces.length
+        ? gnd.surfaces[wallSurfaceIndex] : null;
+      result.examples.push({
+        axis,
+        grid: [x, y],
+        topSurfaces: [cube.topSurface, neighbor.topSurface],
+        endpointHeightDeltaWorld: endpointDeltas.map(value => Number(value.toFixed(5))),
+        maxHeightDeltaWorld: Number(delta.toFixed(5)),
+        wallSurface: wallSurfaceIndex,
+        wallTexture: wall ? wall.textureIndex : null,
+      });
+    }
+  };
+
+  for (let y = 0; y < gnd.height; y++) {
+    for (let x = 0; x < gnd.width; x++) {
+      const index = y * gnd.width + x;
+      const cube = gnd.cubes[index];
+      if (!cube || !topIsTextured(cube)) continue;
+      if (x + 1 < gnd.width) {
+        const east = gnd.cubes[index + 1];
+        if (east) {
+          addEdge('east', x, y, cube, east,
+            [cube.hSE, cube.hNE], [east.hSW, east.hNW], cube.eastSurface);
+        }
+      }
+      if (y + 1 < gnd.height) {
+        const north = gnd.cubes[index + gnd.width];
+        if (north) {
+          addEdge('north', x, y, cube, north,
+            [cube.hNW, cube.hNE], [north.hSW, north.hSE], cube.northSurface);
+        }
+      }
+    }
+  }
+  return result;
+}
+
 async function validateMap(mapId) {
   const manifestUrl = RAGASSETS_BASE_URL + '/maps/' + mapId + '/manifest.json';
   const manifestResponse = await fetchResponse(manifestUrl, mapId + ' manifest');
@@ -264,6 +348,7 @@ async function validateMap(mapId) {
   const lightmapAtlas = buildGndLightmapAtlasData(gnd, 16);
   const terrainMeshData = buildGndMeshData(gnd, 0.2, lightmapAtlas);
   const vertexColorAudit = auditGndVertexColors(terrainMeshData);
+  const sharedTopEdgeAudit = auditGndSharedTopEdges(gnd, 0.2);
   assert.ok(vertexColorAudit.cornerSamples > 0, mapId + ' rendered top surfaces have vertex-color samples');
   assert.equal(vertexColorAudit.mismatchPairs, 0,
     mapId + ' every shared 3D vertex must use the same ground-grid tint');
@@ -584,6 +669,19 @@ async function validateMap(mapId) {
       + ', largest mismatch=' + vertexColorAudit.maximumMismatchBytes + '/255'
       + (vertexColorAudit.worstExample
         ? ', example=' + JSON.stringify(vertexColorAudit.worstExample) : '')
+  );
+
+  console.log(
+    mapId + ' GND shared top-edge geometry audit: adjacent textured edges='
+      + sharedTopEdgeAudit.adjacentTexturedTopEdges
+      + ', continuous=' + sharedTopEdgeAudit.continuousEdges
+      + ', height steps=' + sharedTopEdgeAudit.heightStepEdges
+      + ', height steps covered by a wall surface=' + sharedTopEdgeAudit.coveredHeightSteps
+      + ', uncovered height steps=' + sharedTopEdgeAudit.uncoveredHeightSteps
+      + ', microscopic uncovered steps (<=0.02 world units)='
+      + sharedTopEdgeAudit.microscopicUncoveredSteps
+      + ', maximum adjacent edge height delta=' + sharedTopEdgeAudit.maximumHeightDelta.toFixed(5)
+      + ', first uncovered examples=' + JSON.stringify(sharedTopEdgeAudit.examples)
   );
 
   console.log(
