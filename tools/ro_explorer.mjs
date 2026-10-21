@@ -4001,7 +4001,8 @@ function findGndSharedUvAuditPairs() {
   addBest('UV 北向', pair => pair.axis === 'north',
     pair => pair.coverage.aoDelta + pair.coverage.rgbLightmapDelta + pair.coverage.vertexColorMeanDelta * 255);
   addBest('AO 差異', pair => pair.coverage.aoDelta >= 8, pair => pair.coverage.aoDelta);
-  addBest('RGB lightmap 差異', pair => pair.coverage.rgbLightmapDelta >= 8, pair => pair.coverage.rgbLightmapDelta);
+  addBest('不同 RGB lightmap 切片', pair => pair.coverage.lightmapIndices[0] !== pair.coverage.lightmapIndices[1],
+    pair => pair.coverage.rgbLightmapDelta);
   addBest('頂點色差異', pair => pair.coverage.vertexColorMeanDelta >= 0.04,
     pair => pair.coverage.vertexColorMeanDelta);
   addBest('AO＋RGB lightmap 差異', pair => pair.coverage.aoDelta >= 8

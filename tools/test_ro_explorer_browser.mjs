@@ -174,6 +174,9 @@ async function runGndGpuBoundaryAudit(targetPage, mapSlug) {
     await sleep(250);
   }
   assert.ok(report, mapSlug + ' 未取得 GND GPU 邊界稽核報告。');
+  const artifactPath = path.join(artifactDir, mapSlug + '-gnd-multiscale-gpu-boundaries.json');
+  await writeFile(artifactPath, JSON.stringify(report, null, 2) + '\n');
+
   assert.equal(report.status, 'passed',
     mapSlug + ' 多組 GND 相鄰 surface GPU diffuse／光照比對未通過：' + JSON.stringify(report));
   assert.ok(report.candidateCount >= 4,
@@ -184,8 +187,10 @@ async function runGndGpuBoundaryAudit(targetPage, mapSlug) {
     mapSlug + ' 必須涵蓋東向與北向相鄰 UV 邊界：' + JSON.stringify(report.axes));
   assert.ok(report.coverage.aoContrastPairs > 0,
     mapSlug + ' 所選樣本沒有真實 AO 來源差異，不能算覆蓋 AO 條件：' + JSON.stringify(report.coverage));
-  assert.ok(report.coverage.rgbLightmapContrastPairs > 0,
-    mapSlug + ' 所選樣本沒有真實 RGB lightmap 差異，不能算覆蓋烘焙光照：' + JSON.stringify(report.coverage));
+  assert.ok(report.coverage.uniqueLightmapIds >= 6,
+    mapSlug + ' 所選樣本需包含多個真實 RGB lightmap 切片：' + JSON.stringify(report.coverage));
+  assert.ok(report.coverage.vertexColorContrastPairs > 0,
+    mapSlug + ' 所選樣本沒有涵蓋不同地表頂點色條件：' + JSON.stringify(report.coverage));
   assert.ok(report.coverage.uniqueUvRegionPairs >= 4,
     mapSlug + ' 樣本未覆蓋足夠不同的 diffuse UV 子區域：' + JSON.stringify(report.coverage));
   for (const audit of report.audits) {
@@ -227,8 +232,6 @@ async function runGndGpuBoundaryAudit(targetPage, mapSlug) {
       }
     }
   }
-  const artifactPath = path.join(artifactDir, mapSlug + '-gnd-multiscale-gpu-boundaries.json');
-  await writeFile(artifactPath, JSON.stringify(report, null, 2) + '\n');
   console.log('GND 多組多尺度 GPU 邊界稽核：' + JSON.stringify(report));
   return report;
 }
