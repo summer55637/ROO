@@ -256,6 +256,8 @@ function auditGndSharedTopEdges(gnd, worldScale = 0.2) {
     microscopicUncoveredSteps: 0,
     maximumHeightDelta: 0,
     uncoveredByAxis: { east: 0, north: 0 },
+    uncoveredByTexture: { sameTextureIndex: 0, differentTextureIndex: 0 },
+    uncoveredTexturePairs: {},
     uncoveredByRegion: regionCounts,
     examples: [],
     examplesByRegion: regionExamples,
@@ -288,6 +290,13 @@ function auditGndSharedTopEdges(gnd, worldScale = 0.2) {
     regionCounts[region] = (regionCounts[region] || 0) + 1;
     const surface = gnd.surfaces[cube.topSurface];
     const neighborSurface = gnd.surfaces[neighbor.topSurface];
+    const sameTextureIndex = surface && neighborSurface
+      && surface.textureIndex === neighborSurface.textureIndex;
+    result.uncoveredByTexture[sameTextureIndex ? 'sameTextureIndex' : 'differentTextureIndex']++;
+    const textureName = item => item && item.textureIndex >= 0
+      ? (gnd.textures[item.textureIndex] || '(材質名稱缺失)') : '(無材質)';
+    const texturePair = [textureName(surface), textureName(neighborSurface)].sort().join(' <> ');
+    result.uncoveredTexturePairs[texturePair] = (result.uncoveredTexturePairs[texturePair] || 0) + 1;
     const wall = Number.isInteger(wallSurfaceIndex)
       && wallSurfaceIndex >= 0 && wallSurfaceIndex < gnd.surfaces.length
       ? gnd.surfaces[wallSurfaceIndex] : null;
@@ -698,8 +707,15 @@ async function validateMap(mapId) {
       + ', uncovered height steps=' + sharedTopEdgeAudit.uncoveredHeightSteps
       + ', microscopic uncovered steps (<=0.02 world units)='
       + sharedTopEdgeAudit.microscopicUncoveredSteps
+      + ', uncovered by axis=' + JSON.stringify(sharedTopEdgeAudit.uncoveredByAxis)
+      + ', uncovered where adjacent surfaces use same/different texture index='
+      + JSON.stringify(sharedTopEdgeAudit.uncoveredByTexture)
+      + ', uncovered by map quadrant=' + JSON.stringify(sharedTopEdgeAudit.uncoveredByRegion)
+      + ', frequent uncovered texture pairs=' + JSON.stringify(Object.entries(sharedTopEdgeAudit.uncoveredTexturePairs)
+        .sort((a, b) => b[1] - a[1]).slice(0, 10))
       + ', maximum adjacent edge height delta=' + sharedTopEdgeAudit.maximumHeightDelta.toFixed(5)
       + ', first uncovered examples=' + JSON.stringify(sharedTopEdgeAudit.examples)
+      + ', examples by map quadrant=' + JSON.stringify(sharedTopEdgeAudit.examplesByRegion)
   );
 
   console.log(
