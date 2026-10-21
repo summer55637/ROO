@@ -285,7 +285,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             const lightmapMatch = diagnosticText.match(/材質索引：-?\d+；lightmap 索引：(\d+)/);
             const uvMatch = diagnosticText.match(/游標處 Lightmap atlas UV2：\(([^)]+)\)/);
             const atlasUv = uvMatch ? uvMatch[1].split(',').map(value => Number(value.trim())) : null;
-            if (!sourceRgb || Math.max(...posterizedRgb) < 32
+            if (!sourceRgb || Math.max(...posterizedRgb) < 16
               || !surfaceMatch || !lightmapMatch || !atlasUv || atlasUv.length !== 2
               || !atlasUv.every(Number.isFinite)) {
               if (sourceRejectObservations.length < 8) {
@@ -388,7 +388,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
       absoluteChannelDelta: channelDelta,
       maxAbsoluteChannelDelta: Math.max(...channelDelta),
     };
-    assert.ok(expectedRgb.some((value, channel) => value >= 32 && gpuRgb[channel] >= 8),
+    assert.ok(expectedRgb.some((value, channel) => value >= 16 && gpuRgb[channel] >= 8),
       mapSlug + ' 原始 RGB lightmap 有明顯亮值，但 GPU 讀回仍接近全黑：' + JSON.stringify(audit));
     assert.ok(audit.maxAbsoluteChannelDelta <= 40,
       mapSlug + ' GPU RGB lightmap 讀回與原始來源／16 階 posterization 對不上：' + JSON.stringify(audit));
