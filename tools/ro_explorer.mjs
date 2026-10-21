@@ -17,7 +17,8 @@ import {
   buildGndWaterMeshData,
   buildGndWaterMeshDataByPlane,
   compareGndGatHeights,
-  insetGndTextureUvs,
+  mapGndDiffuseUvToSourcePixel,
+  resolveGndDiffuseCropRect,
   normalizeModelName,
   normalizeTextureName,
   parseGndBuffer,
@@ -1814,10 +1815,12 @@ async function loadRagassetsMap(mapName) {
       loadGndDiffuseSourceTexture(textureUrl).then(sourceTexture => {
         if (!isCurrentRequest()) return;
         let targetTexture = sourceTexture;
-        let textureWidth = sourceTexture.image
+        const sourceTextureWidth = sourceTexture.image
           && (sourceTexture.image.naturalWidth || sourceTexture.image.width);
-        let textureHeight = sourceTexture.image
+        const sourceTextureHeight = sourceTexture.image
           && (sourceTexture.image.naturalHeight || sourceTexture.image.height);
+        let textureWidth = sourceTextureWidth;
+        let textureHeight = sourceTextureHeight;
         let sourcePixelRect = null;
         let isIsolatedRegion = false;
 
@@ -1843,18 +1846,36 @@ async function loadRagassetsMap(mapName) {
           }
         }
 
-        if (!isIsolatedRegion) {
-          sourceTexture.wrapS = THREE.RepeatWrapping;
-          sourceTexture.wrapT = THREE.RepeatWrapping;
-          sourceTexture.generateMipmaps = true;
-          sourceTexture.minFilter = THREE.LinearMipmapLinearFilter;
-          sourceTexture.magFilter = THREE.LinearFilter;
-          sourceTexture.needsUpdate = true;
-        }
-        if (textureWidth > 0 && textureHeight > 0) {
-          const uvAttribute = geometry.getAttribute('uv');
-          uvAttribute.array.set(insetGndTextureUvs(uvAttribute.array, textureWidth, textureHeight));
+        const uvAttribute = geometry.getAttribute('uv');
+        const sourceUvAttribute = geometry.getAttribute('rooGndSourceUv');
+        if (isIsolatedRegion && sourcePixelRect && sourceTextureWidth > 0 && sourceTextureHeight > 0
+          && uvAttribute && sourceUvAttribute) {
+          // Preserve original GND source coordinates inside the padded crop.
+          // Insetting these corners would make adjacent crops sample different
+          // texels even when their shared vertex has the exact same source UV.
+          for (let uvAt = 0; uvAt < sourceUvAttribute.array.length; uvAt += 2) {
+            uvAttribute.array[uvAt] = (
+              sourceUvAttribute.array[uvAt] * sourceTextureWidth - sourcePixelRect.x0
+            ) / textureWidth;
+            uvAttribute.array[uvAt + 1] = (
+              sourceUvAttribute.array[uvAt + 1] * sourceTextureHeight
+              - (sourceTextureHeight - sourcePixelRect.y1)
+            ) / textureHeight;
+          }
           uvAttribute.needsUpdate = true;
+        } else {
+          if (!isIsolatedRegion) {
+            sourceTexture.wrapS = THREE.RepeatWrapping;
+            sourceTexture.wrapT = THREE.RepeatWrapping;
+            sourceTexture.generateMipmaps = true;
+            sourceTexture.minFilter = THREE.LinearMipmapLinearFilter;
+            sourceTexture.magFilter = THREE.LinearFilter;
+            sourceTexture.needsUpdate = true;
+          }
+          if (sourceUvAttribute && uvAttribute) {
+            uvAttribute.array.set(sourceUvAttribute.array);
+            uvAttribute.needsUpdate = true;
+          }
         }
 
         material.map = targetTexture;
@@ -3074,7 +3095,7 @@ function formatGndDiagnosticVector(values) {
   return (values || []).map(value => Number.isFinite(value) ? value.toFixed(4) : '—').join(', ');
 }
 
-function sampleGndSourceTexturePixel(texture, uv) {
+function sampleGndSourceTexturePixel(texture, uv, uvRect = null, sourcePixelRect = null) {
   const image = texture && texture.image;
   const width = image && (image.naturalWidth || image.videoWidth || image.width);
   const height = image && (image.naturalHeight || image.videoHeight || image.height);
@@ -3098,14 +3119,44 @@ function sampleGndSourceTexturePixel(texture, uv) {
     gndSourceTextureCanvasCache.set(texture, cached);
   }
 
-  const u = ((uv[0] % 1) + 1) % 1;
-  const v = ((uv[1] % 1) + 1) % 1;
-  const x = Math.max(0, Math.min(width - 1, Math.floor(u * width)));
-  const y = Math.max(0, Math.min(height - 1, height - 1 - Math.floor(v * height)));
   try {
-    const pixel = cached.context.getImageData(x, y, 1, 1).data;
-    return 'rgba(' + pixel[0] + ', ' + pixel[1] + ', ' + pixel[2] + ', ' + pixel[3]
-      + ') @ (' + x + ', ' + y + ')';
+    const mapping = uvRect
+      ? mapGndDiffuseUvToSourcePixel(uv, uvRect, width, height, sourcePixelRect)
+      : null;
+    const sampleX = mapping
+      ? mapping.sourcePosition[0]
+      : Math.max(0, Math.min(width - 1, uv[0] * width - 0.5));
+    const sampleY = mapping
+      ? mapping.sourcePosition[1]
+      : Math.max(0, Math.min(height - 1, height - 0.5 - uv[1] * height));
+    const x0 = Math.floor(sampleX);
+    const y0 = Math.floor(sampleY);
+    const x1 = Math.min(width - 1, x0 + 1);
+    const y1 = Math.min(height - 1, y0 + 1);
+    const blockWidth = x1 - x0 + 1;
+    const block = cached.context.getImageData(x0, y0, blockWidth, y1 - y0 + 1).data;
+    const fx = sampleX - x0;
+    const fy = sampleY - y0;
+    const channelAt = (x, y, channel) =>
+      block[((y - y0) * blockWidth + (x - x0)) * 4 + channel];
+    const sampled = [0, 1, 2, 3].map(channel => {
+      const top = channelAt(x0, y0, channel) * (1 - fx)
+        + channelAt(x1, y0, channel) * fx;
+      const bottom = channelAt(x0, y1, channel) * (1 - fx)
+        + channelAt(x1, y1, channel) * fx;
+      return Number((top * (1 - fy) + bottom * fy).toFixed(3));
+    });
+    const nearestX = Math.max(0, Math.min(width - 1, Math.round(sampleX)));
+    const nearestY = Math.max(0, Math.min(height - 1, Math.round(sampleY)));
+    const nearest = cached.context.getImageData(nearestX, nearestY, 1, 1).data;
+    const cropSummary = mapping
+      ? '; crop=[' + mapping.crop.x0 + ',' + mapping.crop.y0 + '–'
+        + mapping.crop.x1 + ',' + mapping.crop.y1 + ']; localUV=('
+        + formatGndDiagnosticVector(mapping.localUv) + ')'
+      : '';
+    return 'LOD0 線性預估 RGBA (' + sampled.join(', ') + '); 最近來源像素 RGBA ('
+      + nearest[0] + ', ' + nearest[1] + ', ' + nearest[2] + ', ' + nearest[3]
+      + ') @ (' + nearestX + ', ' + nearestY + ')' + cropSummary;
   } catch (error) {
     return '原貼圖像素不可讀（可能是跨來源 CORS 限制）：'
       + (error && error.message ? error.message : String(error));
@@ -3229,12 +3280,10 @@ function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
 
   // GND UVs describe pixel boundaries in the shared source atlas. Crop that region
   // into its own texture so each region builds an independent mip chain.
-  const x0 = Math.max(0, Math.min(width - 1, Math.round(uvRect.minU * width)));
-  const x1 = Math.max(x0 + 1, Math.min(width, Math.round(uvRect.maxU * width)));
-  const y0 = Math.max(0, Math.min(height - 1, Math.round((1 - uvRect.maxV) * height)));
-  const y1 = Math.max(y0 + 1, Math.min(height, Math.round((1 - uvRect.minV) * height)));
-  const regionWidth = x1 - x0;
-  const regionHeight = y1 - y0;
+  const crop = resolveGndDiffuseCropRect(uvRect, width, height);
+  const { x0, y0, x1, y1 } = crop;
+  const regionWidth = crop.width;
+  const regionHeight = crop.height;
   if (regionWidth < 1 || regionHeight < 1) {
     throw new Error('GND diffuse UV 子區域小於一個來源像素。');
   }
@@ -3261,7 +3310,7 @@ function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
     texture,
     width: regionWidth,
     height: regionHeight,
-    sourcePixelRect: { x0, y0, x1, y1 },
+    sourcePixelRect: { x0, y0, x1, y1, width: regionWidth, height: regionHeight },
   };
 }
 
@@ -3352,7 +3401,7 @@ function describeGndSurfaceForComparison(gnd, surfaceIndex, meshLookup) {
     diffuseCenter = sampleGndSourceTexturePixel(sourceTexture, [
       (bounds.minU + bounds.maxU) * 0.5,
       (bounds.minV + bounds.maxV) * 0.5,
-    ]);
+    ], bounds, entry ? entry.object.userData.rooGndDiffuseSourcePixelRect : null);
   }
   let lightSummary = '無有效 lightmap';
   const slices = gnd.lightmapSlices;
@@ -3476,8 +3525,9 @@ function updateGndSurfaceInspector(event) {
   const textureName = gndInfo.textures[surface.textureIndex] || object.userData.rooGndTextureName || '(未指定)';
   const uvLines = sourceUvs.map((sourceUv, corner) => (
     '  幾何角 ' + corner + ': 原始來源 UV (' + formatGndDiagnosticVector(sourceUv) + ')；'
-      + 'GPU 分區 UV (' + formatGndDiagnosticVector(actualUvs[corner]) + ')；來源像素 '
-      + sampleGndSourceTexturePixel(texture, sourceUv)
+      + 'GPU 分區 UV (' + formatGndDiagnosticVector(actualUvs[corner]) + ')；來源取樣 '
+      + sampleGndSourceTexturePixel(texture, sourceUv, object.userData.rooGndDiffuseUvRect,
+        object.userData.rooGndDiffuseSourcePixelRect)
   ));
   const colorLines = actualColors.map((color, corner) => (
     '  幾何角 ' + corner + ': RGB (' + formatGndDiagnosticVector(color) + ')'
@@ -3525,7 +3575,12 @@ function updateGndSurfaceInspector(event) {
       : '完整來源／Repeat UV'),
     '游標處原始來源 UV：(' + formatGndDiagnosticVector(cursorSourceUv) + ')；'
       + 'GPU 分區 UV：(' + formatGndDiagnosticVector([hit.uv.x, hit.uv.y]) + ')',
-    '游標處原貼圖像素近似值：' + sampleGndSourceTexturePixel(texture, cursorSourceUv),
+    '游標處 diffuse 來源座標／LOD0 線性預估：' + sampleGndSourceTexturePixel(
+      texture, cursorSourceUv, object.userData.rooGndDiffuseUvRect,
+      object.userData.rooGndDiffuseSourcePixelRect
+    ),
+    'GPU 使用的 diffuse crop 像素範圍：' + (object.userData.rooGndDiffuseSourcePixelRect
+      ? JSON.stringify(object.userData.rooGndDiffuseSourcePixelRect) : '完整來源貼圖'),
     '游標處插值頂點色 RGB：' + (cursorVertexColor
       ? '(' + formatGndDiagnosticVector(cursorVertexColor.slice(0, 3)) + ')'
       : '無法取得'),
