@@ -252,6 +252,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
           diagnosticText = await inspector.innerText();
           const pixelMatch = diagnosticText.match(/GPU 最終畫面取樣 RGBA：\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)/);
           if (!pixelMatch) continue;
+          let candidateLightmapProbe = null;
           if (options.requireNonzeroLightmap) {
             const sourceMatch = diagnosticText.match(
               /游標處來源 RGB lightmap \/ AO 最近像素（原始 GND bytes）：RGB \((\d+),\s*(\d+),\s*(\d+)\); AO \d+/
@@ -265,7 +266,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             if (!sourceRgb || Math.max(...posterizedRgb) < 32
               || !surfaceMatch || !lightmapMatch || !atlasUv || atlasUv.length !== 2
               || !atlasUv.every(Number.isFinite)) continue;
-            sourceLightmapProbe = {
+            candidateLightmapProbe = {
               surfaceIndex: Number(surfaceMatch[1]),
               lightmapIndex: Number(lightmapMatch[1]),
               atlasUv,
@@ -274,6 +275,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             };
           }
           if (!/(?:SW|SE|NW|NE): RGB \(\d+, \d+, \d+\); AO \d+/.test(diagnosticText)) continue;
+          if (options.requireNonzeroLightmap) sourceLightmapProbe = candidateLightmapProbe;
           const scrollMetrics = await targetPage.locator('#gnd-surface-inspector').evaluate(el => ({
             scrollHeight: el.scrollHeight,
             clientHeight: el.clientHeight,
