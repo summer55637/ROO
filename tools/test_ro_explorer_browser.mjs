@@ -813,6 +813,7 @@ async function run() {
   for (const mapSlug of ['ice_dun02', 'thor_v03']) {
     const mapParams = new URLSearchParams(icecastleParams);
     mapParams.set('map', mapSlug);
+    mapParams.set('roo-gnd-gpu-audit-only', '1');
     await page.goto(baseUrl + '/tools/ro_explorer.html?' + mapParams.toString(), {
       waitUntil: 'domcontentloaded',
       timeout: 30000,
