@@ -40,3 +40,11 @@ jobs:
           node --check tools/test_ro_map_remote.mjs
       - name: Validate real public maps and ground textures
         run: node tools/test_ro_map_remote.mjs
+      - name: Upload raw GND diffuse textures for seam diagnosis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: roo-gnd-source-textures
+          path: artifacts/gnd-source-textures/
+          if-no-files-found: ignore
+          retention-days: 14
