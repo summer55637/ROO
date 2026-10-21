@@ -227,15 +227,62 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             [-0.38 * box.width, -0.24 * box.height], [0.38 * box.width, -0.24 * box.height],
             [-0.38 * box.width, 0.24 * box.height], [0.38 * box.width, 0.24 * box.height],
           );
+
+          // Icecastle lightmaps have large genuinely black areas. After the
+          // hand-picked probes, scan a uniform grid to find a real lit texel.
+          const scanX = [-0.46, -0.39, -0.32, -0.25, -0.18, -0.11, -0.04,
+            0.03, 0.10, 0.17, 0.24, 0.31, 0.38, 0.45];
+          const scanY = [-0.40, -0.32, -0.24, -0.16, -0.08, 0, 0.08, 0.16, 0.24, 0.32, 0.40];
+          const seenOffsets = new Set(offsets.map(([dx, dy]) =>
+            Math.round(dx) + ':' + Math.round(dy)));
+          for (const yRatio of scanY) {
+            for (const xRatio of scanX) {
+              const dx = xRatio * box.width;
+              const dy = yRatio * box.height;
+              const key = Math.round(dx) + ':' + Math.round(dy);
+              if (seenOffsets.has(key)) continue;
+              seenOffsets.add(key);
+              offsets.push([dx, dy]);
+            }
+          }
         }
         let foundVisibleGround = false;
         const probeObservations = [];
         const sourceRejectObservations = [];
+        const visitedPoints = new Set();
+        let canvasCandidateCount = 0;
+        let groundSurfaceCount = 0;
+        let nonzeroSourcePixelCount = 0;
         for (const [dx, dy] of offsets) {
           const point = {
             x: Math.max(box.x + 8, Math.min(box.x + box.width - 8, centerX + dx)),
             y: Math.max(box.y + 8, Math.min(box.y + box.height - 8, centerY + dy)),
           };
+          const pointKey = Math.round(point.x) + ':' + Math.round(point.y);
+          if (visitedPoints.has(pointKey)) continue;
+          visitedPoints.add(pointKey);
+          const pointerTarget = await targetPage.evaluate(({ x, y }) => {
+            const canvas = document.querySelector('#stage > canvas');
+            const target = document.elementFromPoint(x, y);
+            return {
+              isCanvas: Boolean(canvas && target === canvas),
+              target: target ? {
+                tag: target.tagName,
+                id: target.id || '',
+                className: String(target.className || '').slice(0, 80),
+              } : null,
+            };
+          }, point);
+          if (!pointerTarget.isCanvas) {
+            if (options.requireNonzeroLightmap && probeObservations.length < 12) {
+              probeObservations.push({
+                point: [Math.round(point.x - box.x), Math.round(point.y - box.y)],
+                result: '座標被 UI 遮住：' + JSON.stringify(pointerTarget.target),
+              });
+            }
+            continue;
+          }
+          canvasCandidateCount++;
           await targetPage.mouse.move(point.x, point.y);
           await sleep(70);
           let diagnosticText = await inspector.innerText();
@@ -272,6 +319,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             continue;
           }
           diagnosticText = await inspector.innerText();
+          groundSurfaceCount++;
           const pixelMatch = diagnosticText.match(/GPU 最終畫面取樣 RGBA：\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)/);
           if (!pixelMatch && !options.requireNonzeroLightmap) continue;
           let candidateLightmapProbe = null;
@@ -281,6 +329,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             );
             const sourceRgb = sourceMatch ? sourceMatch.slice(1, 4).map(Number) : null;
             const posterizedRgb = sourceRgb && sourceRgb.map(value => Math.floor(value / 16) * 16);
+            if (sourceRgb && sourceRgb.some(value => value > 0)) nonzeroSourcePixelCount++;
             const surfaceMatch = diagnosticText.match(/Surface #(\d+)/);
             const lightmapMatch = diagnosticText.match(/材質索引：-?\d+；lightmap 索引：(\d+)/);
             const uvMatch = diagnosticText.match(/游標處 Lightmap atlas UV2：\(([^)]+)\)/);
@@ -326,7 +375,14 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             ? mapSlug + ' 找不到 RGB lightmap 非零亮點的可見地表取樣點。'
             : mapSlug + ' 找不到未被前景模型遮住且可讀取 GPU 像素的地表位置。')
             + (options.requireNonzeroLightmap
-              ? ' 無地表樣本=' + JSON.stringify(probeObservations)
+              ? ' 掃描統計=' + JSON.stringify({
+                  candidates: offsets.length,
+                  uniquePoints: visitedPoints.size,
+                  canvasCandidates: canvasCandidateCount,
+                  groundSurfaces: groundSurfaceCount,
+                  nonzeroSourcePixels: nonzeroSourcePixelCount,
+                })
+                + ' 無地表樣本=' + JSON.stringify(probeObservations)
                 + ' 來源被排除樣本=' + JSON.stringify(sourceRejectObservations)
               : ''));
       } else {
