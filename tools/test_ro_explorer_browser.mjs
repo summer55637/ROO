@@ -310,6 +310,8 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             && text.includes('游標處插值頂點色 RGB：')
             && text.includes('游標處 Lightmap atlas UV2：')
             && text.includes('游標處來源 RGB lightmap / AO 最近像素（原始 GND bytes）：RGB (')
+                && text.includes('GPU 使用的 diffuse crop 像素範圍：')
+                && text.includes('游標處 RGB lightmap / AO 預期 GPU LOD0 線性取樣')
                 && (!requireGpuReadback
                   || /GPU 最終畫面取樣 RGBA：\(\d+,\s*\d+,\s*\d+,\s*\d+\)/.test(text));
             }, { requireGpuReadback: !options.requireNonzeroLightmap }, {
@@ -403,6 +405,8 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             && text.includes('游標處插值頂點色 RGB：')
             && text.includes('游標處 Lightmap atlas UV2：')
             && text.includes('游標處來源 RGB lightmap / AO 最近像素（原始 GND bytes）：RGB (')
+                && text.includes('GPU 使用的 diffuse crop 像素範圍：')
+                && text.includes('游標處 RGB lightmap / AO 預期 GPU LOD0 線性取樣')
             && /GPU 最終畫面取樣 RGBA：\(\d+,\s*\d+,\s*\d+,\s*\d+\)/.test(text);
         }, { value: mode.value, label: mode.label }, {
           timeout: options.requireNonzeroLightmap ? 12000 : 5000,
