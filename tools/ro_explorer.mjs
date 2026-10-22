@@ -1866,9 +1866,12 @@ async function loadRagassetsMap(mapName) {
             uvAttribute.array[uvAt] = (
               sourceUvAttribute.array[uvAt] * sourceTextureWidth - sourcePixelRect.x0
             ) / textureWidth;
+            // CanvasTexture flips the top-origin crop vertically. Because the crop
+            // content starts at canvas row zero and may be shorter than the padded
+            // texture, convert through the actual canvas height and source crop y0.
             uvAttribute.array[uvAt + 1] = (
               sourceUvAttribute.array[uvAt + 1] * sourceTextureHeight
-              - (sourceTextureHeight - sourcePixelRect.y1)
+                + textureHeight - sourceTextureHeight + sourcePixelRect.y0
             ) / textureHeight;
           }
           uvAttribute.needsUpdate = true;
@@ -4207,7 +4210,8 @@ function auditGndDiffuseSharedUvCrops(pair, target, width, height, sourceWidth, 
   ];
   const uvForCrop = (uv, crop, textureSize) => [
     (uv[0] * sourceWidth - crop.x0) / textureSize.width,
-    (uv[1] * sourceHeight - (sourceHeight - crop.y1)) / textureSize.height,
+    (uv[1] * sourceHeight + textureSize.height - sourceHeight + crop.y0)
+      / textureSize.height,
   ];
   const makeMesh = (map, uvValues, centerX) => {
     const geometry = new THREE.BufferGeometry();
