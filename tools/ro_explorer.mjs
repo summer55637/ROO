@@ -4260,9 +4260,39 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
           const surface = i === 0 ? pair.surfaceA : pair.surfaceB;
           const lightmap = sampleGndLightmapSourceAtUv(surface, atlasUv);
           const light = rswInfo && rswInfo.light;
-          const rswMultiplier = light ? computeGndLightMultiplier(
-            normal, computeGndLightDirection(light.longitude, light.latitude), light.ambient, light.diffuse
-          ) : [1, 1, 1];
+          let rswMultiplier = [1, 1, 1];
+          if (light) {
+            // The shader computes directional light at each vertex, then the GPU
+            // interpolates that varying across the triangle. Match that operation
+            // here instead of applying the nonlinear light formula to an already
+            // interpolated normal (which only matched flat, per-quad normals).
+            const geometry = hit.object.geometry;
+            const normalAttribute = geometry.getAttribute('rooGndVertexNormal');
+            const positionAttribute = geometry.getAttribute('position');
+            const face = hit.face;
+            const point = index => new THREE.Vector3(
+              positionAttribute.getX(index), positionAttribute.getY(index), positionAttribute.getZ(index)
+            );
+            const bary = THREE.Triangle.getBarycoord(
+              hit.point, point(face.a), point(face.b), point(face.c), new THREE.Vector3()
+            );
+            if (!normalAttribute || !positionAttribute || !bary
+              || ![bary.x, bary.y, bary.z].every(Number.isFinite)) {
+              throw new Error('GPU sample 無法取得方向光的三角形重心座標。');
+            }
+            const direction = computeGndLightDirection(light.longitude, light.latitude);
+            const weights = [bary.x, bary.y, bary.z];
+            const vertexMultipliers = [face.a, face.b, face.c].map(index =>
+              computeGndLightMultiplier([
+                normalAttribute.getX(index),
+                normalAttribute.getY(index),
+                normalAttribute.getZ(index),
+              ], direction, light.ambient, light.diffuse)
+            );
+            rswMultiplier = [0, 1, 2].map(axis => weights.reduce(
+              (sum, weight, corner) => sum + weight * vertexMultipliers[corner][axis], 0
+            ));
+          }
           return {
             side: i === 0 ? 'A' : 'B',
             surfaceIndex: entries[i].surfaceIndex,
