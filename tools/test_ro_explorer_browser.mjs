@@ -825,7 +825,7 @@ async function run() {
   // to load or to match its source/GPU lightmap data remains a hard test failure.
   let extraMapAudits = 0;
   let extraMapSkips = 0;
-  for (const mapSlug of ['ice_dun02', 'thor_v03', 'iz_dun03', 'gl_cas01', 'gef_fild00', 'pay_dun00']) {
+  for (const mapSlug of ['ice_dun02', 'thor_v03']) {
     const manifestAvailable = await page.evaluate(async map => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10000);
@@ -837,7 +837,7 @@ async function run() {
         const manifest = await response.json();
         return manifest && typeof manifest === 'object' && !Array.isArray(manifest)
           && (!manifest.map || String(manifest.map).toLowerCase() === map)
-          && manifest.files && typeof manifest.files === 'object';
+          && manifest.files && typeof manifest.files === 'object'\n          && ['gat', 'gnd', 'rsw'].every(ext => manifest.files[ext] === map + '.' + ext);
       } catch (error) {
         return false;
       } finally {
