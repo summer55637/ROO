@@ -597,6 +597,184 @@ async function validateMap(mapId) {
   ]);
 
   const gnd = parseGndBuffer(gndBytes);
+
+  if (mapId === 'tra_fild') {
+    // Preserve a binary-level trace for every visible streak probe. This compares
+    // the parser against the raw GND record and records the exact neighboring cubes.
+    const traceDir = 'artifacts/gnd-source-textures';
+    mkdirSync(traceDir, { recursive: true });
+    const raw = new DataView(gndBytes);
+    const textureCount = raw.getInt32(18, true);
+    const texturePathLength = raw.getInt32(22, true);
+    const lightmapHeaderOffset = 26 + textureCount * texturePathLength;
+    let surfaceCountOffset;
+    if (gnd.lightmapLayout === 'standard-split') {
+      surfaceCountOffset = lightmapHeaderOffset + 4 + gnd.lightmapCount * 268;
+    } else {
+      const width = raw.getInt32(lightmapHeaderOffset + 4, true);
+      const height = raw.getInt32(lightmapHeaderOffset + 8, true);
+      const dataBytes = gnd.lightmapCount * width * height * 4;
+      surfaceCountOffset = lightmapHeaderOffset + 16 + dataBytes;
+    }
+    const rawSurfaceCount = raw.getInt32(surfaceCountOffset, true);
+    const surfaceStart = surfaceCountOffset + 4;
+    const surfaceStride = gnd.surfaceRecordBytes;
+    const cubeStart = surfaceStart + rawSurfaceCount * surfaceStride;
+    assert.equal(rawSurfaceCount, gnd.surfaces.length, 'tra_fild raw GND surface count matches parser');
+    assert.ok(cubeStart + gnd.width * gnd.height * 28 <= gndBytes.byteLength,
+      'tra_fild raw GND surface/cube sections fit within the file');
+
+    const observedStreakHits = [
+      { x: 37, y: 93, surfaceIndex: 9935 },
+      { x: 38, y: 92, surfaceIndex: 9829 },
+      { x: 38, y: 91, surfaceIndex: 9724 },
+      { x: 42, y: 93, surfaceIndex: 9945 },
+      { x: 43, y: 92, surfaceIndex: 9834 },
+      { x: 43, y: 91, surfaceIndex: 9729 },
+      { x: 47, y: 93, surfaceIndex: 9955 },
+      { x: 47, y: 92, surfaceIndex: 9838 },
+      { x: 48, y: 91, surfaceIndex: 9734 },
+      { x: 51, y: 93, surfaceIndex: 9963 },
+      { x: 52, y: 92, surfaceIndex: 9843 },
+      { x: 55, y: 94, surfaceIndex: 10113 },
+      { x: 56, y: 93, surfaceIndex: 9973 },
+      { x: 56, y: 92, surfaceIndex: 9847 },
+      { x: 60, y: 94, surfaceIndex: 10123 },
+      { x: 60, y: 93, surfaceIndex: 9981 },
+      { x: 60, y: 92, surfaceIndex: 9851 },
+      { x: 63, y: 94, surfaceIndex: 10129 },
+      { x: 64, y: 93, surfaceIndex: 9989 },
+      { x: 64, y: 92, surfaceIndex: 9855 },
+      { x: 66, y: 94, surfaceIndex: 10135 },
+      { x: 66, y: 93, surfaceIndex: 9993 },
+      { x: 67, y: 92, surfaceIndex: 9858 },
+    ];
+    const rawBytesHex = (start, length) => Buffer.from(gndBytes, start, length).toString('hex');
+    const uvRawForSurface = surfaceIndex => {
+      const at = surfaceStart + surfaceIndex * surfaceStride;
+      const rawUv = Array.from({ length: 8 }, (_, i) => raw.getFloat32(at + i * 4, true));
+      return {
+        uv: [[rawUv[0], rawUv[4]], [rawUv[1], rawUv[5]],
+          [rawUv[2], rawUv[6]], [rawUv[3], rawUv[7]]],
+        rawU: rawUv.slice(0, 4),
+        rawV: rawUv.slice(4, 8),
+      };
+    };
+    const auditedSurfaces = new Map();
+    const addSurface = surfaceIndex => {
+      if (!Number.isInteger(surfaceIndex) || surfaceIndex < 0 || surfaceIndex >= gnd.surfaces.length) return;
+      if (auditedSurfaces.has(surfaceIndex)) return;
+      const surface = gnd.surfaces[surfaceIndex];
+      const at = surfaceStart + surfaceIndex * surfaceStride;
+      const coords = uvRawForSurface(surfaceIndex);
+      const textureIndex = gnd.surfaceRecordBytes === 56
+        ? raw.getInt32(at + 32, true) : raw.getInt16(at + 32, true);
+      const lightmapIndex = gnd.surfaceRecordBytes === 56
+        ? raw.getInt32(at + 36, true) : raw.getInt16(at + 34, true);
+      const cornerCount = gnd.surfaceRecordBytes === 56 ? 4 : 1;
+      const rawBgra = Array.from({ length: cornerCount }, (_, corner) => {
+        const colorAt = at + (cornerCount === 4 ? 40 + corner * 4 : 36);
+        return Array.from(Buffer.from(gndBytes, colorAt, 4));
+      });
+      const decodedRgba = rawBgra.map(([b, g, r, a]) =>
+        [r / 255, g / 255, b / 255, a / 255]);
+      assert.deepEqual(coords.uv, surface.uv, 'tra_fild surface #' + surfaceIndex + ' raw UV order matches parser');
+      assert.equal(textureIndex, surface.textureIndex,
+        'tra_fild surface #' + surfaceIndex + ' raw texture ID matches parser');
+      assert.equal(lightmapIndex, surface.lightmapIndex,
+        'tra_fild surface #' + surfaceIndex + ' raw lightmap ID matches parser');
+      assert.deepEqual(decodedRgba[0], surface.color,
+        'tra_fild surface #' + surfaceIndex + ' raw BGRA tint decodes to parsed RGBA');
+      auditedSurfaces.set(surfaceIndex, {
+        surfaceIndex,
+        byteOffset: at,
+        byteLength: surfaceStride,
+        rawHex: rawBytesHex(at, surfaceStride),
+        rawU: coords.rawU,
+        rawV: coords.rawV,
+        uv: surface.uv,
+        textureIndex,
+        texturePath: textureIndex >= 0 ? gnd.textures[textureIndex] : null,
+        lightmapIndex,
+        rawBgraTint: rawBgra,
+        parsedRgbaTint: decodedRgba,
+      });
+    };
+    const cubeRecord = (x, y) => {
+      if (x < 0 || y < 0 || x >= gnd.width || y >= gnd.height) return null;
+      const index = y * gnd.width + x;
+      const at = cubeStart + index * 28;
+      const parsed = gnd.cubes[index];
+      const heights = [0, 1, 2, 3].map(i => raw.getFloat32(at + i * 4, true));
+      const ids = [0, 1, 2].map(i => raw.getInt32(at + 16 + i * 4, true));
+      assert.deepEqual(heights, [parsed.hSW, parsed.hSE, parsed.hNW, parsed.hNE],
+        'tra_fild cube (' + x + ',' + y + ') raw heights match parser');
+      assert.deepEqual(ids, [parsed.topSurface, parsed.northSurface, parsed.eastSurface],
+        'tra_fild cube (' + x + ',' + y + ') raw surface IDs match parser');
+      ids.forEach(addSurface);
+      return {
+        xy: [x, y],
+        cubeIndex: index,
+        byteOffset: at,
+        rawHex: rawBytesHex(at, 28),
+        heights,
+        topSurface: ids[0],
+        northSurface: ids[1],
+        eastSurface: ids[2],
+      };
+    };
+    const samples = observedStreakHits.map(hit => {
+      const cube = cubeRecord(hit.x, hit.y);
+      assert.ok(cube, 'tra_fild streak probe cube is within the source GND');
+      assert.equal(cube.topSurface, hit.surfaceIndex,
+        'tra_fild visible diffuse probe maps to the expected raw TOP surface at (' + hit.x + ',' + hit.y + ')');
+      const neighbours = {
+        west: cubeRecord(hit.x - 1, hit.y),
+        east: cubeRecord(hit.x + 1, hit.y),
+        south: cubeRecord(hit.x, hit.y - 1),
+        north: cubeRecord(hit.x, hit.y + 1),
+      };
+      return {
+        observedCube: [hit.x, hit.y],
+        expectedSurfaceIndex: hit.surfaceIndex,
+        cube,
+        neighbours,
+      };
+    });
+    writeFileSync(traceDir + '/tra-fild-raw-gnd-surface-audit.json', JSON.stringify({
+      mapId,
+      gndVersion: gnd.version,
+      gndSize: [gnd.width, gnd.height],
+      layout: gnd.lightmapLayout,
+      surfaceRecordBytes: surfaceStride,
+      rawFileBytes: gndBytes.byteLength,
+      offsets: {
+        textureTable: 26,
+        lightmapHeader: lightmapHeaderOffset,
+        surfaceCount: surfaceCountOffset,
+        surfaceStart,
+        cubeStart,
+      },
+      textureTable: gnd.textures.map((path, index) => ({ index, path })),
+      probes: samples,
+      uniqueReferencedSurfaces: [...auditedSurfaces.values()].sort((a, b) => a.surfaceIndex - b.surfaceIndex),
+      checks: {
+        rawSurfaceCountMatchesParser: rawSurfaceCount === gnd.surfaces.length,
+        rawCubeCount: gnd.width * gnd.height,
+        rawProbeTopSurfaceMatchesBrowser: samples.length === observedStreakHits.length,
+        rawUvTextureLightmapAndBgraMatchParser: true,
+      },
+    }, null, 2) + '\n');
+    console.log('tra_fild raw GND surface/cube audit: ' + JSON.stringify({
+      gndVersion: gnd.version,
+      size: [gnd.width, gnd.height],
+      stride: surfaceStride,
+      samples: samples.length,
+      uniqueSurfaces: auditedSurfaces.size,
+      textureIds: [...new Set([...auditedSurfaces.values()].map(s => s.textureIndex))],
+      surfaceOffsets: [surfaceStart, cubeStart],
+    }));
+  }
   assert.ok(['standard-split', 'legacy-split'].includes(gnd.lightmapLayout),
     mapId + ' recognized GND lightmap layout');
   assert.equal(gnd.lightmapSlices.length, gnd.lightmapCount, mapId + ' lightmap slice count');
