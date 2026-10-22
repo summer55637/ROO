@@ -38,6 +38,7 @@ jobs:
           node --check tools/test_ro_map_remote.mjs
           node --check tools/ro_explorer.mjs
           node --check tools/test_ro_explorer_browser.mjs
+          node --check tools/test_ro_explorer_multimap_gpu.mjs
           node --check tools/test_ro_explorer_live_combat.mjs
           node --check tools/ro_explorer_hud.mjs
           node --check tools/test_ro_explorer_hud.mjs
