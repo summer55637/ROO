@@ -171,8 +171,10 @@ const gndDiffuseSourceTexturePromises = new Map();
 function loadGndDiffuseSourceTexture(url) {
   if (!gndDiffuseSourceTexturePromises.has(url)) {
     const promise = textureLoader.loadAsync(url).then(texture => {
-      // Classic RO GND blends the stored RGB values directly with vertex color/AO/lightmap.
+      // Match GRFEditor's GndTexture sampler: linear filtering with ClampToEdge on both axes.
       texture.colorSpace = THREE.NoColorSpace;
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
       return texture;
     }).catch(error => {
       gndDiffuseSourceTexturePromises.delete(url);
@@ -1863,16 +1865,6 @@ async function loadRagassetsMap(mapName) {
           // mip level shares the same grid phase as the source. Non-POT fallback
           // crops remain top-left packed and require a local UV transform.
           const sourceAligned = sourcePixelRect.sourceAligned === true;
-          if (sourceAligned) {
-            // POT regions use the shared source atlas; RO surfaces may bridge UV=0/1.
-            // Keep the original mip chain, but wrap both atlas axes like the RO renderer.
-            sourceTexture.wrapS = THREE.RepeatWrapping;
-            sourceTexture.wrapT = THREE.RepeatWrapping;
-            sourceTexture.generateMipmaps = true;
-            sourceTexture.minFilter = THREE.LinearMipmapLinearFilter;
-            sourceTexture.magFilter = THREE.LinearFilter;
-            sourceTexture.needsUpdate = true;
-          }
           for (let uvAt = 0; uvAt < sourceUvAttribute.array.length; uvAt += 2) {
             if (sourceAligned) {
               uvAttribute.array[uvAt] = sourceUvAttribute.array[uvAt];
@@ -1891,8 +1883,8 @@ async function loadRagassetsMap(mapName) {
           uvAttribute.needsUpdate = true;
         } else {
           if (!isIsolatedRegion) {
-            sourceTexture.wrapS = THREE.RepeatWrapping;
-            sourceTexture.wrapT = THREE.RepeatWrapping;
+            sourceTexture.wrapS = THREE.ClampToEdgeWrapping;
+            sourceTexture.wrapT = THREE.ClampToEdgeWrapping;
             sourceTexture.generateMipmaps = true;
             sourceTexture.minFilter = THREE.LinearMipmapLinearFilter;
             sourceTexture.magFilter = THREE.LinearFilter;
@@ -4674,9 +4666,9 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
             hasLightmap: hasLightmap[0],
             lod: Number(lods[i].toFixed(3)),
             expected: {
-              diffuseRgb: sampleGndAuditMip(mips, sourceUv, lods[i], true, true),
-              diffuseClampRgb: pair.wrapBoundary
-                ? sampleGndAuditMip(mips, sourceUv, lods[i], false, false) : null,
+              diffuseRgb: sampleGndAuditMip(mips, sourceUv, lods[i], false, false),
+              diffuseRepeatRgb: pair.wrapBoundary
+                ? sampleGndAuditMip(mips, sourceUv, lods[i], true, true) : null,
               vertexColorRgb: color.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255)),
               rswLightRgb: rswMultiplier.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255)),
               rgbLightmap: lightmap && lightmap.filteredRgb
@@ -4698,13 +4690,13 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
             const texture = pair.sourceTexture;
             const originalWrapS = texture.wrapS;
             const originalWrapT = texture.wrapT;
-            texture.wrapS = THREE.ClampToEdgeWrapping;
-            texture.wrapT = THREE.ClampToEdgeWrapping;
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
             texture.needsUpdate = true;
             renderer.clear(true, true, true);
             renderer.render(auditScene, auditCamera);
             samples.forEach((sample, index) => {
-              sample.framebuffer.diffuseClampBoundary = readPixel(pixels[index]);
+              sample.framebuffer.diffuseRepeatBoundary = readPixel(pixels[index]);
             });
             texture.wrapS = originalWrapS;
             texture.wrapT = originalWrapT;
@@ -4714,10 +4706,10 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
         for (const sample of samples) {
           sample.errors = {
             diffuseMipRgb: maxDelta(sample.framebuffer.diffuse, sample.expected.diffuseRgb),
-            diffuseClampMipRgb: pair.wrapBoundary
-              ? maxDelta(sample.framebuffer.diffuseClampBoundary, sample.expected.diffuseClampRgb) : 0,
+            diffuseRepeatMipRgb: pair.wrapBoundary
+              ? maxDelta(sample.framebuffer.diffuseRepeatBoundary, sample.expected.diffuseRepeatRgb) : 0,
             wrapSamplerDelta: pair.wrapBoundary
-              ? maxDelta(sample.framebuffer.diffuse, sample.framebuffer.diffuseClampBoundary) : null,
+              ? maxDelta(sample.framebuffer.diffuse, sample.framebuffer.diffuseRepeatBoundary) : null,
             vertexColorRgb: maxDelta(sample.framebuffer.vertexColor, sample.expected.vertexColorRgb),
             rswLightRgb: maxDelta(sample.framebuffer.rswLight, sample.expected.rswLightRgb),
             rgbLightmap: maxDelta(sample.framebuffer.rgbLightmap, sample.expected.rgbLightmap),
@@ -4736,7 +4728,7 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
           projectedTilePixels: Number(projectedTilePixels.toFixed(3)),
           effectiveLod: samples.map(s => s.lod),
           maxDelta: {
-            diffuseMipRgb: max('diffuseMipRgb'), diffuseClampMipRgb: max('diffuseClampMipRgb'),
+            diffuseMipRgb: max('diffuseMipRgb'), diffuseRepeatMipRgb: max('diffuseRepeatMipRgb'),
             vertexColorRgb: max('vertexColorRgb'),
             rswLightRgb: max('rswLightRgb'), rgbLightmap: max('rgbLightmap'), ao: max('ao'),
             combinedFromComponents: max('combinedFromComponents'),
@@ -4749,11 +4741,11 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
       const diffuseSharedUv = pair.wrapBoundary
         ? {
           status: 'not-applicable',
-          reason: '兩側來源 UV 相差一個 Repeat 週期；分別比對來源 mipmap 與 Repeat/Clamp GPU framebuffer。',
+          reason: '兩側來源 UV 端點相差一個週期；比對官方 ClampToEdge 與診斷用 Repeat GPU framebuffer。',
           samples: [], maxInterCropDelta: null, maxCropVsSourceDelta: null,
         }
         : auditGndDiffuseSharedUvCrops(pair, target, width, height, sourceWidth, sourceHeight);
-      const limits = { diffuseMipRgb: 12, diffuseClampMipRgb: 12, vertexColorRgb: 3, rswLightRgb: 4,
+      const limits = { diffuseMipRgb: 12, diffuseRepeatMipRgb: 12, vertexColorRgb: 3, rswLightRgb: 4,
         rgbLightmap: 4, ao: 4, combinedFromComponents: 4 };
       const sharedNormalLimit = 1e-5;
       const sharedNormalDelta = pair.coverage.sharedEdgeNormalMaxDelta;
@@ -4779,8 +4771,10 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
         diffuseRects: [pair.rectA, pair.rectB], coverage: pair.coverage,
         cropPixelRects: [pair.cropA, pair.cropB],
         samplerWrap: {
-          s: pair.sourceTexture.wrapS === THREE.RepeatWrapping ? 'repeat' : 'clamp-or-other',
-          t: pair.sourceTexture.wrapT === THREE.RepeatWrapping ? 'repeat' : 'clamp-or-other',
+          s: pair.sourceTexture.wrapS === THREE.RepeatWrapping ? 'repeat'
+            : pair.sourceTexture.wrapS === THREE.ClampToEdgeWrapping ? 'clamp-to-edge' : 'other',
+          t: pair.sourceTexture.wrapT === THREE.RepeatWrapping ? 'repeat'
+            : pair.sourceTexture.wrapT === THREE.ClampToEdgeWrapping ? 'clamp-to-edge' : 'other',
         },
         lightmaps: [pair.surfaceA.lightmapIndex, pair.surfaceB.lightmapIndex],
         sourceImage: { width: sourceWidth, height: sourceHeight }, mipLevels: mips.length,
