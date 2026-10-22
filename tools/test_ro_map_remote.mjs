@@ -1302,7 +1302,7 @@ async function validateMap(mapId) {
     })();
     const inspectorUv = [0.9210, 0.0012];
     const inspectorSample = mapGndDiffuseUvToSourcePixel(
-      inspectorUv, targetSurface.uv, image.width, image.height
+      inspectorUv, uvBounds, image.width, image.height
     );
     const probeX = inspectorSample.nearestPixel[0];
     const probeY = inspectorSample.nearestPixel[1];
