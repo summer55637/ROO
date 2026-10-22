@@ -3535,11 +3535,55 @@ function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
   }
 
   const texture = new THREE.CanvasTexture(canvas);
+  // POT crops keep the atlas' absolute texel phase, but auto-generated GPU mip
+  // chains can still diverge by a few RGB levels across an edge-extruded region.
+  // Build the mip chain from the exact padded RGBA bytes, quantizing each 2x2
+  // level like an 8-bit texture upload; every level retains the crop guard band.
+  if (sourceAligned) {
+    const mipmaps = [];
+    let levelWidth = textureWidth;
+    let levelHeight = textureHeight;
+    let levelPixels = context.getImageData(0, 0, textureWidth, textureHeight).data;
+    while (true) {
+      mipmaps.push({
+        data: new Uint8Array(levelPixels),
+        width: levelWidth,
+        height: levelHeight,
+      });
+      if (levelWidth === 1 && levelHeight === 1) break;
+      const nextWidth = Math.max(1, Math.floor(levelWidth / 2));
+      const nextHeight = Math.max(1, Math.floor(levelHeight / 2));
+      const nextPixels = new Uint8ClampedArray(nextWidth * nextHeight * 4);
+      for (let y = 0; y < nextHeight; y++) {
+        for (let x = 0; x < nextWidth; x++) {
+          for (let channel = 0; channel < 4; channel++) {
+            const p00 = (Math.min(levelHeight - 1, y * 2) * levelWidth
+              + Math.min(levelWidth - 1, x * 2)) * 4 + channel;
+            const p10 = (Math.min(levelHeight - 1, y * 2) * levelWidth
+              + Math.min(levelWidth - 1, x * 2 + 1)) * 4 + channel;
+            const p01 = (Math.min(levelHeight - 1, y * 2 + 1) * levelWidth
+              + Math.min(levelWidth - 1, x * 2)) * 4 + channel;
+            const p11 = (Math.min(levelHeight - 1, y * 2 + 1) * levelWidth
+              + Math.min(levelWidth - 1, x * 2 + 1)) * 4 + channel;
+            nextPixels[(y * nextWidth + x) * 4 + channel] = Math.round(
+              (levelPixels[p00] + levelPixels[p10] + levelPixels[p01] + levelPixels[p11]) / 4
+            );
+          }
+        }
+      }
+      levelPixels = nextPixels;
+      levelWidth = nextWidth;
+      levelHeight = nextHeight;
+    }
+    texture.mipmaps = mipmaps;
+    texture.generateMipmaps = false;
+  } else {
+    texture.generateMipmaps = true;
+  }
   // Keep legacy GND byte colors encoded for the classic multiply/add blend.
   texture.colorSpace = THREE.NoColorSpace;
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
-  texture.generateMipmaps = true;
   texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 4);
@@ -3555,7 +3599,8 @@ function describeGndTextureFilters(texture) {
   if (!texture) return '無已載入貼圖';
   const filterName = value => value === THREE.LinearFilter ? 'LinearFilter'
     : value === THREE.NearestFilter ? 'NearestFilter' : 'mipmap filter (' + value + ')';
-  return 'mipmap=' + (texture.generateMipmaps ? 'on' : 'off')
+  return 'mipmap=' + (texture.generateMipmaps ? 'GPU' : Array.isArray(texture.mipmaps) && texture.mipmaps.length
+    ? '手動 ' + texture.mipmaps.length + ' 層' : 'off')
     + '; min=' + filterName(texture.minFilter)
     + '; mag=' + filterName(texture.magFilter);
 }
@@ -4298,7 +4343,8 @@ function auditGndDiffuseSharedUvCrops(pair, target, width, height, sourceWidth, 
     return unavailable('裁切 diffuse 缺少有效的 GPU 貼圖尺寸。');
   }
   if (!textures.slice(1).every(texture =>
-    texture.generateMipmaps && texture.minFilter === THREE.LinearMipmapLinearFilter)) {
+    (texture.generateMipmaps || Array.isArray(texture.mipmaps) && texture.mipmaps.length > 1)
+    && texture.minFilter === THREE.LinearMipmapLinearFilter)) {
     return unavailable('裁切 diffuse 未啟用完整 mipmap，無法做同級比較。');
   }
 

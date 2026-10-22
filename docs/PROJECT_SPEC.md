@@ -433,3 +433,5 @@
 - 非 POT 貼圖保留 compact crop／局部 UV 回退路徑。CPU base-pixel 驗收、GPU shared-UV 的 near/mid/far framebuffer 與最大 2 階 RGB 門檻全部保留，不因已知失敗而放寬。
 - 本次以提交後的四張真實地圖多尺度 GPU 診斷、原生地圖 Smoke Test 及完整 Regression tests 實際結果驗收；未通過的地圖仍標記失敗，不以成功載入代替材質通過。
 
+
+- 2026-10-22 修正 GND diffuse POT crop 的 mipmap 生成：來源像素逐位元複製與絕對 atlas UV 相位保留不變；對有源 atlas 對齊的 crop，改由已做邊緣延伸的 RGBA8 base level 逐層產生明確 mipmap，避免 GPU 自動生成的 crop mip chain 在 iz_dun03 surfaces 339／491 的 far LOD4 與來源 atlas 相差 3 RGB 階。GPU near/mid/far、來源像素與 UV 對照仍維持原有嚴格門檻，並將完整 mip chain 納入診斷。
