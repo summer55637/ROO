@@ -341,6 +341,50 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             }
           }
         }
+        // The diffuse-only screenshot still shows a pale streak on the north-east slope.
+        // Probe its screen location directly instead of assuming the center cursor's surface
+        // identifies the visible streak. Save the exact source UV/material/GPU inspector output.
+        if (mapSlug === 'tra-fild' && mode.value === '7') {
+          const stripePoint = {
+            x: box.x + box.width * 0.61,
+            y: box.y + box.height * 0.22,
+          };
+          const stripeTarget = await targetPage.evaluate(({ x, y }) => {
+            const canvas = document.querySelector('#stage > canvas');
+            const target = document.elementFromPoint(x, y);
+            return {
+              isCanvas: Boolean(canvas && target === canvas),
+              target: target ? {
+                tag: target.tagName,
+                id: target.id || '',
+                className: String(target.className || '').slice(0, 80),
+              } : null,
+            };
+          }, stripePoint);
+          assert.ok(stripeTarget.isCanvas,
+            'tra_fild diffuse streak probe must hit the WebGL canvas: ' + JSON.stringify(stripeTarget));
+          await targetPage.mouse.move(stripePoint.x, stripePoint.y);
+          await sleep(140);
+          const stripeInspector = await inspector.innerText();
+          assert.ok(stripeInspector.includes('Surface #'),
+            'tra_fild diffuse streak probe did not resolve a GND surface: ' + stripeInspector.slice(0, 500));
+          assert.ok(stripeInspector.includes('目前診斷模式：7／純 Diffuse 貼圖'),
+            'tra_fild diffuse streak probe did not stay in diffuse-only mode.');
+          writeFileSync(
+            path.join(artifactDir, 'tra-fild-suspected-diffuse-streak-inspector.txt'),
+            stripeInspector + '\\n'
+          );
+          await targetPage.screenshot({
+            path: path.join(artifactDir, 'tra-fild-suspected-diffuse-streak-target.png'),
+            clip: { x: box.x, y: box.y, width: box.width, height: box.height },
+            animations: 'disabled',
+          });
+          console.log('tra_fild diffuse streak targeted probe: ' + JSON.stringify({
+            stagePoint: [Math.round(stripePoint.x - box.x), Math.round(stripePoint.y - box.y)],
+            inspector: stripeInspector.slice(0, 8000),
+          }));
+        }
+
         let foundVisibleGround = false;
         const probeObservations = [];
         const sourceRejectObservations = [];
