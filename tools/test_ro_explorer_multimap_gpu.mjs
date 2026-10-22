@@ -171,6 +171,116 @@ async function preflightManifest(mapId) {
   }
 }
 
+async function probeGndLayout(mapId) {
+  const url = assetBaseUrl + '/maps/' + mapId + '/' + mapId + '.gnd';
+  try {
+    const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+    if (!response.ok) return { available: false, reason: 'GND HTTP ' + response.status };
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength < 24) return { available: false, sizeBytes: bytes.byteLength, reason: 'GND file is too short' };
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const i32 = at => at >= 0 && at + 4 <= view.byteLength ? view.getInt32(at, true) : null;
+    const f32 = at => at >= 0 && at + 4 <= view.byteLength ? view.getFloat32(at, true) : null;
+    const header = String.fromCharCode(...bytes.slice(0, 4));
+    const major = view.getUint8(4);
+    const minor = view.getUint8(5);
+    const width = i32(6);
+    const height = i32(10);
+    const textureCount = i32(18);
+    const texturePathLength = i32(22);
+    const cubeCount = width * height;
+    const lightmapAt = 24 + textureCount * texturePathLength;
+    const lmCount = i32(lightmapAt);
+    const lmWidth = i32(lightmapAt + 4);
+    const lmHeight = i32(lightmapAt + 8);
+    const cellsPerGrid = i32(lightmapAt + 12);
+    const legacyBytes = lmCount !== null && lmWidth !== null && lmHeight !== null
+      ? lmCount * lmWidth * lmHeight * 4 : -1;
+    const standardSurfaceAt = lmCount !== null && lmCount >= 0 && lmCount <= 16384
+      ? lightmapAt + 4 + lmCount * 268 : -1;
+    const legacySurfaceAt = legacyBytes >= 0 && Number.isSafeInteger(legacyBytes)
+      ? lightmapAt + 16 + legacyBytes : -1;
+    const strides = [];
+    const strideOptions = [32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 84, 88, 96];
+    function inspectCandidate(surfaceAt, stride, layout) {
+      if (surfaceAt < 0 || surfaceAt + 4 > view.byteLength) return null;
+      const surfaceCount = i32(surfaceAt);
+      if (surfaceCount === null || surfaceCount < 0 || surfaceCount > 1000000) return null;
+      const surfacesStart = surfaceAt + 4;
+      const cubesAt = surfacesStart + surfaceCount * stride;
+      const tailAt = cubesAt + cubeCount * 28;
+      if (!Number.isSafeInteger(cubesAt) || !Number.isSafeInteger(tailAt)
+        || cubesAt < surfacesStart || cubesAt > view.byteLength) return null;
+      const withinFile = tailAt <= view.byteLength;
+      let waterTailValid = false;
+      if (minor === 7) waterTailValid = tailAt === view.byteLength;
+      else if (tailAt + 32 <= view.byteLength) {
+        const numU = i32(tailAt + 24);
+        const numV = i32(tailAt + 28);
+        if (numU !== null && numV !== null && numU >= 0 && numV >= 0
+          && numU <= 64 && numV <= 64) {
+          waterTailValid = tailAt + 32 + numU * numV * (minor === 8 ? 4 : 24) === view.byteLength;
+        }
+      }
+      let validCubeReferences = 0;
+      let sampledCubes = 0;
+      if (withinFile) {
+        for (let cube = 0; cube < Math.min(cubeCount, 24); cube++) {
+          const at = cubesAt + cube * 28 + 16;
+          const refs = [i32(at), i32(at + 4), i32(at + 8)];
+          if (refs.every(value => value !== null && value >= -1 && value < surfaceCount)) validCubeReferences++;
+          sampledCubes++;
+        }
+      }
+      return {
+        layout, stride, surfaceAt, surfaceCount, cubesAt, tailAt,
+        withinFile, trailingBytes: view.byteLength - tailAt, waterTailValid,
+        sampledCubes, validCubeReferences,
+      };
+    }
+    const standardCandidates = strideOptions
+      .map(stride => inspectCandidate(standardSurfaceAt, stride, 'standard-slices'))
+      .filter(Boolean);
+    const legacyCandidates = strideOptions
+      .map(stride => inspectCandidate(legacySurfaceAt, stride, 'global-lightmap'))
+      .filter(Boolean);
+    for (const index of [0, 1, 2]) {
+      const at = lightmapAt + 4 + index * 268;
+      if (at + 12 <= view.byteLength) strides.push({
+        index, pixelFormat: i32(at), width: i32(at + 4), height: i32(at + 8),
+      });
+    }
+    function bytesHex(start, length) {
+      return Array.from(bytes.slice(Math.max(0, start), Math.min(bytes.length, start + length)))
+        .map(value => value.toString(16).padStart(2, '0')).join('');
+    }
+    return {
+      available: true, url, sizeBytes: view.byteLength, header, version: major + '.' + minor,
+      width, height, cubeCount, zoom: f32(14), textureCount, texturePathLength,
+      lightmapHeaderOffset: lightmapAt,
+      lightmapHeader: { count: lmCount, width: lmWidth, height: lmHeight, cellsPerGrid },
+      standard: {
+        surfaceCountAt: standardSurfaceAt, byteOffset: standardSurfaceAt,
+        plausible: standardSurfaceAt >= 0 && standardSurfaceAt + 4 <= view.byteLength,
+        count: i32(standardSurfaceAt), sliceHeaders: strides,
+        exactTailCandidates: standardCandidates.filter(item => item.waterTailValid),
+        candidates: standardCandidates.filter(item => item.withinFile).slice(0, 8),
+        hex: bytesHex(standardSurfaceAt - 16, 64),
+      },
+      legacy: {
+        lightmapPayloadBytes: legacyBytes, surfaceCountAt: legacySurfaceAt,
+        plausible: legacySurfaceAt >= 0 && legacySurfaceAt + 4 <= view.byteLength,
+        count: i32(legacySurfaceAt),
+        exactTailCandidates: legacyCandidates.filter(item => item.waterTailValid),
+        candidates: legacyCandidates.filter(item => item.withinFile).slice(0, 8),
+        hex: bytesHex(legacySurfaceAt - 16, 64),
+      },
+    };
+  } catch (error) {
+    return { available: false, reason: String(error) };
+  }
+}
+
 async function auditMap(mapId) {
   const report = {
     mapId,
@@ -189,6 +299,7 @@ async function auditMap(mapId) {
   try {
     const manifest = await preflightManifest(mapId);
     report.manifest = manifest;
+    report.gndLayoutProbe = manifest.available ? await probeGndLayout(mapId) : null;
     if (!manifest.available) {
       report.status = 'skipped';
       report.reason = 'No usable public map manifest: ' + manifest.reason;
