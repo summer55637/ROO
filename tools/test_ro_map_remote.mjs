@@ -723,11 +723,25 @@ async function validateMap(mapId) {
         eastSurface: ids[2],
       };
     };
+    const surfaceUseSites = new Map();
+    for (let cubeIndex = 0; cubeIndex < gnd.cubes.length; cubeIndex++) {
+      const cube = gnd.cubes[cubeIndex];
+      const x = cubeIndex % gnd.width;
+      const y = Math.floor(cubeIndex / gnd.width);
+      for (const [side, index] of [
+        ['top', cube.topSurface], ['north', cube.northSurface], ['east', cube.eastSurface],
+      ]) {
+        if (!Number.isInteger(index) || index < 0) continue;
+        if (!surfaceUseSites.has(index)) surfaceUseSites.set(index, []);
+        surfaceUseSites.get(index).push({ x, y, side });
+      }
+    }
+    // Surface IDs are reusable blueprints. Include their actual use sites rather
+    // than assuming the inspector's representative cube is always the ray-hit cube.
+    observedStreakHits.forEach(hit => addSurface(hit.surfaceIndex));
     const samples = observedStreakHits.map(hit => {
       const cube = cubeRecord(hit.x, hit.y);
-      assert.ok(cube, 'tra_fild streak probe cube is within the source GND');
-      assert.equal(cube.topSurface, hit.surfaceIndex,
-        'tra_fild visible diffuse probe maps to the expected raw TOP surface at (' + hit.x + ',' + hit.y + ')');
+      assert.ok(cube, 'tra_fild streak probe coordinate is within the source GND');
       const neighbours = {
         west: cubeRecord(hit.x - 1, hit.y),
         east: cubeRecord(hit.x + 1, hit.y),
@@ -735,8 +749,10 @@ async function validateMap(mapId) {
         north: cubeRecord(hit.x, hit.y + 1),
       };
       return {
-        observedCube: [hit.x, hit.y],
-        expectedSurfaceIndex: hit.surfaceIndex,
+        reportedRepresentativeCube: [hit.x, hit.y],
+        cursorSurfaceIndex: hit.surfaceIndex,
+        representativeCubeTopMatchesCursorSurface: cube.topSurface === hit.surfaceIndex,
+        cursorSurfaceUseSites: surfaceUseSites.get(hit.surfaceIndex) || [],
         cube,
         neighbours,
       };
@@ -761,7 +777,8 @@ async function validateMap(mapId) {
       checks: {
         rawSurfaceCountMatchesParser: rawSurfaceCount === gnd.surfaces.length,
         rawCubeCount: gnd.width * gnd.height,
-        rawProbeTopSurfaceMatchesBrowser: samples.length === observedStreakHits.length,
+        allCursorSurfaceIdsHaveRawRecords: samples.every(sample => auditedSurfaces.has(sample.cursorSurfaceIndex)),
+        reportedCubeMatchesCursorSurfaceCount: samples.filter(sample => sample.representativeCubeTopMatchesCursorSurface).length,
         rawUvTextureLightmapAndBgraMatchParser: true,
       },
     }, null, 2) + '\n');
