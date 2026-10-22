@@ -371,10 +371,14 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
           assert.ok(stripeInspector.includes('目前診斷模式：7／純 Diffuse 貼圖'),
             'tra_fild diffuse streak probe did not stay in diffuse-only mode.');
           writeFileSync(
-            path.join(artifactDir, 'tra-fild-suspected-diffuse-streak-inspector.txt'),
-            stripeInspector + '\\n'
-          );
-          await targetPage.screenshot({
+            path.join(artifactDir, 'tra-fild-suspected-diffuse-streak-inspector.json'),
+            JSON.stringify({
+              mapId: mapSlug,
+              stagePoint: [Math.round(stripePoint.x - box.x), Math.round(stripePoint.y - box.y)],
+              canvasTarget: stripeTarget,
+              inspector: stripeInspector,
+            }, null, 2) + '\n'
+          );          await targetPage.screenshot({
             path: path.join(artifactDir, 'tra-fild-suspected-diffuse-streak-target.png'),
             clip: { x: box.x, y: box.y, width: box.width, height: box.height },
             animations: 'disabled',
