@@ -300,6 +300,7 @@ async function auditMap(mapId) {
     const manifest = await preflightManifest(mapId);
     report.manifest = manifest;
     report.gndLayoutProbe = manifest.available ? await probeGndLayout(mapId) : null;
+    console.log('GND binary layout probe ' + mapId + ': ' + JSON.stringify(report.gndLayoutProbe));
     if (!manifest.available) {
       report.status = 'skipped';
       report.reason = 'No usable public map manifest: ' + manifest.reason;
