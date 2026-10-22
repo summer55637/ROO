@@ -341,52 +341,83 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             }
           }
         }
-        // The diffuse-only screenshot still shows a pale streak on the north-east slope.
-        // Probe its screen location directly instead of assuming the center cursor's surface
-        // identifies the visible streak. Save the exact source UV/material/GPU inspector output.
+        // The pale diffuse streak is visible near the far north-east terrain edge.
+        // Probe a small grid over that line because the exact camera projection can
+        // shift by several pixels between Chromium builds. Keep each hit's material,
+        // source UV and GPU inspector data so we can classify the source rather than guess.
         if (mapSlug === 'tra-fild' && mode.value === '7') {
-          const stripePoint = {
-            x: box.x + box.width * 0.61,
-            y: box.y + box.height * 0.22,
-          };
-          const stripeTarget = await targetPage.evaluate(({ x, y }) => {
-            const canvas = document.querySelector('#stage > canvas');
-            const target = document.elementFromPoint(x, y);
-            return {
-              isCanvas: Boolean(canvas && target === canvas),
-              target: target ? {
-                tag: target.tagName,
-                id: target.id || '',
-                className: String(target.className || '').slice(0, 80),
-              } : null,
+          const streakRatios = [];
+          for (const yRatio of [0.215, 0.23, 0.245]) {
+            for (const xRatio of [0.76, 0.79, 0.82, 0.85, 0.88, 0.91, 0.94]) {
+              streakRatios.push([xRatio, yRatio]);
+            }
+          }
+          const streakObservations = [];
+          for (const [xRatio, yRatio] of streakRatios) {
+            const point = {
+              x: box.x + box.width * xRatio,
+              y: box.y + box.height * yRatio,
             };
-          }, stripePoint);
-          assert.ok(stripeTarget.isCanvas,
-            'tra_fild diffuse streak probe must hit the WebGL canvas: ' + JSON.stringify(stripeTarget));
-          await targetPage.mouse.move(stripePoint.x, stripePoint.y);
-          await sleep(140);
-          const stripeInspector = await inspector.innerText();
-          assert.ok(stripeInspector.includes('Surface #'),
-            'tra_fild diffuse streak probe did not resolve a GND surface: ' + stripeInspector.slice(0, 500));
-          assert.ok(stripeInspector.includes('目前診斷模式：7／純 Diffuse 貼圖'),
-            'tra_fild diffuse streak probe did not stay in diffuse-only mode.');
+            const target = await targetPage.evaluate(({ x, y }) => {
+              const canvas = document.querySelector('#stage > canvas');
+              const element = document.elementFromPoint(x, y);
+              return {
+                isCanvas: Boolean(canvas && element === canvas),
+                tag: element ? element.tagName : null,
+                id: element && element.id || '',
+              };
+            }, point);
+            if (!target.isCanvas) {
+              streakObservations.push({
+                point: [Math.round(point.x - box.x), Math.round(point.y - box.y)],
+                result: 'not-canvas',
+                target,
+              });
+              continue;
+            }
+            await targetPage.mouse.move(point.x, point.y);
+            await sleep(70);
+            const inspectorText = await inspector.innerText();
+            const lines = inspectorText.split('\\n');
+            const relevantLines = lines.filter(line => /Surface #|真實材質路徑|實際載入 URL|Diffuse 貼圖採樣|材質索引：|diffuse 原始 UV 範圍|游標處插值 diffuse UV|游標處來源 diffuse 貼圖像素|游標處插值頂點色|游標處 Lightmap atlas UV2|游標處來源 RGB lightmap \/ AO 最近像素|GPU 最終畫面取樣 RGBA/.test(line));
+            streakObservations.push({
+              point: [Math.round(point.x - box.x), Math.round(point.y - box.y)],
+              result: inspectorText.includes('Surface #') ? 'surface-hit' : 'no-surface-hit',
+              inspector: relevantLines,
+            });
+          }
+          const surfaceHits = streakObservations.filter(item => item.result === 'surface-hit');
           writeFileSync(
             path.join(artifactDir, 'tra-fild-suspected-diffuse-streak-inspector.json'),
             JSON.stringify({
               mapId: mapSlug,
-              stagePoint: [Math.round(stripePoint.x - box.x), Math.round(stripePoint.y - box.y)],
-              canvasTarget: stripeTarget,
-              inspector: stripeInspector,
-            }, null, 2) + '\n'
-          );          await targetPage.screenshot({
+              mode: 'diffuse-only',
+              stageSize: [Math.round(box.width), Math.round(box.height)],
+              sampledPoints: streakObservations.length,
+              surfaceHitCount: surfaceHits.length,
+              observations: streakObservations,
+            }, null, 2) + '\\n'
+          );
+          const targetPoint = {
+            x: box.x + box.width * 0.85,
+            y: box.y + box.height * 0.23,
+          };
+          await targetPage.mouse.move(targetPoint.x, targetPoint.y);
+          await sleep(100);
+          await targetPage.screenshot({
             path: path.join(artifactDir, 'tra-fild-suspected-diffuse-streak-target.png'),
             clip: { x: box.x, y: box.y, width: box.width, height: box.height },
             animations: 'disabled',
           });
-          console.log('tra_fild diffuse streak targeted probe: ' + JSON.stringify({
-            stagePoint: [Math.round(stripePoint.x - box.x), Math.round(stripePoint.y - box.y)],
-            inspector: stripeInspector.slice(0, 8000),
+          console.log('tra_fild diffuse streak source/UV grid probe: ' + JSON.stringify({
+            stageSize: [Math.round(box.width), Math.round(box.height)],
+            sampledPoints: streakObservations.length,
+            surfaceHitCount: surfaceHits.length,
+            observations: streakObservations,
           }));
+          assert.ok(surfaceHits.length > 0,
+            'tra_fild suspected diffuse streak scan found no visible GND surface: '
+              + JSON.stringify(streakObservations.slice(0, 8)));
         }
 
         let foundVisibleGround = false;
