@@ -396,3 +396,12 @@
 - 最新驗收截圖：[Push artifact #12287394833](https://github.com/summer55637/ROO/actions/runs/39474450690/artifacts/12287394833)、[PR artifact #12288202427](https://github.com/summer55637/ROO/actions/runs/39474459688/artifacts/12288202427)。
 - PR #1 仍為草稿、尚未合併 `main`；開發分支提交不會自動更新 GitHub Pages 正式網址。
 
+
+
+## 2026-10-22 更新：額外 GND 地圖瀏覽器驗收避免外部素材逾時
+
+- 最新回歸曾在額外地圖 GPU 稽核載入階段等待 150 秒後逾時；語法、GAT/A*、GND 管線與探索功能專項已先通過。
+- 公開素材服務為 best-effort，manifest HTTP 成功不代表地圖幾何與貼圖已完整載入。額外 ice_dun02／thor_v03 樣本現在先驗證 manifest JSON 與 GAT/GND/RSW 檔名，再將載入等待限制為 35 秒、地表貼圖等待限制為 20 秒。
+- 額外樣本若素材缺失或逾時，會寫出診斷 JSON 並記錄略過原因；若完整載入，來源 RGB lightmap、AO 差異、GPU 近／中／遠景取樣仍維持嚴格斷言。
+- 必要的 tra_fild、prontera、icecastle 瀏覽器驗收、桌面／手機操作、戰鬥端到端、完整回歸與全遊戲 smoke test 不因額外樣本失敗而略過。
+- 最新程式提交與測試結果以開發分支目前 head 及 GitHub Actions 為準；此修正不更動遊戲玩法、素材合成、單機存檔或純前端架構。
