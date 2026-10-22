@@ -739,6 +739,18 @@ assert.deepEqual(readAtlasRgbaAt(
 assert.deepEqual(readAtlasRgbaAt(
   splitLightmapAtlas.aoMapPixels, splitLightmapAtlas.width, 4, 4
 ), [20, 20, 20, 255], 'atlas preserves the independent first AO texel');
+
+// Real maps ice_dun02/thor_v03 exceed the old 16,384-slice parser/atlas cap.
+const highSliceCount = 16959;
+const highSliceGnd = parseGndBuffer(makeGnd(40, 7, 1, 1, highSliceCount));
+assert.equal(highSliceGnd.lightmapCount, highSliceCount);
+assert.equal(highSliceGnd.lightmapSlices.length, highSliceCount);
+assert.equal(highSliceGnd.surfaceRecordBytes, 40);
+assert.deepEqual(Array.from(highSliceGnd.lightmapSlices.at(-1).shadowPixels.slice(0, 3)),
+  [20, 21, 22], 'large GND preserves the last slice instead of rejecting the map at an arbitrary count');
+const highSliceAtlas = buildGndLightmapAtlasData(highSliceGnd, 0);
+assert.equal(highSliceAtlas.uvsBySlice.length, highSliceCount,
+  'large GND lightmap atlas supports the real ice_dun02 slice count');
 const splitLightmapMesh = buildGndMeshData(splitLightmapGnd, 0.2, splitLightmapAtlas);
 assert.equal(splitLightmapMesh.buckets[0].lightmapUvs.length, 8);
 assert.deepEqual(splitLightmapMesh.buckets[0].lightmapUvs.slice(0, 2),

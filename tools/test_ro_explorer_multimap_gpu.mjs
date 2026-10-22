@@ -196,7 +196,7 @@ async function probeGndLayout(mapId) {
     const cellsPerGrid = i32(lightmapAt + 12);
     const legacyBytes = lmCount !== null && lmWidth !== null && lmHeight !== null
       ? lmCount * lmWidth * lmHeight * 4 : -1;
-    const standardSurfaceAt = lmCount !== null && lmCount >= 0 && lmCount <= 16384
+    const standardSurfaceAt = lmCount !== null && lmCount >= 0 && lmCount <= 65536
       ? lightmapAt + 4 + lmCount * 268 : -1;
     const legacySurfaceAt = legacyBytes >= 0 && Number.isSafeInteger(legacyBytes)
       ? lightmapAt + 16 + legacyBytes : -1;
@@ -300,7 +300,12 @@ async function auditMap(mapId) {
     const manifest = await preflightManifest(mapId);
     report.manifest = manifest;
     report.gndLayoutProbe = manifest.available ? await probeGndLayout(mapId) : null;
-    console.log('GND binary layout probe ' + mapId + ': ' + JSON.stringify(report.gndLayoutProbe));
+    const layoutProbe = report.gndLayoutProbe;
+    console.log('GND layout ' + mapId + ': ' + (layoutProbe && layoutProbe.available
+      ? layoutProbe.version + ', slices=' + layoutProbe.lightmapHeader.count
+        + ', confirmed 40-byte candidates='
+        + layoutProbe.legacy.exactTailCandidates.filter(candidate => candidate.stride === 40).length
+      : layoutProbe && layoutProbe.reason || 'unavailable'));
     if (!manifest.available) {
       report.status = 'skipped';
       report.reason = 'No usable public map manifest: ' + manifest.reason;

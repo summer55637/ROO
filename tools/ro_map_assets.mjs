@@ -1,6 +1,7 @@
 const MAP_ID_PATTERN = /^[a-z0-9_@-]{1,64}$/;
 const TEXTURE_BLOB_PATTERN = /^\.\.\/_t\/[a-f0-9]{16}\.png$/i;
 const MODEL_BLOB_PATTERN = /^\.\.\/_m\/[a-f0-9]{16}\.rsm2?$/i;
+const MAX_GND_LIGHTMAP_SLICES = 65536;
 
 export const RAGASSETS_BASE_URL = 'https://assets.latam-tools.com.br';
 
@@ -216,7 +217,7 @@ export function parseGndBuffer(input) {
   // Standard GND 1.7+ stores independent 8x8 AO/RGB slices and 56-byte surfaces.
   let standardCandidate = null;
   const standardCount = view.getInt32(lightmapHeaderOffset, true);
-  if (standardCount >= 0 && standardCount <= 16384) {
+  if (standardCount >= 0 && standardCount <= MAX_GND_LIGHTMAP_SLICES) {
     const standardSlicesStart = lightmapHeaderOffset + 4;
     const standardSurfaceCountAt = standardSlicesStart + standardCount * 268;
     if (standardSurfaceCountAt + 4 <= length) {
@@ -249,7 +250,7 @@ export function parseGndBuffer(input) {
     const cells = view.getInt32(lightmapHeaderOffset + 12, true);
     const bytes = count * lmWidth * lmHeight * 4;
     const surfaceCountAt = lightmapHeaderOffset + 16 + bytes;
-    if (count >= 0 && count <= 16384 && lmWidth >= 0 && lmHeight >= 0
+    if (count >= 0 && count <= MAX_GND_LIGHTMAP_SLICES && lmWidth >= 0 && lmHeight >= 0
       && lmWidth <= 128 && lmHeight <= 128 && cells >= 0
       && Number.isSafeInteger(bytes) && surfaceCountAt + 4 <= length) {
       const candidate = candidateFits(surfaceCountAt, 40);
@@ -1569,7 +1570,7 @@ export function buildGndLightmapAtlasData(gnd, posterizationLevel = 0) {
   }
   const slices = gnd.lightmapSlices;
   if (!slices.length) return null;
-  if (slices.length > 16384) throw new Error('GND lightmap 超過 16384 個 slice 的安全上限。');
+  if (slices.length > MAX_GND_LIGHTMAP_SLICES) throw new Error('GND lightmap 超過 ' + MAX_GND_LIGHTMAP_SLICES + ' 個 slice 的安全上限。');
 
   const sliceWidth = slices[0].width;
   const sliceHeight = slices[0].height;

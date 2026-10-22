@@ -411,7 +411,7 @@
 
 - 新增 `tools/test_ro_explorer_multimap_gpu.mjs` 與獨立 workflow `.github/workflows/gnd-multimap-gpu-diagnostic.yml`。一般桌面／手機瀏覽器回歸不會執行額外多地圖掃描；診斷 workflow 可手動啟動，也會在指定程式／workflow 路徑變更時單獨執行。
 - 預設掃描已驗證可載入的 `icecastle` 作為控制組，再探測 `ice_dun02`、`thor_v03`、`iz_dun03`；每次允許從白名單最多選 4 張地圖。`prontera`、`tra_fild` 也可作為控制組手動指定。每張地圖先以限時 HTTP 請求驗證 manifest JSON 與 GAT/GND/RSW 檔名，再啟動隔離 Chromium 與 GPU 稽核。
-- 每張圖的總診斷時間上限預設 110 秒（允許設定 45–150 秒）；地圖載入 40 秒、GND 貼圖載入 20 秒、GPU 邊界掃描 35 秒各有內部時間限制。缺素材、公開素材服務離線或 GND 版面不受目前解析器支援時標成 `skipped` 並保留原因；已完整載入但 GPU／來源斷言不符會標成 `failed`。初跑已確認 `ice_dun02`、`thor_v03` 的素材雖有 manifest，但目前載入器回報 GND surface/lightmap 版面無法驗證，故暫不當成通過樣本。
+- 每張圖的總診斷時間上限預設 110 秒（允許設定 45–150 秒）；地圖載入 40 秒、GND 貼圖載入 20 秒、GPU 邊界掃描 35 秒各有內部時間限制。缺素材、公開素材服務離線或 GND 版面不受目前解析器支援時標成 `skipped` 並保留原因；已完整載入但 GPU／來源斷言不符會標成 `failed`。2026-10-22 真實二進位稽核確認 `ice_dun02` 有 16,959 個、`thor_v03` 有 17,945 個 lightmap slice；舊式 40-byte surface 與檔案結尾都能完整對上，真正原因是解析器／atlas 把數量硬限制在 16,384。已把解析與 atlas 安全上限調高至 65,536，並新增 16,959-slice 合成地圖回歸測試；是否能通過新版本 GPU 驗收，仍以本次提交後的 Actions 報告為準。
 - GPU 報告保留 4–6 組相鄰 surface、東／北方向、near／mid／far mipmap、來源 diffuse／頂點色／方向光／AO／RGB lightmap、framebuffer 讀回與通道差異。已確認的 `icecastle` 控制組必須有非零 RGB lightmap；新增候選地圖則必須同時具備非零 RGB lightmap 與 AO 對比。`prontera`／`tra_fild` 仍驗證 GPU 多尺度邊界路徑，但不因原始素材沒有符合候選條件而誤報成程式失敗。不能只因地圖畫面載入成功就算通過。
 - 每張圖輸出 JSON 與場景截圖，另有 `summary.json`／`summary.md`；workflow 會把摘要顯示在 Actions，並上傳 14 天可下載的診斷附件。至少一張地圖必須通過，而且不能有已載入地圖的 GPU 斷言失敗，整個診斷工作才會成功。
 - 一般必要 CI 仍保留 `tra_fild`、`prontera`、`icecastle` 的 GPU 驗收及全套桌面／手機、戰鬥端到端、完整回歸、全遊戲 smoke test 與資料語法檢查。此工具只做診斷，不修改遊戲玩法、外部素材、存檔、碰撞／尋路或前端／單機架構。
