@@ -6,7 +6,7 @@ on:
       maps:
         description: 'Comma-separated map ids (up to four): icecastle, prontera, tra_fild, ice_dun02, thor_v03, iz_dun03, gl_cas01, gef_fild00, pay_dun00'
         required: true
-        default: 'icecastle,ice_dun02,thor_v03,iz_dun03'
+        default: 'tra_fild,icecastle,ice_dun02,iz_dun03'
         type: string
   push:
     branches:
@@ -43,7 +43,7 @@ jobs:
         run: node --check tools/test_ro_explorer_multimap_gpu.mjs
       - name: Run per-map multi-scale source-to-GPU audit
         env:
-          ROO_GND_DIAGNOSTIC_MAPS: ${{ github.event.inputs.maps || 'icecastle,ice_dun02,thor_v03,iz_dun03' }}
+          ROO_GND_DIAGNOSTIC_MAPS: ${{ github.event.inputs.maps || 'tra_fild,icecastle,ice_dun02,iz_dun03' }}
           ROO_GND_DIAGNOSTIC_MAP_TIMEOUT_MS: '110000'
           ROO_GND_DIAGNOSTIC_ARTIFACT_DIR: artifacts/gnd-multimap-gpu
         run: node tools/test_ro_explorer_multimap_gpu.mjs
