@@ -972,7 +972,7 @@ async function validateMap(mapId) {
     };
     writeFileSync(
       sourceArtifactDir + '/tra-fild-pron-dun-02-source-uv-audit.json',
-      JSON.stringify(regionAudit, null, 2) + '\\n'
+      JSON.stringify(regionAudit, null, 2) + '\n'
     );
     console.log('tra_fild inspected diffuse source/UV evidence: ' + JSON.stringify({
       textureName: regionAudit.textureName,
