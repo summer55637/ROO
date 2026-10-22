@@ -424,6 +424,6 @@
 - 多地圖初次驗收指出診斷器的光照預期值需要跟隨法線修正：正式 shader 是先在每個頂點計算方向光，再讓 GPU 在三角形內插值光照結果；舊診斷器卻是先插值法線再重新計算光照，只有舊式平面法線時兩者才近似一致。已改成先計算三個三角形頂點的光照值，再依取樣像素的重心座標內插，原本每通道最大差異 4 的門檻維持不變。
 - 多地圖 GPU 診斷另直接讀取實際地圖兩側共用 3D 邊的法線，要求兩邊最大分量差不超過 0.00001；若不同材質／UV 桶中的同一空間角點法線不一致，會直接把該地圖判成失敗，而不只依賴合成小樣本單元測試。
 - 新增共享 UV 的 diffuse crop／mipmap GPU 對照：對每組真實相鄰 surface，把完整來源貼圖及兩側各自隔離的 crop 貼圖映射到相同來源 UV 範圍，在近／中／遠三種實際投影尺度讀回 framebuffer。來源對照與兩個 crop 間的最大 RGB 差異都必須不超過 2 階；不再只由不同地表內側各自符合來源取樣就推定共享邊沒有貼圖細線。
-- 2026-10-22 對齊 GPU 取樣像素中心後，iz_dun03 的 surfaces 339／491 在 far LOD4 發現兩個 192×128 的獨立 crop 相差 3 RGB 階，近／中景相同。根因是 POT 來源 atlas 被裁成 NPOT 尺寸後，各自生成的 mip 尺寸網格不同；現改為對 POT 來源貼圖將 crop 畫布填補到與來源 atlas 完全相同的寬高，並以 crop 起點換算垂直 UV；各 mip level 因此共用同一尺寸網格，裁切外側延伸邊緣像素，不放寬 2 階驗收門檻。新四圖 GPU 報告須確認這個差異消失。
+- 2026-10-22 對齊 GPU 取樣像素中心後，iz_dun03 的 surfaces 339／491 在 far LOD4 仍相差 3 RGB 階，即使 crop 尺寸已和原 atlas 完全對齊。為區分 GPU mip 濾波與來源像素裁切偏移，新增每組共享 UV 的 5×5 CPU base-pixel 比對，並改用單一來源影像像素陣列依整數座標逐列複製 crop，避免 `drawImage` 在非零 crop 起點的取樣重建。CPU base pixels 必須逐位元一致；GPU near/mid/far 的 crop/source 差異仍不得超過 2 RGB 階。
 - 驗收結果以本提交後的 Regression tests、Native map live smoke 與 GND multi-map GPU diagnostics 三組 GitHub Actions 為準；GPU 通道測試不等於已和官方客戶端逐像素一致，真實桌面／手機仍應目視比對。
 

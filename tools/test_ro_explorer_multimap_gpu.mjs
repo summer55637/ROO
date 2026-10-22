@@ -83,6 +83,11 @@ function validateAuditReport(mapId, report) {
     check(Number.isFinite(cropProbe && cropProbe.maxCropVsSourceDelta)
       && cropProbe.maxCropVsSourceDelta <= 2,
     label + ' isolated diffuse crop does not match the full-source sample: ' + JSON.stringify(cropProbe));
+    check(Boolean(cropProbe && cropProbe.basePixelAudit
+      && cropProbe.basePixelAudit.status === 'passed'
+      && cropProbe.basePixelAudit.maxDelta === 0),
+    label + ' crop base-level pixels differ from the same source-UV pixels: '
+      + JSON.stringify(cropProbe && cropProbe.basePixelAudit));
     const sourceDimensions = audit.sourceImage || {};
     const sourceIsPowerOfTwo = value => Number.isInteger(value) && value > 0
       && (value & (value - 1)) === 0;

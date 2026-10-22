@@ -3351,6 +3351,89 @@ function sampleGndLightmapSourceAtUv(surface, atlasUv) {
   };
 }
 
+const gndDiffuseSourcePixelCache = new WeakMap();
+
+function readGndDiffuseImagePixels(image, width, height) {
+  if (!image || !Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+    throw new Error('GND diffuse 像素稽核需要有效的影像尺寸。');
+  }
+  if (typeof image.getContext === 'function') {
+    const context = image.getContext('2d', { willReadFrequently: true });
+    if (!context) throw new Error('無法讀取 GND diffuse canvas 像素。');
+    return context.getImageData(0, 0, width, height).data;
+  }
+  let cached = gndDiffuseSourcePixelCache.get(image);
+  if (!cached || cached.width !== width || cached.height !== height) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) throw new Error('無法建立 GND diffuse 來源像素畫布。');
+    context.drawImage(image, 0, 0, width, height);
+    cached = { width, height, data: context.getImageData(0, 0, width, height).data };
+    gndDiffuseSourcePixelCache.set(image, cached);
+  }
+  return cached.data;
+}
+
+function bilinearGndDiffuseRgb(data, width, height, x, y) {
+  const sx = Math.max(0, Math.min(width - 1, x));
+  const sy = Math.max(0, Math.min(height - 1, y));
+  const x0 = Math.floor(sx), y0 = Math.floor(sy);
+  const x1 = Math.min(width - 1, x0 + 1), y1 = Math.min(height - 1, y0 + 1);
+  const tx = sx - x0, ty = sy - y0;
+  const sample = (px, py, channel) => data[(py * width + px) * 4 + channel];
+  return [0, 1, 2].map(channel => {
+    const top = sample(x0, y0, channel) * (1 - tx) + sample(x1, y0, channel) * tx;
+    const bottom = sample(x0, y1, channel) * (1 - tx) + sample(x1, y1, channel) * tx;
+    return top * (1 - ty) + bottom * ty;
+  });
+}
+
+function auditGndDiffuseCropBasePixels(sourceImage, cropImages, crops, sourceUvRect, sourceWidth, sourceHeight) {
+  const sourceData = readGndDiffuseImagePixels(sourceImage, sourceWidth, sourceHeight);
+  const cropDimensions = cropImages.map(image => ({
+    width: image.naturalWidth || image.videoWidth || image.width,
+    height: image.naturalHeight || image.videoHeight || image.height,
+  }));
+  const cropData = cropImages.map((image, index) =>
+    readGndDiffuseImagePixels(image, cropDimensions[index].width, cropDimensions[index].height));
+  let maxDelta = 0;
+  let sampleCount = 0;
+  let worst = null;
+  const gridSize = 5;
+  for (let y = 0; y < gridSize; y++) for (let x = 0; x < gridSize; x++) {
+    const uv = [
+      sourceUvRect.minU + (x + 0.5) / gridSize * (sourceUvRect.maxU - sourceUvRect.minU),
+      sourceUvRect.minV + (y + 0.5) / gridSize * (sourceUvRect.maxV - sourceUvRect.minV),
+    ];
+    const sourcePosition = [
+      uv[0] * sourceWidth - 0.5,
+      sourceHeight - 0.5 - uv[1] * sourceHeight,
+    ];
+    const expected = bilinearGndDiffuseRgb(sourceData, sourceWidth, sourceHeight,
+      sourcePosition[0], sourcePosition[1]);
+    for (let side = 0; side < 2; side++) {
+      const crop = crops[side], size = cropDimensions[side];
+      const actual = bilinearGndDiffuseRgb(cropData[side], size.width, size.height,
+        sourcePosition[0] - crop.x0, sourcePosition[1] - crop.y0);
+      const delta = Math.max(...actual.map((value, channel) => Math.abs(value - expected[channel])));
+      sampleCount++;
+      if (delta > maxDelta) {
+        maxDelta = delta;
+        worst = { side: side ? 'B' : 'A', uv, expected, actual, delta };
+      }
+    }
+  }
+  return {
+    status: maxDelta === 0 ? 'passed' : 'mismatch',
+    maxDelta,
+    sampleCount,
+    worst,
+    method: 'CPU base-level bilinear sample of source image versus exact crop-canvas pixels; 5×5 UV grid per crop',
+  };
+}
+
 function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
   const image = sourceTexture && sourceTexture.image;
   const width = image && (image.naturalWidth || image.videoWidth || image.width);
@@ -3390,23 +3473,33 @@ function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
   canvas.height = textureHeight;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('無法建立 GND diffuse 子區域畫布。');
-  context.imageSmoothingEnabled = false;
-  context.drawImage(image, x0, y0, regionWidth, regionHeight, 0, 0, regionWidth, regionHeight);
+  // Read one canonical decoded source pixel array and copy integer-addressed
+  // rows verbatim. Cropping via drawImage with a non-zero source offset can
+  // resample edge texels differently, which only becomes obvious after mip filtering.
+  const sourcePixels = readGndDiffuseImagePixels(image, width, height);
+  const cropPixels = context.createImageData(regionWidth, regionHeight);
+  const sourceRowBytes = width * 4;
+  const cropRowBytes = regionWidth * 4;
+  for (let row = 0; row < regionHeight; row++) {
+    const sourceStart = (y0 + row) * sourceRowBytes + x0 * 4;
+    cropPixels.data.set(sourcePixels.subarray(sourceStart, sourceStart + cropRowBytes), row * cropRowBytes);
+  }
+  context.putImageData(cropPixels, 0, 0);
   if (textureWidth !== regionWidth || textureHeight !== regionHeight) {
-    const sourcePixels = context.getImageData(0, 0, regionWidth, regionHeight).data;
+    const regionPixels = context.getImageData(0, 0, regionWidth, regionHeight).data;
     const paddedPixels = context.createImageData(textureWidth, textureHeight);
-    const sourceRowBytes = regionWidth * 4;
+    const regionRowBytes = regionWidth * 4;
     const targetRowBytes = textureWidth * 4;
     for (let targetY = 0; targetY < textureHeight; targetY++) {
       const sourceY = Math.min(targetY, regionHeight - 1);
-      const sourceRowStart = sourceY * sourceRowBytes;
+      const sourceRowStart = sourceY * regionRowBytes;
       const targetRowStart = targetY * targetRowBytes;
       paddedPixels.data.set(
-        sourcePixels.subarray(sourceRowStart, sourceRowStart + sourceRowBytes),
+        regionPixels.subarray(sourceRowStart, sourceRowStart + regionRowBytes),
         targetRowStart
       );
-      const edgePixel = sourcePixels.subarray(
-        sourceRowStart + sourceRowBytes - 4, sourceRowStart + sourceRowBytes
+      const edgePixel = regionPixels.subarray(
+        sourceRowStart + regionRowBytes - 4, sourceRowStart + regionRowBytes
       );
       for (let targetX = regionWidth; targetX < textureWidth; targetX++) {
         paddedPixels.data.set(edgePixel, targetRowStart + targetX * 4);
@@ -4215,6 +4308,10 @@ function auditGndDiffuseSharedUvCrops(pair, target, width, height, sourceWidth, 
     (uv[1] * sourceHeight + textureSize.height - sourceHeight + crop.y0)
       / textureSize.height,
   ];
+  const basePixelAudit = auditGndDiffuseCropBasePixels(
+    textures[0].image, textures.slice(1).map(texture => texture.image), crops,
+    sourceUvRect, sourceWidth, sourceHeight
+  );
   const makeMesh = (map, uvValues, centerX) => {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute([
@@ -4331,6 +4428,7 @@ function auditGndDiffuseSharedUvCrops(pair, target, width, height, sourceWidth, 
       width: crop.width, height: crop.height,
     })),
     cropTextureDimensions: cropTextureSizes,
+    basePixelAudit,
     maxInterCropDelta,
     maxCropVsSourceDelta,
     maxAllowedDelta: 2,
