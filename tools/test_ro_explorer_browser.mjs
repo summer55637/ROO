@@ -387,7 +387,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             });
           }
           const surfaceHits = streakObservations.filter(item => item.result === 'surface-hit');
-          writeFileSync(
+          await writeFile(
             path.join(artifactDir, 'tra-fild-suspected-diffuse-streak-inspector.json'),
             JSON.stringify({
               mapId: mapSlug,
