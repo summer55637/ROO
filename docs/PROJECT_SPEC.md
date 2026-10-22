@@ -441,3 +441,12 @@
 
 
 - 2026-10-22 後續 framebuffer 證據顯示，明確手動 mipmap 貼圖雖通過 CPU base pixel 比對，GPU shared-UV 在近景仍出現 196–218 階差異；iz_dun03 surfaces 339/491 遠景則出現 78 階差異。根因是 POT atlas 的各 surface 獨立 crop／mipmap 無法保證共享 UV 使用同一 GPU 採樣結果。POT atlas 現改為跨 surface 共用原始 diffuse texture 與原始 mip chain；非 POT 素材仍走緊湊 crop／局部 UV 路徑。GPU 的來源像素、UV 與 near/mid/far framebuffer 門檻維持不變，提交後以真實地圖 GPU 報告與完整 CI 重新驗證。
+
+## 2026-10-22 更新：tra_fild 白線 Surface #9967 原始材質稽核
+
+- 依 GPU 診斷截圖追到 GND 1.7 舊式 40-byte surface #9967：原始 texture ID=9（`필드바닥/prt_도시01.bmp`）、lightmap index=40、四角 UV 為 SW/SE/NW/NE = (0.75,0)、(1,0)、(0.75,0.25)、(1,0.25)，來源 atlas 區域為 256×256 圖片中的 x=192–255、y=192–255。
+- 原始 GND cube (53,93) 的 topSurface 確實為 #9967；同列西側 #9965、東側 #9969 也使用同一原始材質但位於不同 UV 子區域。原始二進位的 surface 索引、texture ID、UV、lightmap ID、BGRA tint，以及 cube／鄰接 cube 的高度和 surface 引用皆與目前解析器相符；此處沒有證據支持改動解析器的材質索引、UV 順序或面對應。
+- 新增 `tools/test_ro_map_remote.mjs` 的原始素材稽核：從 live manifest 下載真實 `prt_도시01` PNG，保存來源圖與 JSON，記錄 Surface #9967 的 UV 取樣點、5×5 像素鄰域、64×64 來源區域統計與底邊像素。對應瀏覽器樣本 UV (0.9210, 0.0012) 映射到像素 (235,255)，來源 RGBA=(205,189,178,255)；該 64×64 區域有 1,727/4,096 個亮度 >=220 的像素，但最底一列沒有亮度 >=220 的像素。V=0.25 的上緣較亮，需繼續對照遠景 mipmap 與 framebuffer；這支持繼續查來源紋理取樣和投影縮小效果，但尚不足以宣稱已完全證明白線根因。
+- 這輪沒有修改地表 shader、材質 ID 或 UV，也沒有抹除原始貼圖細節；**保留 POT diffuse 跨 surface 共用來源貼圖與原始 mipmap** 的既有修正。只有在新的 framebuffer／來源像素證據確認程式錯誤後，才改渲染程式。
+- 本次程式碼驗收提交 `d849ef8b9f623a2f8a95cd5422a077d3ee47636f`：Regression tests、Native map live smoke 與 GND multi-map GPU diagnostics 的工作均成功；四張額外 GPU 診斷地圖（icecastle、ice_dun02、thor_v03、iz_dun03）4/4 通過。對應報告：[Regression](https://github.com/summer55637/ROO/actions/runs/39798947533)、[Native map live smoke / 原始素材附件](https://github.com/summer55637/ROO/actions/runs/39798947594)、[多地圖 GPU diagnostics](https://github.com/summer55637/ROO/actions/runs/39798948561)。CI 成功代表程式與來源稽核通過，不代表白線已消失或與官方客戶端逐像素一致。
+
