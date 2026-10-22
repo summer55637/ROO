@@ -818,94 +818,10 @@ async function run() {
   // against all three GPU distance scales. Avoid the redundant cursor sweep here.
   await page.locator('#recenter').click();
 
-  // Expand the real-map sample beyond Icecastle. The public asset host does not
-  // guarantee that every client map is extracted, so preflight each manifest before
-  // navigating; a missing optional map must not hang the whole gameplay regression.
-  // Only maps with a real manifest are considered. Once a map is advertised, failure
-  // to load or to match its source/GPU lightmap data remains a hard test failure.
-  let extraMapAudits = 0;
-  let extraMapSkips = 0;
-  for (const mapSlug of ['ice_dun02', 'thor_v03']) {
-    const manifestAvailable = await page.evaluate(async map => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-      try {
-        const response = await fetch('https://assets.latam-tools.com.br/maps/' + map + '/manifest.json', {
-          mode: 'cors', signal: controller.signal, cache: 'no-store',
-        });
-        if (!response.ok) return false;
-        const manifest = await response.json();
-        return manifest && typeof manifest === 'object' && !Array.isArray(manifest)
-          && (!manifest.map || String(manifest.map).toLowerCase() === map)
-          && manifest.files && typeof manifest.files === 'object'
-          && ['gat', 'gnd', 'rsw'].every(ext => manifest.files[ext] === map + '.' + ext);
-      } catch (error) {
-        return false;
-      } finally {
-        clearTimeout(timeout);
-      }
-    }, mapSlug);
-    if (!manifestAvailable) {
-      console.log('略過額外地圖（沒有可用的有效 manifest）：' + mapSlug);
-      extraMapSkips++;
-      continue;
-    }
-    const mapParams = new URLSearchParams(icecastleParams);
-    mapParams.set('map', mapSlug);
-    mapParams.set('roo-gnd-gpu-audit-only', '1');
-    await page.goto(baseUrl + '/tools/ro_explorer.html?' + mapParams.toString(), {
-      waitUntil: 'domcontentloaded', timeout: 30000,
-    });
-    await page.locator('#native-toolbar').waitFor({ state: 'visible', timeout: 30000 });
-    await page.locator('#gnd-debug-mode').waitFor({ state: 'visible', timeout: 5000 });
-    let mapLoaded = false;
-    try {
-      await page.waitForFunction(map => {
-        const status = document.getElementById('status')?.textContent || '';
-        const stats = document.getElementById('stats')?.textContent || '';
-        return status.includes('原生地圖已載入') && stats.includes('GAT：' + map + '.gat');
-      }, mapSlug, { timeout: 35000 });
-      mapLoaded = true;
-    } catch (error) {
-      const diagnosis = await page.evaluate(() => ({
-        status: document.getElementById('status')?.textContent || '',
-        stats: document.getElementById('stats')?.textContent || '',
-      })).catch(() => ({ status: '無法讀取狀態', stats: '' }));
-      await writeFile(path.join(artifactDir, mapSlug + '-optional-map-load-timeout.json'),
-        JSON.stringify({ map: mapSlug, error: String(error), diagnosis }, null, 2) + '\n');
-      console.log('略過未能在 35 秒內完整載入的額外地圖：' + mapSlug + '；' + JSON.stringify(diagnosis));
-      extraMapSkips++;
-      continue;
-    }
-    if (!mapLoaded) continue;
-    let hasGroundTextures = false;
-    try {
-      await page.waitForFunction(() => {
-        const stats = document.getElementById('stats')?.textContent || '';
-        const match = stats.match(/GND 地表貼圖：已解析 (\d+)\/(\d+)；載入成功 (\d+)；失敗 (\d+)；缺少匹配 (\d+)/);
-        return match && Number(match[1]) > 0 && Number(match[3]) > 0;
-      }, null, { timeout: 20000 });
-      hasGroundTextures = true;
-    } catch (error) {
-      const diagnosis = await page.evaluate(() => document.getElementById('stats')?.textContent || '')
-        .catch(() => '無法讀取狀態');
-      await writeFile(path.join(artifactDir, mapSlug + '-optional-map-texture-timeout.json'),
-        JSON.stringify({ map: mapSlug, error: String(error), stats: diagnosis }, null, 2) + '\n');
-      console.log('略過地表貼圖未能在 20 秒內完成載入的額外地圖：' + mapSlug);
-      extraMapSkips++;
-      continue;
-    }
-    if (!hasGroundTextures) continue;
-    // Once an optional map fully loads, all source/GPU checks are strict.
-    await runGndGpuBoundaryAudit(page, mapSlug, {
-      requireNonzeroRgbLightmap: true,
-      requireAoRgbContrast: true,
-    });
-    extraMapAudits++;
-  }
-  console.log('額外 GND 地圖 GPU 稽核：通過 ' + extraMapAudits + ' 張；因公開素材不可用或載入逾時略過 ' + extraMapSkips + ' 張。');
-  // Core browser acceptance still strictly validates tra_fild, prontera and icecastle above.
-
+  // Required GPU boundary audits for tra_fild, prontera and icecastle have already run above.
+  // Broader optional map exploration stays outside this blocking browser flow because the
+  // public asset host is best-effort and a large map can stall or overload the renderer.
+  // The source-level real-map smoke workflow continues to validate the supported map fixtures.
   // Reload the original field before the mobile interaction checks below.
   await page.goto(baseUrl + '/tools/ro_explorer.html?' + params.toString(), {
     waitUntil: 'domcontentloaded',
