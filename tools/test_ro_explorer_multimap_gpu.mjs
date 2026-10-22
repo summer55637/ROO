@@ -341,7 +341,7 @@ function makeMarkdownSummary(reports) {
     '# ROO Multi-map GND GPU diagnostics',
     '',
     '- Requested maps: ' + maps.join(', '),
-    '- Control maps (icecastle/prontera/tra_fild) validate the core GPU path; extra candidate maps additionally require nonzero RGB lightmap and joint AO contrast.,
+    '- Control maps (icecastle/prontera/tra_fild) validate the core GPU path; extra candidate maps additionally require nonzero RGB lightmap and joint AO contrast.',
     '- Passed: ' + passed + '; failed: ' + failed + '; skipped: ' + skipped,
     '- Per-map time budget: ' + mapTimeoutMs + ' ms',
     '- Main regression requirements remain strict for tra_fild, prontera and icecastle.',
