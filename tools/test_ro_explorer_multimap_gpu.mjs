@@ -89,9 +89,9 @@ function validateAuditReport(mapId, report) {
     if (sourceIsPowerOfTwo(sourceDimensions.width) && sourceIsPowerOfTwo(sourceDimensions.height)) {
       check(Array.isArray(cropProbe && cropProbe.cropTextureDimensions)
         && cropProbe.cropTextureDimensions.length === 2
-        && cropProbe.cropTextureDimensions.every(size => sourceIsPowerOfTwo(size.width)
-          && sourceIsPowerOfTwo(size.height)),
-      label + ' POT source atlas must use power-of-two padded crop mip grids: '
+        && cropProbe.cropTextureDimensions.every(size =>
+          size.width === sourceDimensions.width && size.height === sourceDimensions.height),
+      label + ' POT source atlas crops must share the exact source mip-grid dimensions: '
         + JSON.stringify(cropProbe && cropProbe.cropTextureDimensions));
     }
     const scales = Array.isArray(audit.scales) ? audit.scales : [];

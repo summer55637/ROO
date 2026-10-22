@@ -3379,9 +3379,11 @@ function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
   const isPowerOfTwo = value => Number.isInteger(value) && value > 0
     && (value & (value - 1)) === 0;
   const sourceHasPowerOfTwoMipGrid = isPowerOfTwo(width) && isPowerOfTwo(height);
-  const nextPowerOfTwo = value => 2 ** Math.ceil(Math.log2(value));
-  const textureWidth = sourceHasPowerOfTwoMipGrid ? nextPowerOfTwo(regionWidth) : regionWidth;
-  const textureHeight = sourceHasPowerOfTwoMipGrid ? nextPowerOfTwo(regionHeight) : regionHeight;
+  // Match the source atlas dimensions, not merely an arbitrary POT crop size.
+  // That keeps each mip level's texel grid/rounding aligned with the source atlas;
+  // crop UVs still map to the same source-pixel scale and unused space is edge-filled.
+  const textureWidth = sourceHasPowerOfTwoMipGrid ? width : regionWidth;
+  const textureHeight = sourceHasPowerOfTwoMipGrid ? height : regionHeight;
 
   const canvas = document.createElement('canvas');
   canvas.width = textureWidth;
