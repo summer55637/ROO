@@ -370,7 +370,15 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
                 id: element && element.id || '',
               };
             }, point);
-            if (!targe            await targetPage.mouse.move(point.x, point.y);
+            if (!target.isCanvas) {
+              streakObservations.push({
+                point: [Math.round(point.x - box.x), Math.round(point.y - box.y)],
+                result: 'not-canvas',
+                target,
+              });
+              continue;
+            }
+            await targetPage.mouse.move(point.x, point.y);
             await sleep(50);
             let inspectorText = await inspector.innerText();
             if (inspectorText.includes('Surface #')
@@ -402,10 +410,6 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
                 rgba: framebufferMatch.slice(1, 5).map(Number),
                 pixel: framebufferMatch.slice(5, 7).map(Number),
               } : null,
-              inspector: lines,
-            });       streakObservations.push({
-              point: [Math.round(point.x - box.x), Math.round(point.y - box.y)],
-              result: inspectorText.includes('Surface #') ? 'surface-hit' : 'no-surface-hit',
               inspector: lines,
             });
           }
