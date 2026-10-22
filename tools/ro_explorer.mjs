@@ -4111,6 +4111,179 @@ function buildGndAuditQuad(entry) {
   return geometry;
 }
 
+function auditGndDiffuseSharedUvCrops(pair, target, width, height, sourceWidth, sourceHeight) {
+  const unavailable = reason => ({
+    status: 'unavailable',
+    reason,
+    samples: [],
+    maxInterCropDelta: null,
+    maxCropVsSourceDelta: null,
+  });
+  const entries = [pair.entryA, pair.entryB];
+  const materials = entries.map(entry => Array.isArray(entry.object.material)
+    ? entry.object.material[0] : entry.object.material);
+  const textures = [pair.sourceTexture, materials[0] && materials[0].map, materials[1] && materials[1].map];
+  const crops = [pair.cropA, pair.cropB];
+  if (!textures.every(texture => texture && texture.image)
+    || !crops.every(crop => crop && [crop.x0, crop.y0, crop.x1, crop.y1, crop.width, crop.height].every(Number.isInteger))) {
+    return unavailable('缺少來源 diffuse 或裁切貼圖，無法做共享 UV GPU 對照。');
+  }
+  if (!textures.slice(1).every(texture =>
+    texture.generateMipmaps && texture.minFilter === THREE.LinearMipmapLinearFilter)) {
+    return unavailable('裁切 diffuse 未啟用完整 mipmap，無法做同級比較。');
+  }
+
+  const sharedUv = pair.sharedUv;
+  const centerUv = [
+    (sharedUv[0][0] + sharedUv[1][0]) / 2,
+    (sharedUv[0][1] + sharedUv[1][1]) / 2,
+  ];
+  const minU = Math.max(crops[0].x0, crops[1].x0) / sourceWidth;
+  const maxU = Math.min(crops[0].x1, crops[1].x1) / sourceWidth;
+  const minV = 1 - Math.min(crops[0].y1, crops[1].y1) / sourceHeight;
+  const maxV = 1 - Math.max(crops[0].y0, crops[1].y0) / sourceHeight;
+  const spanU = Math.min(0.25, 1.8 * Math.max(0, Math.min(centerUv[0] - minU, maxU - centerUv[0])));
+  const spanV = Math.min(0.25, 1.8 * Math.max(0, Math.min(centerUv[1] - minV, maxV - centerUv[1])));
+  if (spanU * sourceWidth < 4 || spanV * sourceHeight < 4) {
+    return unavailable('兩個 diffuse crop 的共同安全取樣範圍不足 4 個來源像素。');
+  }
+  const sourceUvRect = {
+    minU: centerUv[0] - spanU / 2,
+    maxU: centerUv[0] + spanU / 2,
+    minV: centerUv[1] - spanV / 2,
+    maxV: centerUv[1] + spanV / 2,
+  };
+  const sourceUvs = [
+    [sourceUvRect.minU, sourceUvRect.minV],
+    [sourceUvRect.maxU, sourceUvRect.minV],
+    [sourceUvRect.minU, sourceUvRect.maxV],
+    [sourceUvRect.maxU, sourceUvRect.maxV],
+  ];
+  const uvForCrop = (uv, crop) => [
+    (uv[0] * sourceWidth - crop.x0) / crop.width,
+    (uv[1] * sourceHeight - (sourceHeight - crop.y1)) / crop.height,
+  ];
+  const makeMesh = (map, uvValues, centerX) => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+      centerX, 0, 0,
+      centerX, 0, 0,
+      centerX, 0, 0,
+      centerX, 0, 0,
+    ], 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvValues.flat(), 2));
+    geometry.setIndex([0, 1, 2, 2, 1, 3]);
+    const material = new THREE.MeshBasicMaterial({
+      map,
+      color: 0xffffff,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.frustumCulled = false;
+    return { geometry, material, mesh, centerX };
+  };
+  const sourceMesh = makeMesh(textures[0], sourceUvs, -1.2);
+  const cropAMesh = makeMesh(textures[1], sourceUvs.map(uv => uvForCrop(uv, crops[0])), 0);
+  const cropBMesh = makeMesh(textures[2], sourceUvs.map(uv => uvForCrop(uv, crops[1])), 1.2);
+  const meshes = [sourceMesh, cropAMesh, cropBMesh];
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x000000);
+  scene.add(...meshes.map(item => item.mesh));
+  const camera = new THREE.OrthographicCamera(-2, 2, 0.5, -0.5, 0.001, 100);
+  camera.up.set(0, 0, 1);
+  camera.position.set(0, 10, 0);
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+
+  const originalColorSpace = target.texture.colorSpace;
+  const originalClear = renderer.getClearColor(new THREE.Color()).clone();
+  const originalClearAlpha = renderer.getClearAlpha();
+  const scales = [{ name: 'near', pixels: 96 }, { name: 'mid', pixels: 16 }, { name: 'far', pixels: 4 }];
+  const samples = [];
+  const readAt = (x, y) => {
+    const rgba = new Uint8Array(4);
+    renderer.readRenderTargetPixels(target, x, height - 1 - y, 1, 1, rgba);
+    return Array.from(rgba.slice(0, 3));
+  };
+  const maxDelta = (a, b) => Math.max(...a.map((value, index) => Math.abs(value - b[index])));
+  try {
+    target.texture.colorSpace = THREE.NoColorSpace;
+    renderer.setRenderTarget(target);
+    renderer.setViewport(0, 0, width, height);
+    renderer.setScissorTest(false);
+    for (const scale of scales) {
+      const size = scale.pixels / 128;
+      for (const item of meshes) {
+        const half = size / 2;
+        item.geometry.getAttribute('position').array.set([
+          item.centerX - half, 0, -half,
+          item.centerX + half, 0, -half,
+          item.centerX - half, 0, half,
+          item.centerX + half, 0, half,
+        ]);
+        item.geometry.getAttribute('position').needsUpdate = true;
+        item.geometry.computeBoundingSphere();
+      }
+      renderer.setClearColor(0x000000, 1);
+      renderer.clear(true, true, true);
+      renderer.render(scene, camera);
+      const y = Math.floor(height / 2);
+      const pixels = meshes.map(item => ({
+        x: Math.floor((item.centerX + 2) / 4 * width),
+        y,
+      }));
+      const sourceRgb = readAt(pixels[0].x, pixels[0].y);
+      const cropARgb = readAt(pixels[1].x, pixels[1].y);
+      const cropBRgb = readAt(pixels[2].x, pixels[2].y);
+      const effectiveLod = Number(Math.max(0, Math.min(20, Math.log2(Math.max(
+        1,
+        spanU * sourceWidth / scale.pixels,
+        spanV * sourceHeight / scale.pixels
+      )))).toFixed(3));
+      samples.push({
+        scale: scale.name,
+        projectedPixels: scale.pixels,
+        effectiveLod,
+        centerSourceUv: centerUv.map(value => Number(value.toFixed(6))),
+        sourceRgb,
+        cropARgb,
+        cropBRgb,
+        cropVsSourceDelta: Math.max(maxDelta(cropARgb, sourceRgb), maxDelta(cropBRgb, sourceRgb)),
+        interCropDelta: maxDelta(cropARgb, cropBRgb),
+      });
+    }
+  } finally {
+    for (const item of meshes) {
+      item.geometry.dispose();
+      item.material.dispose();
+    }
+    target.texture.colorSpace = originalColorSpace;
+    renderer.setClearColor(originalClear, originalClearAlpha);
+  }
+  const maxInterCropDelta = Math.max(...samples.map(sample => sample.interCropDelta));
+  const maxCropVsSourceDelta = Math.max(...samples.map(sample => sample.cropVsSourceDelta));
+  const failures = samples.filter(sample => sample.interCropDelta > 2 || sample.cropVsSourceDelta > 2);
+  return {
+    status: failures.length ? 'mismatch' : 'passed',
+    sourceUvRect,
+    cropPixelRects: crops.map(crop => ({
+      x0: crop.x0, y0: crop.y0, x1: crop.x1, y1: crop.y1,
+      width: crop.width, height: crop.height,
+    })),
+    maxInterCropDelta,
+    maxCropVsSourceDelta,
+    maxAllowedDelta: 2,
+    samples,
+    failures: failures.map(sample => ({
+      scale: sample.scale,
+      interCropDelta: sample.interCropDelta,
+      cropVsSourceDelta: sample.cropVsSourceDelta,
+    })),
+  };
+}
+
 function runSingleGndSharedUvGpuBoundaryAudit(pair) {
   if (!renderer.capabilities.isWebGL2 && !renderer.capabilities.isWebGL) {
     return { status: 'unavailable', reason: '瀏覽器沒有可用的 WebGL。' };
@@ -4358,11 +4531,20 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
           samples,
         });
       }
+      const diffuseSharedUv = auditGndDiffuseSharedUvCrops(
+        pair, target, width, height, sourceWidth, sourceHeight
+      );
       const limits = { diffuseMipRgb: 12, vertexColorRgb: 3, rswLightRgb: 4,
         rgbLightmap: 4, ao: 4, combinedFromComponents: 4 };
       const sharedNormalLimit = 1e-5;
       const sharedNormalDelta = pair.coverage.sharedEdgeNormalMaxDelta;
       const failures = [
+        ...(diffuseSharedUv.status !== 'passed'
+          ? [{ scale: 'shared-uv', channel: 'diffuseCropContinuity',
+            maxDelta: Math.max(
+              Number(diffuseSharedUv.maxInterCropDelta) || 999,
+              Number(diffuseSharedUv.maxCropVsSourceDelta) || 999
+            ), limit: diffuseSharedUv.maxAllowedDelta || 2 }] : []),
         ...(Number.isFinite(sharedNormalDelta) && sharedNormalDelta > sharedNormalLimit
           ? [{ scale: 'shared-edge', channel: 'sharedEdgeNormal',
             maxDelta: sharedNormalDelta, limit: sharedNormalLimit }] : []),
@@ -4380,7 +4562,7 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
         sourceImage: { width: sourceWidth, height: sourceHeight }, mipLevels: mips.length,
         sampler: { minFilter: meshes[0].material.map.minFilter, magFilter: meshes[0].material.map.magFilter,
           generateMipmaps: meshes[0].material.map.generateMipmaps },
-        limits, failures, scales: scaleReports,
+        limits, failures, scales: scaleReports, diffuseSharedUv,
       };
     } finally {
       renderer.setRenderTarget(originalTarget);

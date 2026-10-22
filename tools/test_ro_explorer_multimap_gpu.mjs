@@ -72,6 +72,17 @@ function validateAuditReport(mapId, report) {
     check(Boolean(audit.coverage && audit.coverage.centerLightmapA && audit.coverage.centerLightmapB),
       label + ' is missing AO/lightmap source summaries');
     check(Boolean(audit.sampler && audit.sampler.generateMipmaps), label + ' has mipmaps disabled');
+    const cropProbe = audit.diffuseSharedUv;
+    check(Boolean(cropProbe && cropProbe.status === 'passed'),
+      label + ' same-source-UV diffuse crop/mipmap comparison did not pass: ' + JSON.stringify(cropProbe));
+    check(Array.isArray(cropProbe && cropProbe.samples) && cropProbe.samples.length === 3,
+      label + ' same-source-UV diffuse crop probe must cover near/mid/far');
+    check(Number.isFinite(cropProbe && cropProbe.maxInterCropDelta)
+      && cropProbe.maxInterCropDelta <= 2,
+    label + ' diffuse crops disagree at the same source UV: ' + JSON.stringify(cropProbe));
+    check(Number.isFinite(cropProbe && cropProbe.maxCropVsSourceDelta)
+      && cropProbe.maxCropVsSourceDelta <= 2,
+    label + ' isolated diffuse crop does not match the full-source sample: ' + JSON.stringify(cropProbe));
     const scales = Array.isArray(audit.scales) ? audit.scales : [];
     for (let i = 0; i < scales.length; i++) {
       const scale = scales[i];
