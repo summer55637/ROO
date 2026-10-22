@@ -728,8 +728,10 @@ const rightSharedUv = mapGndDiffuseUvToSourcePixel(
 assert.deepEqual(leftSharedUv.sourcePosition, [63.5, 191.5]);
 assert.deepEqual(rightSharedUv.sourcePosition, leftSharedUv.sourcePosition,
   'adjacent padded crops preserve the same actual source sampling position at a shared UV');
-assert.notDeepEqual(leftSharedUv.localUv, rightSharedUv.localUv,
-  'each crop may have a different local UV while preserving the same global source position');
+assert.deepEqual(leftSharedUv.localUv, [0.25, 0.25],
+  'POT crops retain original atlas UVs rather than shifting them to local crop coordinates');
+assert.deepEqual(rightSharedUv.localUv, leftSharedUv.localUv,
+  'neighboring source-aligned crops use the same UV and mipmap texel phase');
 const clampedUpperUv = mapGndDiffuseUvToSourcePixel(
   [1, 1], { minU: 0, maxU: 1, minV: 0, maxV: 1 }, 256, 256
 );
@@ -1241,6 +1243,10 @@ assert.match(gndExplorerSource, /transformGndNormalToRoSpace/,
   'native ground shader converts Three.js normals back to the official GND coordinate system');
 assert.match(gndExplorerSource, /computeGndLightDirection/,
   'native ground shader uses the reference RSW angle conversion');
+assert.match(gndExplorerSource, /sourcePixelRect\.sourceAligned === true/,
+  'POT diffuse crops retain absolute atlas texel alignment for mipmaps');
+assert.match(gndExplorerSource, /crop\.sourceAligned\s*\?\s*\[uv\[0\], uv\[1\]\]/,
+  'GPU crop audit compares source-aligned textures using the original UV coordinates');
 assert.match(gndExplorerSource, /rooGndHasLightmap/,
   'native ground shader masks surfaces without valid lightmap slices');
 

@@ -2011,7 +2011,14 @@ export function mapGndDiffuseUvToSourcePixel(
     throw new TypeError('GND diffuse crop 像素範圍無效。');
   }
 
-  const localUv = [
+  const isPowerOfTwo = value => Number.isInteger(value) && value > 0
+    && (value & (value - 1)) === 0;
+  const sourceAligned = sourcePixelRect
+    ? sourcePixelRect.sourceAligned === true
+    : isPowerOfTwo(sourceWidth) && isPowerOfTwo(sourceHeight);
+  // POT source-aligned crops retain atlas UVs to keep the same texel phase
+  // through mip levels. Compact non-POT crops continue using local coordinates.
+  const localUv = sourceAligned ? [uv[0], uv[1]] : [
     (uv[0] * sourceWidth - x0) / cropWidth,
     (uv[1] * sourceHeight - (sourceHeight - y1)) / cropHeight,
   ];

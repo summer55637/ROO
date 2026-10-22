@@ -427,3 +427,9 @@
 - 2026-10-22 對齊 GPU 取樣像素中心後，iz_dun03 的 surfaces 339／491 在 far LOD4 仍相差 3 RGB 階，即使 crop 尺寸已和原 atlas 完全對齊。為區分 GPU mip 濾波與來源像素裁切偏移，新增每組共享 UV 的 5×5 CPU base-pixel 比對，並改用單一來源影像像素陣列依整數座標逐列複製 crop，避免 `drawImage` 在非零 crop 起點的取樣重建。CPU base pixels 必須逐位元一致；GPU near/mid/far 的 crop/source 差異仍不得超過 2 RGB 階。
 - 驗收結果以本提交後的 Regression tests、Native map live smoke 與 GND multi-map GPU diagnostics 三組 GitHub Actions 為準；GPU 通道測試不等於已和官方客戶端逐像素一致，真實桌面／手機仍應目視比對。
 
+## 2026-10-22 更新：GND diffuse crop 保留原 atlas mipmap 相位
+- 以 `iz_dun03` 的 surfaces 339/491 作為嚴格重現案例：來源影像 256×256、兩側 crop 為 192×128；CPU 來源像素 50 點完全一致，但遠景 LOD4 的 crop/source framebuffer 最大 RGB 差為 3，超過既有 2 階門檻。
+- POT 來源貼圖的隔離區改在原 atlas 的絕對像素座標建立，區域外以最近邊緣像素延展；地表保留原始 diffuse UV。相鄰 crop 與來源貼圖因此使用相同 mipmap texel 網格相位，隔離區外也不會混入鄰接 atlas 區域。
+- 非 POT 貼圖保留 compact crop／局部 UV 回退路徑。CPU base-pixel 驗收、GPU shared-UV 的 near/mid/far framebuffer 與最大 2 階 RGB 門檻全部保留，不因已知失敗而放寬。
+- 本次以提交後的四張真實地圖多尺度 GPU 診斷、原生地圖 Smoke Test 及完整 Regression tests 實際結果驗收；未通過的地圖仍標記失敗，不以成功載入代替材質通過。
+

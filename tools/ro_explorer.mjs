@@ -1859,20 +1859,24 @@ async function loadRagassetsMap(mapName) {
         const sourceUvAttribute = geometry.getAttribute('rooGndSourceUv');
         if (isIsolatedRegion && sourcePixelRect && sourceTextureWidth > 0 && sourceTextureHeight > 0
           && uvAttribute && sourceUvAttribute) {
-          // Preserve original GND source coordinates inside the padded crop.
-          // Insetting these corners would make adjacent crops sample different
-          // texels even when their shared vertex has the exact same source UV.
+          // POT atlases keep crops in their original texel coordinates so every
+          // mip level shares the same grid phase as the source. Non-POT fallback
+          // crops remain top-left packed and require a local UV transform.
+          const sourceAligned = sourcePixelRect.sourceAligned === true;
           for (let uvAt = 0; uvAt < sourceUvAttribute.array.length; uvAt += 2) {
-            uvAttribute.array[uvAt] = (
-              sourceUvAttribute.array[uvAt] * sourceTextureWidth - sourcePixelRect.x0
-            ) / textureWidth;
-            // CanvasTexture flips the top-origin crop vertically. Because the crop
-            // content starts at canvas row zero and may be shorter than the padded
-            // texture, convert through the actual canvas height and source crop y0.
-            uvAttribute.array[uvAt + 1] = (
-              sourceUvAttribute.array[uvAt + 1] * sourceTextureHeight
-                + textureHeight - sourceTextureHeight + sourcePixelRect.y0
-            ) / textureHeight;
+            if (sourceAligned) {
+              uvAttribute.array[uvAt] = sourceUvAttribute.array[uvAt];
+              uvAttribute.array[uvAt + 1] = sourceUvAttribute.array[uvAt + 1];
+            } else {
+              uvAttribute.array[uvAt] = (
+                sourceUvAttribute.array[uvAt] * sourceTextureWidth - sourcePixelRect.x0
+              ) / textureWidth;
+              // CanvasTexture flips the top-origin compact crop vertically.
+              uvAttribute.array[uvAt + 1] = (
+                sourceUvAttribute.array[uvAt + 1] * sourceTextureHeight
+                  + textureHeight - sourceTextureHeight + sourcePixelRect.y0
+              ) / textureHeight;
+            }
           }
           uvAttribute.needsUpdate = true;
         } else {
@@ -3415,8 +3419,11 @@ function auditGndDiffuseCropBasePixels(sourceImage, cropImages, crops, sourceUvR
       sourcePosition[0], sourcePosition[1]);
     for (let side = 0; side < 2; side++) {
       const crop = crops[side], size = cropDimensions[side];
+      const actualPosition = crops[side].sourceAligned
+        ? sourcePosition
+        : [sourcePosition[0] - crop.x0, sourcePosition[1] - crop.y0];
       const actual = bilinearGndDiffuseRgb(cropData[side], size.width, size.height,
-        sourcePosition[0] - crop.x0, sourcePosition[1] - crop.y0);
+        actualPosition[0], actualPosition[1]);
       const delta = Math.max(...actual.map((value, channel) => Math.abs(value - expected[channel])));
       sampleCount++;
       if (delta > maxDelta) {
@@ -3443,8 +3450,9 @@ function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
     throw new Error('GND diffuse 子區域缺少有效來源影像或 UV 範圍。');
   }
 
-  // GND UVs describe pixel boundaries in the shared source atlas. Crop that region
-  // into its own texture so each region builds an independent mip chain.
+  // Keep crop bounds aligned to power-of-two texels. For POT atlases, preserve
+  // absolute source coordinates and edge-extrude outside the crop, rather than
+  // translating pixels to canvas origin and shifting UVs before mip generation.
   const crop = resolveGndDiffuseCropRect(uvRect, width, height);
   const { x0, y0, x1, y1 } = crop;
   const regionWidth = crop.width;
@@ -3452,60 +3460,78 @@ function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
   if (regionWidth < 1 || regionHeight < 1) {
     throw new Error('GND diffuse UV 子區域小於一個來源像素。');
   }
-
-  // A non-power-of-two crop such as 192×128 has a different mip grid
-  // from its 256×256 source atlas. At far LOD the two isolated crops can then
-  // disagree by a few RGB levels at the exact same source UV. For power-of-two
-  // source atlases, pad the isolated image to power-of-two dimensions while
-  // keeping the original source-texel scale; extend only the crop's outer edge
-  // so the guard band remains isolated from unrelated atlas cells.
   const isPowerOfTwo = value => Number.isInteger(value) && value > 0
     && (value & (value - 1)) === 0;
-  const sourceHasPowerOfTwoMipGrid = isPowerOfTwo(width) && isPowerOfTwo(height);
-  // Match the source atlas dimensions, not merely an arbitrary POT crop size.
-  // That keeps each mip level's texel grid/rounding aligned with the source atlas;
-  // crop UVs still map to the same source-pixel scale and unused space is edge-filled.
-  const textureWidth = sourceHasPowerOfTwoMipGrid ? width : regionWidth;
-  const textureHeight = sourceHasPowerOfTwoMipGrid ? height : regionHeight;
+  const sourceAligned = isPowerOfTwo(width) && isPowerOfTwo(height);
+  const textureWidth = sourceAligned ? width : regionWidth;
+  const textureHeight = sourceAligned ? height : regionHeight;
 
   const canvas = document.createElement('canvas');
   canvas.width = textureWidth;
   canvas.height = textureHeight;
-  const context = canvas.getContext('2d');
+  const context = canvas.getContext('2d', { willReadFrequently: true });
   if (!context) throw new Error('無法建立 GND diffuse 子區域畫布。');
-  // Read one canonical decoded source pixel array and copy integer-addressed
-  // rows verbatim. Cropping via drawImage with a non-zero source offset can
-  // resample edge texels differently, which only becomes obvious after mip filtering.
+  // Copy decoded RGBA bytes verbatim; drawImage at a non-zero crop origin can
+  // resample border texels before the GPU generates the mip chain.
   const sourcePixels = readGndDiffuseImagePixels(image, width, height);
-  const cropPixels = context.createImageData(regionWidth, regionHeight);
-  const sourceRowBytes = width * 4;
-  const cropRowBytes = regionWidth * 4;
-  for (let row = 0; row < regionHeight; row++) {
-    const sourceStart = (y0 + row) * sourceRowBytes + x0 * 4;
-    cropPixels.data.set(sourcePixels.subarray(sourceStart, sourceStart + cropRowBytes), row * cropRowBytes);
-  }
-  context.putImageData(cropPixels, 0, 0);
-  if (textureWidth !== regionWidth || textureHeight !== regionHeight) {
-    const regionPixels = context.getImageData(0, 0, regionWidth, regionHeight).data;
-    const paddedPixels = context.createImageData(textureWidth, textureHeight);
-    const regionRowBytes = regionWidth * 4;
-    const targetRowBytes = textureWidth * 4;
-    for (let targetY = 0; targetY < textureHeight; targetY++) {
-      const sourceY = Math.min(targetY, regionHeight - 1);
-      const sourceRowStart = sourceY * regionRowBytes;
-      const targetRowStart = targetY * targetRowBytes;
-      paddedPixels.data.set(
-        regionPixels.subarray(sourceRowStart, sourceRowStart + regionRowBytes),
-        targetRowStart
+  if (sourceAligned) {
+    const alignedPixels = context.createImageData(width, height);
+    const rowBytes = width * 4;
+    const cropRowBytes = regionWidth * 4;
+    for (let targetY = 0; targetY < height; targetY++) {
+      const sourceY = Math.max(y0, Math.min(y1 - 1, targetY));
+      const sourceRowStart = sourceY * rowBytes;
+      const targetRowStart = targetY * rowBytes;
+      const firstPixel = sourcePixels.subarray(
+        sourceRowStart + x0 * 4, sourceRowStart + x0 * 4 + 4
       );
-      const edgePixel = regionPixels.subarray(
-        sourceRowStart + regionRowBytes - 4, sourceRowStart + regionRowBytes
+      const lastPixel = sourcePixels.subarray(
+        sourceRowStart + (x1 - 1) * 4, sourceRowStart + x1 * 4
       );
-      for (let targetX = regionWidth; targetX < textureWidth; targetX++) {
-        paddedPixels.data.set(edgePixel, targetRowStart + targetX * 4);
+      for (let targetX = 0; targetX < x0; targetX++) {
+        alignedPixels.data.set(firstPixel, targetRowStart + targetX * 4);
+      }
+      alignedPixels.data.set(
+        sourcePixels.subarray(sourceRowStart + x0 * 4, sourceRowStart + x0 * 4 + cropRowBytes),
+        targetRowStart + x0 * 4
+      );
+      for (let targetX = x1; targetX < width; targetX++) {
+        alignedPixels.data.set(lastPixel, targetRowStart + targetX * 4);
       }
     }
-    context.putImageData(paddedPixels, 0, 0);
+    context.putImageData(alignedPixels, 0, 0);
+  } else {
+    // Non-POT fallback keeps the previous compact crop layout for compatibility.
+    const cropPixels = context.createImageData(regionWidth, regionHeight);
+    const sourceRowBytes = width * 4;
+    const cropRowBytes = regionWidth * 4;
+    for (let row = 0; row < regionHeight; row++) {
+      const sourceStart = (y0 + row) * sourceRowBytes + x0 * 4;
+      cropPixels.data.set(sourcePixels.subarray(sourceStart, sourceStart + cropRowBytes), row * cropRowBytes);
+    }
+    context.putImageData(cropPixels, 0, 0);
+    if (textureWidth !== regionWidth || textureHeight !== regionHeight) {
+      const regionPixels = context.getImageData(0, 0, regionWidth, regionHeight).data;
+      const paddedPixels = context.createImageData(textureWidth, textureHeight);
+      const regionRowBytes = regionWidth * 4;
+      const targetRowBytes = textureWidth * 4;
+      for (let targetY = 0; targetY < textureHeight; targetY++) {
+        const sourceY = Math.min(targetY, regionHeight - 1);
+        const sourceRowStart = sourceY * regionRowBytes;
+        const targetRowStart = targetY * targetRowBytes;
+        paddedPixels.data.set(
+          regionPixels.subarray(sourceRowStart, sourceRowStart + regionRowBytes),
+          targetRowStart
+        );
+        const edgePixel = regionPixels.subarray(
+          sourceRowStart + regionRowBytes - 4, sourceRowStart + regionRowBytes
+        );
+        for (let targetX = regionWidth; targetX < textureWidth; targetX++) {
+          paddedPixels.data.set(edgePixel, targetRowStart + targetX * 4);
+        }
+      }
+      context.putImageData(paddedPixels, 0, 0);
+    }
   }
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -3522,10 +3548,9 @@ function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
     texture,
     width: textureWidth,
     height: textureHeight,
-    sourcePixelRect: { x0, y0, x1, y1, width: regionWidth, height: regionHeight },
+    sourcePixelRect: { x0, y0, x1, y1, width: regionWidth, height: regionHeight, sourceAligned },
   };
 }
-
 function describeGndTextureFilters(texture) {
   if (!texture) return '無已載入貼圖';
   const filterName = value => value === THREE.LinearFilter ? 'LinearFilter'
@@ -4303,11 +4328,13 @@ function auditGndDiffuseSharedUvCrops(pair, target, width, height, sourceWidth, 
     [sourceUvRect.minU, sourceUvRect.maxV],
     [sourceUvRect.maxU, sourceUvRect.maxV],
   ];
-  const uvForCrop = (uv, crop, textureSize) => [
-    (uv[0] * sourceWidth - crop.x0) / textureSize.width,
-    (uv[1] * sourceHeight + textureSize.height - sourceHeight + crop.y0)
-      / textureSize.height,
-  ];
+  const uvForCrop = (uv, crop, textureSize) => crop.sourceAligned
+    ? [uv[0], uv[1]]
+    : [
+      (uv[0] * sourceWidth - crop.x0) / textureSize.width,
+      (uv[1] * sourceHeight + textureSize.height - sourceHeight + crop.y0)
+        / textureSize.height,
+    ];
   const basePixelAudit = auditGndDiffuseCropBasePixels(
     textures[0].image, textures.slice(1).map(texture => texture.image), crops,
     sourceUvRect, sourceWidth, sourceHeight
