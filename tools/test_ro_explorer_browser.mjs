@@ -655,6 +655,9 @@ async function run() {
     pzeny: '1234567',
   });
   params.set('roo-gnd-gpu-audit', '1');
+  // This suite audits actual GND shader channels; RSM placements and water animation
+  // are verified in the separate asset pipeline and are intentionally skipped here.
+  params.set('roo-gnd-gpu-audit-only', '1');
   await page.goto(baseUrl + '/tools/ro_explorer.html?' + params.toString(), {
     waitUntil: 'domcontentloaded',
     timeout: 30000,
