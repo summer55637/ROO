@@ -151,7 +151,20 @@ function validateAuditReport(mapId, report) {
           check(Number.isFinite(sample.errors && sample.errors.diffuseRepeatMipRgb)
             && sample.errors.diffuseRepeatMipRgb <= 12,
           label + ' diagnostic Repeat source-to-GPU diffuse mismatch: ' + JSON.stringify(sample.errors));
-          check(Number.isFinite(sample.errors && sample.wrapSamplerDelta),
+          const clampRgb = sample.framebuffer && sample.framebuffer.diffuse;
+          const repeatRgb = sample.framebuffer && sample.framebuffer.diffuseRepeatBoundary;
+          const storedSamplerDelta = sample.errors && sample.errors.wrapSamplerDelta;
+          const framebufferSamplerDelta = Array.isArray(clampRgb) && Array.isArray(repeatRgb)
+            && clampRgb.length === 3 && repeatRgb.length === 3
+            ? Math.max(...clampRgb.map((value, channel) => Math.abs(value - repeatRgb[channel])))
+            : null;
+          const samplerDelta = Number.isFinite(storedSamplerDelta)
+            ? storedSamplerDelta : framebufferSamplerDelta;
+          if (sample.errors && !Number.isFinite(sample.errors.wrapSamplerDelta)
+            && Number.isFinite(framebufferSamplerDelta)) {
+            sample.errors.wrapSamplerDelta = framebufferSamplerDelta;
+          }
+          check(Number.isFinite(samplerDelta),
             label + ' ClampToEdge-vs-Repeat framebuffer delta is missing');
         }
         if (requireNonzeroRgbLightmap
