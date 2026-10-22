@@ -83,6 +83,17 @@ function validateAuditReport(mapId, report) {
     check(Number.isFinite(cropProbe && cropProbe.maxCropVsSourceDelta)
       && cropProbe.maxCropVsSourceDelta <= 2,
     label + ' isolated diffuse crop does not match the full-source sample: ' + JSON.stringify(cropProbe));
+    const sourceDimensions = audit.sourceImage || {};
+    const sourceIsPowerOfTwo = value => Number.isInteger(value) && value > 0
+      && (value & (value - 1)) === 0;
+    if (sourceIsPowerOfTwo(sourceDimensions.width) && sourceIsPowerOfTwo(sourceDimensions.height)) {
+      check(Array.isArray(cropProbe && cropProbe.cropTextureDimensions)
+        && cropProbe.cropTextureDimensions.length === 2
+        && cropProbe.cropTextureDimensions.every(size => sourceIsPowerOfTwo(size.width)
+          && sourceIsPowerOfTwo(size.height)),
+      label + ' POT source atlas must use power-of-two padded crop mip grids: '
+        + JSON.stringify(cropProbe && cropProbe.cropTextureDimensions));
+    }
     const scales = Array.isArray(audit.scales) ? audit.scales : [];
     for (let i = 0; i < scales.length; i++) {
       const scale = scales[i];

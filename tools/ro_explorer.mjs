@@ -3367,13 +3367,48 @@ function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
     throw new Error('GND diffuse UV 子區域小於一個來源像素。');
   }
 
+  // A non-power-of-two crop such as 192×128 has a different mip grid
+  // from its 256×256 source atlas. At far LOD the two isolated crops can then
+  // disagree by a few RGB levels at the exact same source UV. For power-of-two
+  // source atlases, pad the isolated image to power-of-two dimensions while
+  // keeping the original source-texel scale; extend only the crop's outer edge
+  // so the guard band remains isolated from unrelated atlas cells.
+  const isPowerOfTwo = value => Number.isInteger(value) && value > 0
+    && (value & (value - 1)) === 0;
+  const sourceHasPowerOfTwoMipGrid = isPowerOfTwo(width) && isPowerOfTwo(height);
+  const nextPowerOfTwo = value => 2 ** Math.ceil(Math.log2(value));
+  const textureWidth = sourceHasPowerOfTwoMipGrid ? nextPowerOfTwo(regionWidth) : regionWidth;
+  const textureHeight = sourceHasPowerOfTwoMipGrid ? nextPowerOfTwo(regionHeight) : regionHeight;
+
   const canvas = document.createElement('canvas');
-  canvas.width = regionWidth;
-  canvas.height = regionHeight;
+  canvas.width = textureWidth;
+  canvas.height = textureHeight;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('無法建立 GND diffuse 子區域畫布。');
   context.imageSmoothingEnabled = false;
   context.drawImage(image, x0, y0, regionWidth, regionHeight, 0, 0, regionWidth, regionHeight);
+  if (textureWidth !== regionWidth || textureHeight !== regionHeight) {
+    const sourcePixels = context.getImageData(0, 0, regionWidth, regionHeight).data;
+    const paddedPixels = context.createImageData(textureWidth, textureHeight);
+    const sourceRowBytes = regionWidth * 4;
+    const targetRowBytes = textureWidth * 4;
+    for (let targetY = 0; targetY < textureHeight; targetY++) {
+      const sourceY = Math.min(targetY, regionHeight - 1);
+      const sourceRowStart = sourceY * sourceRowBytes;
+      const targetRowStart = targetY * targetRowBytes;
+      paddedPixels.data.set(
+        sourcePixels.subarray(sourceRowStart, sourceRowStart + sourceRowBytes),
+        targetRowStart
+      );
+      const edgePixel = sourcePixels.subarray(
+        sourceRowStart + sourceRowBytes - 4, sourceRowStart + sourceRowBytes
+      );
+      for (let targetX = regionWidth; targetX < textureWidth; targetX++) {
+        paddedPixels.data.set(edgePixel, targetRowStart + targetX * 4);
+      }
+    }
+    context.putImageData(paddedPixels, 0, 0);
+  }
 
   const texture = new THREE.CanvasTexture(canvas);
   // Keep legacy GND byte colors encoded for the classic multiply/add blend.
@@ -3387,8 +3422,8 @@ function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
   texture.needsUpdate = true;
   return {
     texture,
-    width: regionWidth,
-    height: regionHeight,
+    width: textureWidth,
+    height: textureHeight,
     sourcePixelRect: { x0, y0, x1, y1, width: regionWidth, height: regionHeight },
   };
 }
@@ -4128,6 +4163,17 @@ function auditGndDiffuseSharedUvCrops(pair, target, width, height, sourceWidth, 
     || !crops.every(crop => crop && [crop.x0, crop.y0, crop.x1, crop.y1, crop.width, crop.height].every(Number.isInteger))) {
     return unavailable('缺少來源 diffuse 或裁切貼圖，無法做共享 UV GPU 對照。');
   }
+  const cropTextureSizes = textures.slice(1).map(texture => {
+    const image = texture.image;
+    return {
+      width: image.naturalWidth || image.videoWidth || image.width,
+      height: image.naturalHeight || image.videoHeight || image.height,
+    };
+  });
+  if (!cropTextureSizes.every(size => Number.isInteger(size.width) && size.width > 0
+    && Number.isInteger(size.height) && size.height > 0)) {
+    return unavailable('裁切 diffuse 缺少有效的 GPU 貼圖尺寸。');
+  }
   if (!textures.slice(1).every(texture =>
     texture.generateMipmaps && texture.minFilter === THREE.LinearMipmapLinearFilter)) {
     return unavailable('裁切 diffuse 未啟用完整 mipmap，無法做同級比較。');
@@ -4159,9 +4205,9 @@ function auditGndDiffuseSharedUvCrops(pair, target, width, height, sourceWidth, 
     [sourceUvRect.minU, sourceUvRect.maxV],
     [sourceUvRect.maxU, sourceUvRect.maxV],
   ];
-  const uvForCrop = (uv, crop) => [
-    (uv[0] * sourceWidth - crop.x0) / crop.width,
-    (uv[1] * sourceHeight - (sourceHeight - crop.y1)) / crop.height,
+  const uvForCrop = (uv, crop, textureSize) => [
+    (uv[0] * sourceWidth - crop.x0) / textureSize.width,
+    (uv[1] * sourceHeight - (sourceHeight - crop.y1)) / textureSize.height,
   ];
   const makeMesh = (map, uvValues, centerX) => {
     const geometry = new THREE.BufferGeometry();
@@ -4188,8 +4234,10 @@ function auditGndDiffuseSharedUvCrops(pair, target, width, height, sourceWidth, 
   const sampleCenterPixels = [96.5, 256.5, 416.5];
   const sampleCenterWorldX = sampleCenterPixels.map(pixel => pixel / 128 - 2);
   const sourceMesh = makeMesh(textures[0], sourceUvs, sampleCenterWorldX[0]);
-  const cropAMesh = makeMesh(textures[1], sourceUvs.map(uv => uvForCrop(uv, crops[0])), sampleCenterWorldX[1]);
-  const cropBMesh = makeMesh(textures[2], sourceUvs.map(uv => uvForCrop(uv, crops[1])), sampleCenterWorldX[2]);
+  const cropAMesh = makeMesh(textures[1],
+    sourceUvs.map(uv => uvForCrop(uv, crops[0], cropTextureSizes[0])), sampleCenterWorldX[1]);
+  const cropBMesh = makeMesh(textures[2],
+    sourceUvs.map(uv => uvForCrop(uv, crops[1], cropTextureSizes[1])), sampleCenterWorldX[2]);
   const meshes = [sourceMesh, cropAMesh, cropBMesh];
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x000000);
@@ -4276,6 +4324,7 @@ function auditGndDiffuseSharedUvCrops(pair, target, width, height, sourceWidth, 
       x0: crop.x0, y0: crop.y0, x1: crop.x1, y1: crop.y1,
       width: crop.width, height: crop.height,
     })),
+    cropTextureDimensions: cropTextureSizes,
     maxInterCropDelta,
     maxCropVsSourceDelta,
     maxAllowedDelta: 2,
