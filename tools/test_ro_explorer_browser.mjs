@@ -837,7 +837,8 @@ async function run() {
         const manifest = await response.json();
         return manifest && typeof manifest === 'object' && !Array.isArray(manifest)
           && (!manifest.map || String(manifest.map).toLowerCase() === map)
-          && manifest.files && typeof manifest.files === 'object'\n          && ['gat', 'gnd', 'rsw'].every(ext => manifest.files[ext] === map + '.' + ext);
+          && manifest.files && typeof manifest.files === 'object'
+          && ['gat', 'gnd', 'rsw'].every(ext => manifest.files[ext] === map + '.' + ext);
       } catch (error) {
         return false;
       } finally {
