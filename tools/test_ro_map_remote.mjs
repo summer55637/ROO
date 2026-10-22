@@ -1215,6 +1215,142 @@ async function validateMap(mapId) {
     }));
   }
 
+
+  // Audit the exact original diffuse atlas used by the lingering tra_fild white streak.
+  // The raw GND audit already confirms surface #9967's ID and UVs; this captures the
+  // matching public source texture so source-painted pixels can be separated from GPU sampling.
+  if (mapId === 'tra_fild') {
+    const targetSurfaceIndex = 9967;
+    const targetSurface = gnd.surfaces[targetSurfaceIndex];
+    assert.ok(targetSurface, 'tra_fild white-streak surface #9967 exists');
+    const targetTextureIndex = gnd.textures.findIndex(name =>
+      normalizeTextureName(name).endsWith('prt_도시01.bmp'));
+    assert.ok(targetTextureIndex >= 0, 'tra_fild contains the prt_도시01 diffuse atlas');
+    assert.equal(targetSurface.textureIndex, targetTextureIndex,
+      'tra_fild white-streak surface #9967 references the prt_도시01 diffuse atlas');
+    const uvBounds = {
+      minU: Math.min(...targetSurface.uv.map(uv => uv[0])),
+      maxU: Math.max(...targetSurface.uv.map(uv => uv[0])),
+      minV: Math.min(...targetSurface.uv.map(uv => uv[1])),
+      maxV: Math.max(...targetSurface.uv.map(uv => uv[1])),
+    };
+    assert.deepEqual(uvBounds, { minU: 0.75, maxU: 1, minV: 0, maxV: 0.25 },
+      'tra_fild white-streak surface #9967 UV bounds remain source-data exact');
+    const useSites = [];
+    for (let cubeIndex = 0; cubeIndex < gnd.cubes.length; cubeIndex++) {
+      if (gnd.cubes[cubeIndex].topSurface === targetSurfaceIndex) {
+        useSites.push({ x: cubeIndex % gnd.width, y: Math.floor(cubeIndex / gnd.width) });
+      }
+    }
+    assert.deepEqual(useSites, [{ x: 53, y: 93 }],
+      'tra_fild white-streak surface #9967 is used by the expected top cube');
+    const targetTextureName = normalizeTextureName(gnd.textures[targetTextureIndex]);
+    const targetTextureUrl = urls.textures[targetTextureName];
+    assert.ok(targetTextureUrl, 'tra_fild prt_도시01 texture URL resolves from the live manifest');
+    const textureResponse = await fetchResponse(targetTextureUrl, 'tra_fild prt_도시01 exact source texture');
+    const textureBytes = Buffer.from(await textureResponse.arrayBuffer());
+    assert.ok(textureBytes.length > 8
+      && textureBytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
+    'tra_fild prt_도시01 source texture is a valid PNG');
+    const image = decodePngPixels(textureBytes);
+    const sourcePixelBounds = {
+      x0: Math.round(uvBounds.minU * image.width),
+      x1: Math.round(uvBounds.maxU * image.width),
+      y0: Math.round((1 - uvBounds.maxV) * image.height),
+      y1: Math.round((1 - uvBounds.minV) * image.height),
+    };
+    assert.ok(sourcePixelBounds.x0 >= 0 && sourcePixelBounds.x1 <= image.width
+      && sourcePixelBounds.y0 >= 0 && sourcePixelBounds.y1 <= image.height
+      && sourcePixelBounds.x1 > sourcePixelBounds.x0
+      && sourcePixelBounds.y1 > sourcePixelBounds.y0,
+    'tra_fild source UV maps to an in-bounds image rectangle');
+    const luma = pixel => 0.2126 * pixel[0] + 0.7152 * pixel[1] + 0.0722 * pixel[2];
+    const brightThreshold = 220;
+    const darkThreshold = 40;
+    const sourceRegionStats = (() => {
+      let brightPixels = 0;
+      let darkPixels = 0;
+      let lumaSum = 0;
+      const brightCountByRow = [];
+      for (let y = sourcePixelBounds.y0; y < sourcePixelBounds.y1; y++) {
+        let brightInRow = 0;
+        for (let x = sourcePixelBounds.x0; x < sourcePixelBounds.x1; x++) {
+          const pixel = image.pixelAt(x, y);
+          const value = luma(pixel);
+          if (value >= brightThreshold) { brightPixels++; brightInRow++; }
+          if (value <= darkThreshold) darkPixels++;
+          lumaSum += value;
+        }
+        brightCountByRow.push({ y, brightPixels: brightInRow });
+      }
+      const pixelCount = (sourcePixelBounds.x1 - sourcePixelBounds.x0)
+        * (sourcePixelBounds.y1 - sourcePixelBounds.y0);
+      return {
+        pixelCount,
+        meanLuma: Number((lumaSum / pixelCount).toFixed(3)),
+        brightThreshold,
+        darkThreshold,
+        brightPixels,
+        darkPixels,
+        brightCountByRow,
+        bottomEdge: Array.from({ length: sourcePixelBounds.x1 - sourcePixelBounds.x0 }, (_, i) => {
+          const x = sourcePixelBounds.x0 + i;
+          const pixel = image.pixelAt(x, sourcePixelBounds.y1 - 1);
+          return { x, rgba: pixel, luma: Number(luma(pixel).toFixed(2)) };
+        }),
+      };
+    })();
+    const inspectorUv = [0.9210, 0.0012];
+    const inspectorSample = mapGndDiffuseUvToSourcePixel(
+      inspectorUv, targetSurface.uv, image.width, image.height
+    );
+    const probeX = inspectorSample.nearestPixel[0];
+    const probeY = inspectorSample.nearestPixel[1];
+    const probeNeighborhood = [];
+    for (let y = Math.max(0, probeY - 2); y <= Math.min(image.height - 1, probeY + 2); y++) {
+      for (let x = Math.max(0, probeX - 2); x <= Math.min(image.width - 1, probeX + 2); x++) {
+        probeNeighborhood.push({ x, y, rgba: image.pixelAt(x, y) });
+      }
+    }
+    const sourceArtifactDir = 'artifacts/gnd-source-textures';
+    mkdirSync(sourceArtifactDir, { recursive: true });
+    writeFileSync(sourceArtifactDir + '/tra-fild-prt-city-01-source.png', textureBytes);
+    const audit = {
+      mapId,
+      gndVersion: gnd.version,
+      gndSize: [gnd.width, gnd.height],
+      surfaceIndex: targetSurfaceIndex,
+      cubeUseSites: useSites,
+      textureIndex: targetTextureIndex,
+      textureName: gnd.textures[targetTextureIndex],
+      textureUrl: targetTextureUrl,
+      imageSize: [image.width, image.height],
+      uv: targetSurface.uv,
+      uvBounds,
+      sourcePixelBounds,
+      inspectorUv,
+      inspectorSample,
+      inspectorNearestPixel: { x: probeX, y: probeY, rgba: image.pixelAt(probeX, probeY) },
+      probeNeighborhood,
+      sourceRegionStats,
+    };
+    writeFileSync(sourceArtifactDir + '/tra-fild-prt-city-01-surface-9967-audit.json',
+      JSON.stringify(audit, null, 2) + '\\n');
+    console.log('tra_fild exact white-streak diffuse source audit: ' + JSON.stringify({
+      surfaceIndex: targetSurfaceIndex,
+      cubeUseSites: useSites,
+      textureName: audit.textureName,
+      imageSize: audit.imageSize,
+      sourcePixelBounds,
+      inspectorNearestPixel: audit.inspectorNearestPixel,
+      sourceRegion: {
+        meanLuma: sourceRegionStats.meanLuma,
+        brightPixels: sourceRegionStats.brightPixels,
+        darkPixels: sourceRegionStats.darkPixels,
+      },
+    }));
+  }
+
   const topSurfaceIndexes = new Set();
   for (const cube of gnd.cubes) {
     if (cube.topSurface >= 0 && cube.topSurface < gnd.surfaces.length) {
