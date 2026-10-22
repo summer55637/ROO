@@ -347,9 +347,12 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
         // source UV and GPU inspector data so we can classify the source rather than guess.
         if (mapSlug === 'tra-fild' && mode.value === '7') {
           const streakRatios = [];
-          for (const yRatio of [0.205, 0.22, 0.235, 0.25, 0.265]) {
-            for (const xRatio of [0.54, 0.56, 0.58, 0.60, 0.62, 0.64, 0.66, 0.68, 0.70, 0.72]) {
-              streakRatios.push([xRatio, yRatio]);
+          // Follow the visible diagonal instead of sampling horizontal rows above it.
+          // A few vertical offsets tolerate small camera/Chromium projection changes.
+          for (const xRatio of [0.57, 0.585, 0.60, 0.615, 0.63, 0.645, 0.66, 0.67]) {
+            const centerYRatio = 0.231 + (xRatio - 0.57) * 0.85;
+            for (const verticalOffsetPx of [-2, 0, 2]) {
+              streakRatios.push([xRatio, centerYRatio + verticalOffsetPx / box.height]);
             }
           }
           const streakObservations = [];
@@ -367,20 +370,40 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
                 id: element && element.id || '',
               };
             }, point);
-            if (!target.isCanvas) {
-              streakObservations.push({
-                point: [Math.round(point.x - box.x), Math.round(point.y - box.y)],
-                result: 'not-canvas',
-                target,
-              });
-              continue;
+            if (!targe            await targetPage.mouse.move(point.x, point.y);
+            await sleep(50);
+            let inspectorText = await inspector.innerText();
+            if (inspectorText.includes('Surface #')
+              && inspectorText.includes('GPU 最終畫面取樣 RGBA：等待下一個渲染影格。')) {
+              try {
+                await targetPage.waitForFunction(() => {
+                  const text = document.getElementById('gnd-surface-inspector-content')?.textContent || '';
+                  return /GPU 最終畫面取樣 RGBA：\(\d+,\s*\d+,\s*\d+,\s*\d+\)/.test(text);
+                }, null, { timeout: 1500 });
+              } catch (error) {
+                // Keep the observation even if this browser cannot complete readback.
+              }
+              inspectorText = await inspector.innerText();
             }
-            await targetPage.mouse.move(point.x, point.y);
-            await sleep(70);
-            const inspectorText = await inspector.innerText();
             const lines = inspectorText.split('\n');
-            const relevantLines = lines.filter(line => /Surface #|真實材質路徑|實際載入 URL|Diffuse 貼圖採樣|材質索引：|diffuse 原始 UV 範圍|游標處插值 diffuse UV|游標處來源 diffuse 貼圖像素|游標處插值頂點色|游標處 Lightmap atlas UV2|游標處來源 RGB lightmap \/ AO 最近像素|GPU 最終畫面取樣 RGBA/.test(line));
+            const isSurfaceHit = inspectorText.includes('Surface #');
+            const diagnosticClass = isSurfaceHit ? 'gnd-surface'
+              : inspectorText.includes('游標目前先命中模型或水面') ? 'model-or-water-occlusion'
+                : inspectorText.includes('目前游標沒有命中場景中的地表') ? 'no-ray-hit'
+                  : 'other';
+            const framebufferMatch = inspectorText.match(
+              /GPU 最終畫面取樣 RGBA：\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\) @ \((\d+),\s*(\d+)\)/
+            );
             streakObservations.push({
+              point: [Math.round(point.x - box.x), Math.round(point.y - box.y)],
+              result: isSurfaceHit ? 'surface-hit' : 'no-surface-hit',
+              diagnosticClass,
+              gpuFramebuffer: framebufferMatch ? {
+                rgba: framebufferMatch.slice(1, 5).map(Number),
+                pixel: framebufferMatch.slice(5, 7).map(Number),
+              } : null,
+              inspector: lines,
+            });       streakObservations.push({
               point: [Math.round(point.x - box.x), Math.round(point.y - box.y)],
               result: inspectorText.includes('Surface #') ? 'surface-hit' : 'no-surface-hit',
               inspector: lines,
@@ -400,7 +423,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
           );
           const targetPoint = {
             x: box.x + box.width * 0.62,
-            y: box.y + box.height * 0.235,
+            y: box.y + box.height * (0.231 + (0.62 - 0.57) * 0.85),
           };
           await targetPage.mouse.move(targetPoint.x, targetPoint.y);
           await sleep(100);
