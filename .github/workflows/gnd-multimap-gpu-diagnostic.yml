@@ -16,15 +16,6 @@ on:
       - 'tools/ro_explorer.mjs'
       - 'tools/ro_map_assets.mjs'
       - '.github/workflows/gnd-multimap-gpu-diagnostic.yml'
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'tools/test_ro_explorer_multimap_gpu.mjs'
-      - 'tools/ro_explorer.mjs'
-      - 'tools/ro_map_assets.mjs'
-      - '.github/workflows/gnd-multimap-gpu-diagnostic.yml'
-
 permissions:
   contents: read
 
