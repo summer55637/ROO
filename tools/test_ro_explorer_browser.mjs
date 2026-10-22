@@ -378,7 +378,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             await targetPage.mouse.move(point.x, point.y);
             await sleep(70);
             const inspectorText = await inspector.innerText();
-            const lines = inspectorText.split('\\n');
+            const lines = inspectorText.split('\n');
             const relevantLines = lines.filter(line => /Surface #|真實材質路徑|實際載入 URL|Diffuse 貼圖採樣|材質索引：|diffuse 原始 UV 範圍|游標處插值 diffuse UV|游標處來源 diffuse 貼圖像素|游標處插值頂點色|游標處 Lightmap atlas UV2|游標處來源 RGB lightmap \/ AO 最近像素|GPU 最終畫面取樣 RGBA/.test(line));
             streakObservations.push({
               point: [Math.round(point.x - box.x), Math.round(point.y - box.y)],
@@ -396,7 +396,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
               sampledPoints: streakObservations.length,
               surfaceHitCount: surfaceHits.length,
               observations: streakObservations,
-            }, null, 2) + '\\n'
+            }, null, 2) + '\n'
           );
           const targetPoint = {
             x: box.x + box.width * 0.85,
