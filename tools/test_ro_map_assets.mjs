@@ -675,6 +675,37 @@ assert.deepEqual(rightDiffuseRegion.diffuseUvRect, {
   minU: 0.5, maxU: 1, minV: 0, maxV: 0.5,
 });
 
+// Shared terrain vertices must use the same smoothed normal even after adjacent
+// tiles are split into separate material/texture buckets.
+const smoothNormalsAcrossMaterials = buildGndMeshData({
+  width: 2,
+  height: 1,
+  textures: ['left.png', 'right.png'],
+  surfaces: [
+    { textureIndex: 0, uv: [[0, 0], [1, 0], [0, 1], [1, 1]], color: [1, 1, 1, 1] },
+    { textureIndex: 1, uv: [[0, 0], [1, 0], [0, 1], [1, 1]], color: [1, 1, 1, 1] },
+  ],
+  cubes: [
+    { hSW: 0, hSE: 0, hNW: 0, hNE: 10, topSurface: 0, northSurface: -1, eastSurface: -1 },
+    { hSW: 0, hSE: 10, hNW: 10, hNE: 20, topSurface: 1, northSurface: -1, eastSurface: -1 },
+  ],
+});
+const smoothLeftTile = smoothNormalsAcrossMaterials.buckets.find(bucket => bucket.textureIndex === 0);
+const smoothRightTile = smoothNormalsAcrossMaterials.buckets.find(bucket => bucket.textureIndex === 1);
+assert.ok(smoothLeftTile && smoothRightTile);
+assert.deepEqual(smoothLeftTile.normals.slice(3, 6), smoothRightTile.normals.slice(0, 3),
+  'the shared south grid vertex keeps one normal across different material buckets');
+assert.deepEqual(smoothLeftTile.normals.slice(9, 12), smoothRightTile.normals.slice(6, 9),
+  'the shared north grid vertex keeps one normal across different material buckets');
+assert.notDeepEqual(smoothLeftTile.normals.slice(3, 6), [0, 1, 0],
+  'sloped terrain must use its measured smooth normal instead of a fixed up-vector');
+for (const bucket of smoothNormalsAcrossMaterials.buckets) {
+  for (let i = 0; i < bucket.normals.length; i += 3) {
+    const length = Math.hypot(...bucket.normals.slice(i, i + 3));
+    assert.ok(Math.abs(length - 1) < 1e-6, 'every terrain normal is normalized');
+  }
+}
+
 // Shared UV boundaries must map to the same source texel coordinate even when
 // adjacent surfaces use different isolated crops. A 1/4 atlas edge is between
 // source pixels 63 and 64; the padded crop keeps that same bilinear midpoint.

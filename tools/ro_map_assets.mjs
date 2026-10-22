@@ -1706,6 +1706,63 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
   const buckets = new Map();
   let quadCount = 0;
 
+  // GND top normals must be accumulated at shared world positions before
+  // texture/UV buckets split the mesh; otherwise adjacent tiles shade independently.
+  const topNormalSums = new Map();
+  const worldPosition = corner => [
+    (corner.x * 10 - width * 5) * worldScale,
+    corner.h === 0 ? 0 : -corner.h * worldScale,
+    -(corner.z * 10 - height * 5) * worldScale,
+  ];
+  const normalPositionKey = point => point.map(value => Math.round(value * 1e6)).join(',');
+  const normalizeGroundNormal = vector => {
+    const length = Math.hypot(vector[0], vector[1], vector[2]);
+    return length > 1e-9 ? vector.map(value => value / length) : [0, 1, 0];
+  };
+  const crossGroundVectors = (a, b) => [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+  function accumulateTopTriangle(a, b, c) {
+    const pa = worldPosition(a);
+    const pb = worldPosition(b);
+    const pc = worldPosition(c);
+    const ab = pb.map((value, axis) => value - pa[axis]);
+    const ac = pc.map((value, axis) => value - pa[axis]);
+    const faceNormal = crossGroundVectors(ab, ac);
+    if (Math.hypot(...faceNormal) <= 1e-9) return;
+    for (const point of [pa, pb, pc]) {
+      const key = normalPositionKey(point);
+      let sum = topNormalSums.get(key);
+      if (!sum) {
+        sum = [0, 0, 0];
+        topNormalSums.set(key, sum);
+      }
+      for (let axis = 0; axis < 3; axis++) sum[axis] += faceNormal[axis];
+    }
+  }
+  for (let i = 0; i < cubes.length; i++) {
+    const x = i % width;
+    const z = Math.floor(i / width);
+    const cube = cubes[i];
+    if (!Number.isInteger(cube.topSurface) || cube.topSurface < 0
+      || cube.topSurface >= surfaces.length) continue;
+    const surface = surfaces[cube.topSurface];
+    if (!surface || surface.textureIndex === -1) continue;
+    const topCorners = [
+      { x, z, h: cube.hSW, uvIndex: 0 },
+      { x: x + 1, z, h: cube.hSE, uvIndex: 1 },
+      { x, z: z + 1, h: cube.hNW, uvIndex: 2 },
+      { x: x + 1, z: z + 1, h: cube.hNE, uvIndex: 3 },
+    ];
+    accumulateTopTriangle(topCorners[0], topCorners[1], topCorners[2]);
+    accumulateTopTriangle(topCorners[2], topCorners[1], topCorners[3]);
+  }
+  const smoothedTopNormals = new Map([...topNormalSums.entries()].map(([key, sum]) => [
+    key, normalizeGroundNormal(sum),
+  ]));
+
   // In legacy 40-byte GND surfaces, one tint belongs to the tile's
   // south-west grid vertex. If no tile anchors a grid vertex, use neutral white
   // rather than borrowing whichever neighboring face happens to be built first.
@@ -1745,7 +1802,7 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
       .map(value => Math.round(value * 1000000)).join(':');
   }
 
-  function addQuad(surfaceIndex, corners, vertexColors = null) {
+  function addQuad(surfaceIndex, corners, vertexColors = null, vertexNormals = null) {
     if (surfaceIndex < 0 || surfaceIndex >= surfaces.length) return;
     const surface = surfaces[surfaceIndex];
     const textureIndex = surface.textureIndex;
@@ -1766,6 +1823,7 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
         positions: [],
         uvs: [],
         sourceUvs: [],
+        normals: [],
         lightmapUvs: [],
         lightmapEnabled: [],
         colors: [],
@@ -1774,14 +1832,25 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
       };
       buckets.set(bucketKey, bucket);
     }
+    const quadPositions = corners.map(worldPosition);
+    let flatNormalSum = [0, 0, 0];
+    for (const [aIndex, bIndex, cIndex] of [[0, 1, 2], [2, 1, 3]]) {
+      const a = quadPositions[aIndex];
+      const b = quadPositions[bIndex];
+      const c = quadPositions[cIndex];
+      const ab = b.map((value, axis) => value - a[axis]);
+      const ac = c.map((value, axis) => value - a[axis]);
+      const faceNormal = crossGroundVectors(ab, ac);
+      flatNormalSum = flatNormalSum.map((value, axis) => value + faceNormal[axis]);
+    }
+    const flatNormal = normalizeGroundNormal(flatNormalSum);
     const base = bucket.positions.length / 3;
-    for (const corner of corners) {
-      const worldHeight = corner.h === 0 ? 0 : -corner.h * worldScale;
-      bucket.positions.push(
-        (corner.x * 10 - width * 5) * worldScale,
-        worldHeight,
-        -(corner.z * 10 - height * 5) * worldScale
-      );
+    for (let cornerIndex = 0; cornerIndex < corners.length; cornerIndex++) {
+      const corner = corners[cornerIndex];
+      const worldPoint = quadPositions[cornerIndex];
+      bucket.positions.push(...worldPoint);
+      const normal = vertexNormals && vertexNormals[cornerIndex] || flatNormal;
+      bucket.normals.push(...normal);
       const uv = surface.uv[corner.uvIndex];
       bucket.sourceUvs.push(uv[0], uv[1]);
       if (bucket.diffuseUvRect) {
@@ -1820,12 +1889,15 @@ export function buildGndMeshData(gnd, worldScale = 0.2, lightmapAtlas = null) {
       topColor(x, y + 1),
       topColor(x + 1, y + 1),
     ];
-    addQuad(cube.topSurface, [
+    const topCorners = [
       { x, z: y, h: cube.hSW, uvIndex: 0 },
       { x: x + 1, z: y, h: cube.hSE, uvIndex: 1 },
       { x, z: y + 1, h: cube.hNW, uvIndex: 2 },
       { x: x + 1, z: y + 1, h: cube.hNE, uvIndex: 3 },
-    ], vertexColors);
+    ];
+    const topNormals = topCorners.map(corner =>
+      smoothedTopNormals.get(normalPositionKey(worldPosition(corner))) || [0, 1, 0]);
+    addQuad(cube.topSurface, topCorners, vertexColors, topNormals);
 
     if (cube.northSurface >= 0 && y + 1 < height) {
       const neighbor = cubes[i + width];

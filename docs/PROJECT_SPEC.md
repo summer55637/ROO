@@ -415,3 +415,11 @@
 - GPU 報告保留 4–6 組相鄰 surface、東／北方向、near／mid／far mipmap、來源 diffuse／頂點色／方向光／AO／RGB lightmap、framebuffer 讀回與通道差異。已確認的 `icecastle` 控制組必須有非零 RGB lightmap；新增候選地圖則必須同時具備非零 RGB lightmap 與 AO 對比。`prontera`／`tra_fild` 仍驗證 GPU 多尺度邊界路徑，但不因原始素材沒有符合候選條件而誤報成程式失敗。不能只因地圖畫面載入成功就算通過。
 - 每張圖輸出 JSON 與場景截圖，另有 `summary.json`／`summary.md`；workflow 會把摘要顯示在 Actions，並上傳 14 天可下載的診斷附件。至少一張地圖必須通過，而且不能有已載入地圖的 GPU 斷言失敗，整個診斷工作才會成功。
 - 一般必要 CI 仍保留 `tra_fild`、`prontera`、`icecastle` 的 GPU 驗收及全套桌面／手機、戰鬥端到端、完整回歸、全遊戲 smoke test 與資料語法檢查。此工具只做診斷，不修改遊戲玩法、外部素材、存檔、碰撞／尋路或前端／單機架構。
+
+## 2026-10-22 更新：GND 相鄰地表法線跨材質平滑
+- 追查 GPU 報告後，四張真實地圖（icecastle、ice_dun02、thor_v03、iz_dun03）的來源 RGB lightmap、AO 與 framebuffer 抽樣均通過；但「單點抽樣一致」本身無法排除相鄰地表的方向光接縫。
+- 根因在網格建構順序：地表先依貼圖／UV 區域分桶，而且每個地表四角都重建頂點；之後再呼叫 `computeVertexNormals()`，導致相同世界座標在不同桶裡各自算光照法線。於是來源貼圖、AO 與 lightmap 都可能正確，鄰接地塊仍會因方向光結果不同而呈現塊狀明暗。
+- 現在先依真實地形三角形，在分桶前按共享世界座標累積地表法線，再把同一份平滑法線寫入不同貼圖／UV 桶；垂直牆面使用自身平面法線，不加入地表平滑平均。
+- 新增回歸測試，確認分屬不同材質桶的相鄰斜坡在共享頂點使用完全相同的單位法線。未修改 AO、RGB lightmap 來源 bytes、貼圖 mipmap、GAT 通行、尋路、戰鬥、存檔或單機架構。
+- 驗收結果以本提交後的 Regression tests、Native map live smoke 與 GND multi-map GPU diagnostics 三組 GitHub Actions 為準；GPU 通道測試不等於已和官方客戶端逐像素一致，真實桌面／手機仍應目視比對。
+

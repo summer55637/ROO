@@ -1744,7 +1744,11 @@ async function loadRagassetsMap(mapName) {
       }
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(bucket.colors, 3));
       geometry.setIndex(bucket.indices);
-      geometry.computeVertexNormals();
+      if (Array.isArray(bucket.normals) && bucket.normals.length === bucket.positions.length) {
+        geometry.setAttribute('normal', new THREE.Float32BufferAttribute(bucket.normals, 3));
+      } else {
+        geometry.computeVertexNormals();
+      }
       if (lightmapAtlas) {
         const viewNormals = geometry.getAttribute('normal').array;
         const roLightingNormals = new Float32Array(viewNormals.length);
