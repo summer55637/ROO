@@ -1312,6 +1312,159 @@ async function validateMap(mapId) {
         probeNeighborhood.push({ x, y, rgba: image.pixelAt(x, y) });
       }
     }
+    const auditedSurfaceIndexes = [9965, 9967, 9969, 9844];
+    const targetSurfaceSourceAudit = auditedSurfaceIndexes.map(surfaceIndex => {
+      const surface = gnd.surfaces[surfaceIndex];
+      assert.ok(surface, 'tra_fild target boundary surface #' + surfaceIndex + ' exists');
+      assert.equal(surface.textureIndex, targetTextureIndex,
+        'tra_fild target boundary surface #' + surfaceIndex + ' uses prt_도시01');
+      const uvBounds = {
+        minU: Math.min(...surface.uv.map(uv => uv[0])),
+        maxU: Math.max(...surface.uv.map(uv => uv[0])),
+        minV: Math.min(...surface.uv.map(uv => uv[1])),
+        maxV: Math.max(...surface.uv.map(uv => uv[1])),
+      };
+      const sourcePixelBounds = {
+        x0: Math.round(uvBounds.minU * image.width),
+        x1: Math.round(uvBounds.maxU * image.width),
+        y0: Math.round((1 - uvBounds.maxV) * image.height),
+        y1: Math.round((1 - uvBounds.minV) * image.height),
+      };
+      const useSites = [];
+      for (let cubeIndex = 0; cubeIndex < gnd.cubes.length; cubeIndex++) {
+        if (gnd.cubes[cubeIndex].topSurface === surfaceIndex) {
+          useSites.push([cubeIndex % gnd.width, Math.floor(cubeIndex / gnd.width)]);
+        }
+      }
+      const { x0, x1, y0, y1 } = sourcePixelBounds;
+      const row = y => Array.from({ length: x1 - x0 }, (_, i) =>
+        image.pixelAt(x0 + i, y));
+      const column = x => Array.from({ length: y1 - y0 }, (_, i) =>
+        image.pixelAt(x, y0 + i));
+      return {
+        surfaceIndex,
+        textureIndex: surface.textureIndex,
+        textureName: gnd.textures[surface.textureIndex],
+        lightmapIndex: surface.lightmapIndex,
+        uv: surface.uv,
+        uvBounds,
+        sourcePixelBounds,
+        useSites,
+        sourceRgbaCorners: {
+          sw: image.pixelAt(Math.max(0, Math.min(image.width - 1, Math.floor(surface.uv[0][0] * image.width))),
+            Math.max(0, Math.min(image.height - 1, Math.floor((1 - surface.uv[0][1]) * image.height)))),
+          se: image.pixelAt(Math.max(0, Math.min(image.width - 1, Math.floor(surface.uv[1][0] * image.width))),
+            Math.max(0, Math.min(image.height - 1, Math.floor((1 - surface.uv[1][1]) * image.height)))),
+          nw: image.pixelAt(Math.max(0, Math.min(image.width - 1, Math.floor(surface.uv[2][0] * image.width))),
+            Math.max(0, Math.min(image.height - 1, Math.floor((1 - surface.uv[2][1]) * image.height)))),
+          ne: image.pixelAt(Math.max(0, Math.min(image.width - 1, Math.floor(surface.uv[3][0] * image.width))),
+            Math.max(0, Math.min(image.height - 1, Math.floor((1 - surface.uv[3][1]) * image.height)))),
+        },
+        sourceBoundaryPixels: {
+          west: column(x0),
+          east: column(x1 - 1),
+          north: row(y0),
+          south: row(y1 - 1),
+        },
+      };
+    });
+    const sourceMipLevels = [];
+    const sourceBasePixels = new Uint8ClampedArray(image.width * image.height * 4);
+    for (let y = 0; y < image.height; y++) for (let x = 0; x < image.width; x++) {
+      const pixel = image.pixelAt(x, y);
+      sourceBasePixels.set(pixel, (y * image.width + x) * 4);
+    }
+    sourceMipLevels.push({ width: image.width, height: image.height, data: sourceBasePixels });
+    while (sourceMipLevels[sourceMipLevels.length - 1].width > 1
+      || sourceMipLevels[sourceMipLevels.length - 1].height > 1) {
+      const src = sourceMipLevels[sourceMipLevels.length - 1];
+      const width = Math.max(1, Math.floor(src.width / 2));
+      const height = Math.max(1, Math.floor(src.height / 2));
+      const data = new Uint8ClampedArray(width * height * 4);
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) for (let channel = 0; channel < 4; channel++) {
+        let sum = 0;
+        let count = 0;
+        for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+          const sx = Math.min(src.width - 1, x * 2 + dx);
+          const sy = Math.min(src.height - 1, y * 2 + dy);
+          sum += src.data[(sy * src.width + sx) * 4 + channel];
+          count++;
+        }
+        data[(y * width + x) * 4 + channel] = sum / count;
+      }
+      sourceMipLevels.push({ width, height, data });
+    }
+    const sampleMipEdge = (mip, uv, repeat) => {
+      const axis = (coordinate, size, wrap) => {
+        const position = coordinate * size - 0.5;
+        const filtered = wrap ? position : Math.max(0, Math.min(size - 1, position));
+        const lower = Math.floor(filtered);
+        const ix = value => wrap ? ((value % size) + size) % size
+          : Math.max(0, Math.min(size - 1, value));
+        return { lo: ix(lower), hi: ix(lower + 1), t: filtered - lower };
+      };
+      const x = axis(uv[0], mip.width, repeat);
+      const y = axis(1 - uv[1], mip.height, repeat);
+      return [0, 1, 2].map(channel => {
+        const at = (px, py) => mip.data[(py * mip.width + px) * 4 + channel];
+        const top = at(x.lo, y.lo) * (1 - x.t) + at(x.hi, y.lo) * x.t;
+        const bottom = at(x.lo, y.hi) * (1 - x.t) + at(x.hi, y.hi) * x.t;
+        return Number((top * (1 - y.t) + bottom * y.t).toFixed(3));
+      });
+    };
+    const targetMipBoundarySamples = targetSurfaceSourceAudit.map(surface => {
+      const { minU, maxU, minV, maxV } = surface.uvBounds;
+      const edges = {
+        west: [minU, (minV + maxV) / 2],
+        east: [maxU, (minV + maxV) / 2],
+        south: [(minU + maxU) / 2, minV],
+        north: [(minU + maxU) / 2, maxV],
+      };
+      return {
+        surfaceIndex: surface.surfaceIndex,
+        sourcePixelBounds: surface.sourcePixelBounds,
+        edges: Object.fromEntries(Object.entries(edges).map(([edge, uv]) => [edge, {
+          uv,
+          levels: sourceMipLevels.map((mip, level) => ({
+            level,
+            size: [mip.width, mip.height],
+            repeatRgba: sampleMipEdge(mip, uv, true),
+            clampRgba: sampleMipEdge(mip, uv, false),
+          })),
+        }])),
+      };
+    });
+    const mipmapOuterEdgeSummary = sourceMipLevels.map((mip, level) => {
+      const pixel = (x, y) => [0, 1, 2].map(channel =>
+        mip.data[(y * mip.width + x) * 4 + channel]);
+      const mean = pixels => [0, 1, 2].map(channel =>
+        Number((pixels.reduce((sum, value) => sum + value[channel], 0) / pixels.length).toFixed(3)));
+      const horizontal = {
+        top: mean(Array.from({ length: mip.width }, (_, x) => pixel(x, 0))),
+        bottom: mean(Array.from({ length: mip.width }, (_, x) => pixel(x, mip.height - 1))),
+      };
+      const vertical = {
+        left: mean(Array.from({ length: mip.height }, (_, y) => pixel(0, y))),
+        right: mean(Array.from({ length: mip.height }, (_, y) => pixel(mip.width - 1, y))),
+      };
+      const delta = (a, b) => Math.max(...a.map((value, index) => Math.abs(value - b[index])));
+      return {
+        level,
+        size: [mip.width, mip.height],
+        edgeMeanRgb: horizontal,
+        sideMeanRgb: vertical,
+        oppositeEdgeMaxDelta: {
+          horizontal: delta(horizontal.top, horizontal.bottom),
+          vertical: delta(vertical.left, vertical.right),
+        },
+        corners: {
+          topLeft: pixel(0, 0),
+          topRight: pixel(mip.width - 1, 0),
+          bottomLeft: pixel(0, mip.height - 1),
+          bottomRight: pixel(mip.width - 1, mip.height - 1),
+        },
+      };
+    });
     const sourceArtifactDir = 'artifacts/gnd-source-textures';
     mkdirSync(sourceArtifactDir, { recursive: true });
     writeFileSync(sourceArtifactDir + '/tra-fild-prt-city-01-source.png', textureBytes);
@@ -1333,6 +1486,11 @@ async function validateMap(mapId) {
       inspectorNearestPixel: { x: probeX, y: probeY, rgba: image.pixelAt(probeX, probeY) },
       probeNeighborhood,
       sourceRegionStats,
+      auditedSurfaceIndexes,
+      targetSurfaceSourceAudit,
+      sourceMipLevelCount: sourceMipLevels.length,
+      mipmapOuterEdgeSummary,
+      targetMipBoundarySamples,
     };
     writeFileSync(sourceArtifactDir + '/tra-fild-prt-city-01-surface-9967-audit.json',
       JSON.stringify(audit, null, 2) + '\n');
@@ -1348,6 +1506,9 @@ async function validateMap(mapId) {
         brightPixels: sourceRegionStats.brightPixels,
         darkPixels: sourceRegionStats.darkPixels,
       },
+      auditedSurfaceIndexes,
+      mipLevelCount: sourceMipLevels.length,
+      outerEdgeLod0Delta: mipmapOuterEdgeSummary[0].oppositeEdgeMaxDelta,
     }));
   }
 
