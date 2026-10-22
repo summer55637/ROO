@@ -1335,7 +1335,7 @@ async function validateMap(mapId) {
       sourceRegionStats,
     };
     writeFileSync(sourceArtifactDir + '/tra-fild-prt-city-01-surface-9967-audit.json',
-      JSON.stringify(audit, null, 2) + '\\n');
+      JSON.stringify(audit, null, 2) + '\n');
     console.log('tra_fild exact white-streak diffuse source audit: ' + JSON.stringify({
       surfaceIndex: targetSurfaceIndex,
       cubeUseSites: useSites,
