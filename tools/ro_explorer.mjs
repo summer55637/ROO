@@ -4183,9 +4183,13 @@ function auditGndDiffuseSharedUvCrops(pair, target, width, height, sourceWidth, 
     mesh.frustumCulled = false;
     return { geometry, material, mesh, centerX };
   };
-  const sourceMesh = makeMesh(textures[0], sourceUvs, -1.2);
-  const cropAMesh = makeMesh(textures[1], sourceUvs.map(uv => uvForCrop(uv, crops[0])), 0);
-  const cropBMesh = makeMesh(textures[2], sourceUvs.map(uv => uvForCrop(uv, crops[1])), 1.2);
+  // Align all three sample centers to the same physical pixel-center phase.
+  // Otherwise a half-pixel offset can masquerade as a UV/crop mismatch on sharp atlas edges.
+  const sampleCenterPixels = [96.5, 256.5, 416.5];
+  const sampleCenterWorldX = sampleCenterPixels.map(pixel => pixel / 128 - 2);
+  const sourceMesh = makeMesh(textures[0], sourceUvs, sampleCenterWorldX[0]);
+  const cropAMesh = makeMesh(textures[1], sourceUvs.map(uv => uvForCrop(uv, crops[0])), sampleCenterWorldX[1]);
+  const cropBMesh = makeMesh(textures[2], sourceUvs.map(uv => uvForCrop(uv, crops[1])), sampleCenterWorldX[2]);
   const meshes = [sourceMesh, cropAMesh, cropBMesh];
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x000000);
@@ -4230,8 +4234,8 @@ function auditGndDiffuseSharedUvCrops(pair, target, width, height, sourceWidth, 
       renderer.clear(true, true, true);
       renderer.render(scene, camera);
       const y = Math.floor(height / 2);
-      const pixels = meshes.map(item => ({
-        x: Math.floor((item.centerX + 2) / 4 * width),
+      const pixels = meshes.map((item, index) => ({
+        x: Math.floor(sampleCenterPixels[index]),
         y,
       }));
       const sourceRgb = readAt(pixels[0].x, pixels[0].y);
