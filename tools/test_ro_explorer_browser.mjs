@@ -383,7 +383,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             streakObservations.push({
               point: [Math.round(point.x - box.x), Math.round(point.y - box.y)],
               result: inspectorText.includes('Surface #') ? 'surface-hit' : 'no-surface-hit',
-              inspector: relevantLines,
+              inspector: lines,
             });
           }
           const surfaceHits = streakObservations.filter(item => item.result === 'surface-hit');
