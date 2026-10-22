@@ -189,7 +189,7 @@ async function probeGndLayout(mapId) {
     const textureCount = i32(18);
     const texturePathLength = i32(22);
     const cubeCount = width * height;
-    const lightmapAt = 24 + textureCount * texturePathLength;
+    const lightmapAt = 26 + textureCount * texturePathLength;
     const lmCount = i32(lightmapAt);
     const lmWidth = i32(lightmapAt + 4);
     const lmHeight = i32(lightmapAt + 8);
