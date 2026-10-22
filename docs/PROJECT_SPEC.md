@@ -435,3 +435,6 @@
 
 
 - 2026-10-22 修正 GND diffuse POT crop 的 mipmap 生成：來源像素逐位元複製與絕對 atlas UV 相位保留不變；對有源 atlas 對齊的 crop，改由已做邊緣延伸的 RGBA8 base level 逐層產生明確 mipmap，避免 GPU 自動生成的 crop mip chain 在 iz_dun03 surfaces 339／491 的 far LOD4 與來源 atlas 相差 3 RGB 階。GPU near/mid/far、來源像素與 UV 對照仍維持原有嚴格門檻，並將完整 mip chain 納入診斷。
+
+
+- 2026-10-22 診斷器相容性修正：明確提供 mipmap 層後，crop texture 的 `generateMipmaps` 會刻意設為 `false`；共享 UV 候選配對器不可只檢查該旗標，否則會在 framebuffer 比對前把所有樣本排除並誤報 `pending`。現在同時接受 GPU 自動 mipmap 與具有多層明確 mipmap 的貼圖，LinearMipmapLinearFilter、來源像素、near/mid/far framebuffer 與 RGB 差異門檻均維持不變。

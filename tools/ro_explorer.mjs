@@ -4150,7 +4150,8 @@ function findGndSharedUvAuditPairs() {
       const cropB = eb.object.userData.rooGndDiffuseSourcePixelRect;
       if (!ma || !mb || !ma.map || !mb.map || !cropA || !cropB
         || !srcA || !srcB || !srcA.image || srcA.image !== srcB.image
-        || !ma.map.generateMipmaps || !mb.map.generateMipmaps
+        || !(ma.map.generateMipmaps || Array.isArray(ma.map.mipmaps) && ma.map.mipmaps.length > 1)
+        || !(mb.map.generateMipmaps || Array.isArray(mb.map.mipmaps) && mb.map.mipmaps.length > 1)
         || ma.map.minFilter !== THREE.LinearMipmapLinearFilter
         || mb.map.minFilter !== THREE.LinearMipmapLinearFilter) continue;
       const pa = cornerData(ea, 'position'), pb = cornerData(eb, 'position');
