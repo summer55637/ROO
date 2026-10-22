@@ -805,7 +805,14 @@ async function run() {
     await sleep(35);
   }
   await sleep(500);
-  await captureGndDebugViews(page, icecastleStage, 'icecastle', { requireNonzeroLightmap: true });
+  await page.screenshot({
+    path: path.join(artifactDir, 'icecastle-ground-zoom.png'),
+    clip: { x: icecastleStage.x, y: icecastleStage.y,
+      width: icecastleStage.width, height: icecastleStage.height },
+    animations: 'disabled',
+  });
+  // The multiscale boundary audit above already checks non-zero RGB source bytes
+  // against all three GPU distance scales. Avoid the redundant cursor sweep here.
   await page.locator('#recenter').click();
 
   // Expand the real-map sample beyond Icecastle: cold dungeon floors and a lava dungeon.
