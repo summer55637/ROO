@@ -184,6 +184,23 @@ async function runGndGpuBoundaryAudit(targetPage, mapSlug, options = {}) {
   const maxSelectedPairs = mapSlug === 'tra_fild' || mapSlug === 'tra-fild' ? 9 : 6;
   assert.ok(report.selectedPairCount >= 4 && report.selectedPairCount <= maxSelectedPairs,
     mapSlug + ' 應選出 4–' + maxSelectedPairs + ' 組可重現樣本：' + JSON.stringify(report));
+  if (mapSlug === 'tra-fild' || mapSlug === 'tra_fild') {
+    for (const expected of [
+      { surfaces: [9967, 9969], axis: 'u' },
+      { surfaces: [9844, 9967], axis: 'v' },
+    ]) {
+      const audit = report.audits.find(item => Array.isArray(item.surfaces)
+        && expected.surfaces.every(surface => item.surfaces.includes(surface))
+        && item.wrapBoundary && item.wrapBoundary.axis === expected.axis);
+      assert.ok(audit, mapSlug + ' 缺少 UV=' + expected.axis.toUpperCase()
+        + ' repeat 邊界樣本 ' + expected.surfaces.join(' ↔ '));
+      const wrapKey = expected.axis === 'u' ? 's' : 't';
+      assert.equal(audit.samplerWrap && audit.samplerWrap[wrapKey], 'repeat',
+        mapSlug + ' surface ' + expected.surfaces.join(' ↔ ')
+          + ' 的 POT 共用來源貼圖必須沿 ' + expected.axis.toUpperCase()
+          + ' 軸 RepeatWrapping：' + JSON.stringify(audit.samplerWrap));
+    }
+  }
   assert.ok(report.axes.includes('east') && report.axes.includes('north'),
     mapSlug + ' 必須涵蓋東向與北向相鄰 UV 邊界：' + JSON.stringify(report.axes));
   assert.ok(report.coverage.aoContrastPairs > 0,
