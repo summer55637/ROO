@@ -818,9 +818,33 @@ async function run() {
   // against all three GPU distance scales. Avoid the redundant cursor sweep here.
   await page.locator('#recenter').click();
 
-  // Expand the real-map sample beyond Icecastle: cold dungeon floors and a lava dungeon.
-  // Each map must expose non-zero source RGB lightmap values that also match GPU readback.
-  for (const mapSlug of ['ice_dun02', 'thor_v03']) {
+  // Expand the real-map sample beyond Icecastle. The public asset host does not
+  // guarantee that every client map is extracted, so preflight each manifest before
+  // navigating; a missing optional map must not hang the whole gameplay regression.
+  // Only maps with a real manifest are considered. Once a map is advertised, failure
+  // to load or to match its source/GPU lightmap data remains a hard test failure.
+  let extraMapAudits = 0;
+  for (const mapSlug of ['ice_dun02', 'thor_v03', 'iz_dun03', 'gl_cas01', 'gef_fild00', 'pay_dun00']) {
+    const manifestAvailable = await page.evaluate(async map => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      try {
+        const response = await fetch('https://assets.latam-tools.com.br/maps/' + map + '/manifest.json', {
+          mode: 'cors',
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+        return response.ok;
+      } catch (error) {
+        return false;
+      } finally {
+        clearTimeout(timeout);
+      }
+    }, mapSlug);
+    if (!manifestAvailable) {
+      console.log('略過未公開／目前無法取得 manifest 的額外地圖：' + mapSlug);
+      continue;
+    }
     const mapParams = new URLSearchParams(icecastleParams);
     mapParams.set('map', mapSlug);
     mapParams.set('roo-gnd-gpu-audit-only', '1');
@@ -837,16 +861,18 @@ async function run() {
     }, mapSlug, { timeout: 150000 });
     await page.waitForFunction(() => {
       const stats = document.getElementById('stats')?.textContent || '';
-      const match = stats.match(/GND 地表貼圖：已解析 (\d+)\/(\d+)；載入成功 (\d+)；失敗 (\d+)；缺少匹配 (\d+)/);
+      const match = stats.match(/GND 地表貼圖：已解析 (\\d+)\\/(\\d+)；載入成功 (\\d+)；失敗 (\\d+)；缺少匹配 (\\d+)/);
       return match && Number(match[1]) > 0 && Number(match[3]) > 0;
     }, null, { timeout: 30000 });
     await runGndGpuBoundaryAudit(page, mapSlug, {
       requireNonzeroRgbLightmap: true,
       requireAoRgbContrast: true,
     });
+    extraMapAudits++;
     // The multiscale GPU audit already reads every isolated channel at near/mid/far.
-    // Keep the extra maps' acceptance report, and avoid repeating the slower cursor-probe scan.
   }
+  assert.ok(extraMapAudits > 0,
+    '額外地圖樣本沒有任何可用 manifest；請檢查公開素材服務，不能把零額外樣本當成完成。');
 
   // Reload the original field before the mobile interaction checks below.
   await page.goto(baseUrl + '/tools/ro_explorer.html?' + params.toString(), {
