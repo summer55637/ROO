@@ -347,8 +347,8 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
         // source UV and GPU inspector data so we can classify the source rather than guess.
         if (mapSlug === 'tra-fild' && mode.value === '7') {
           const streakRatios = [];
-          for (const yRatio of [0.215, 0.23, 0.245]) {
-            for (const xRatio of [0.76, 0.79, 0.82, 0.85, 0.88, 0.91, 0.94]) {
+          for (const yRatio of [0.205, 0.22, 0.235, 0.25, 0.265]) {
+            for (const xRatio of [0.54, 0.56, 0.58, 0.60, 0.62, 0.64, 0.66, 0.68, 0.70, 0.72]) {
               streakRatios.push([xRatio, yRatio]);
             }
           }
@@ -399,8 +399,8 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
             }, null, 2) + '\n'
           );
           const targetPoint = {
-            x: box.x + box.width * 0.85,
-            y: box.y + box.height * 0.23,
+            x: box.x + box.width * 0.62,
+            y: box.y + box.height * 0.235,
           };
           await targetPage.mouse.move(targetPoint.x, targetPoint.y);
           await sleep(100);
