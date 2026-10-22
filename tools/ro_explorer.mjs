@@ -3450,9 +3450,6 @@ function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
     throw new Error('GND diffuse 子區域缺少有效來源影像或 UV 範圍。');
   }
 
-  // Keep crop bounds aligned to power-of-two texels. For POT atlases, preserve
-  // absolute source coordinates and edge-extrude outside the crop, rather than
-  // translating pixels to canvas origin and shifting UVs before mip generation.
   const crop = resolveGndDiffuseCropRect(uvRect, width, height);
   const { x0, y0, x1, y1 } = crop;
   const regionWidth = crop.width;
@@ -3463,124 +3460,38 @@ function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
   const isPowerOfTwo = value => Number.isInteger(value) && value > 0
     && (value & (value - 1)) === 0;
   const sourceAligned = isPowerOfTwo(width) && isPowerOfTwo(height);
-  const textureWidth = sourceAligned ? width : regionWidth;
-  const textureHeight = sourceAligned ? height : regionHeight;
 
+  // For POT atlases, use the real source texture for every region. Separate
+  // edge-extruded textures cannot reproduce the same GPU sample on a shared UV
+  // boundary; they can diverge even at LOD0 and become a visible terrain seam.
+  // Sharing the source texture also shares its exact mip chain and sampler state.
+  if (sourceAligned) {
+    return {
+      texture: sourceTexture,
+      width,
+      height,
+      sourcePixelRect: { x0, y0, x1, y1, width: regionWidth, height: regionHeight, sourceAligned: true },
+    };
+  }
+
+  // Non-POT fallback retains a compact crop with a local UV transform.
   const canvas = document.createElement('canvas');
-  canvas.width = textureWidth;
-  canvas.height = textureHeight;
+  canvas.width = regionWidth;
+  canvas.height = regionHeight;
   const context = canvas.getContext('2d', { willReadFrequently: true });
   if (!context) throw new Error('無法建立 GND diffuse 子區域畫布。');
-  // Copy decoded RGBA bytes verbatim; drawImage at a non-zero crop origin can
-  // resample border texels before the GPU generates the mip chain.
   const sourcePixels = readGndDiffuseImagePixels(image, width, height);
-  if (sourceAligned) {
-    const alignedPixels = context.createImageData(width, height);
-    const rowBytes = width * 4;
-    const cropRowBytes = regionWidth * 4;
-    for (let targetY = 0; targetY < height; targetY++) {
-      const sourceY = Math.max(y0, Math.min(y1 - 1, targetY));
-      const sourceRowStart = sourceY * rowBytes;
-      const targetRowStart = targetY * rowBytes;
-      const firstPixel = sourcePixels.subarray(
-        sourceRowStart + x0 * 4, sourceRowStart + x0 * 4 + 4
-      );
-      const lastPixel = sourcePixels.subarray(
-        sourceRowStart + (x1 - 1) * 4, sourceRowStart + x1 * 4
-      );
-      for (let targetX = 0; targetX < x0; targetX++) {
-        alignedPixels.data.set(firstPixel, targetRowStart + targetX * 4);
-      }
-      alignedPixels.data.set(
-        sourcePixels.subarray(sourceRowStart + x0 * 4, sourceRowStart + x0 * 4 + cropRowBytes),
-        targetRowStart + x0 * 4
-      );
-      for (let targetX = x1; targetX < width; targetX++) {
-        alignedPixels.data.set(lastPixel, targetRowStart + targetX * 4);
-      }
-    }
-    context.putImageData(alignedPixels, 0, 0);
-  } else {
-    // Non-POT fallback keeps the previous compact crop layout for compatibility.
-    const cropPixels = context.createImageData(regionWidth, regionHeight);
-    const sourceRowBytes = width * 4;
-    const cropRowBytes = regionWidth * 4;
-    for (let row = 0; row < regionHeight; row++) {
-      const sourceStart = (y0 + row) * sourceRowBytes + x0 * 4;
-      cropPixels.data.set(sourcePixels.subarray(sourceStart, sourceStart + cropRowBytes), row * cropRowBytes);
-    }
-    context.putImageData(cropPixels, 0, 0);
-    if (textureWidth !== regionWidth || textureHeight !== regionHeight) {
-      const regionPixels = context.getImageData(0, 0, regionWidth, regionHeight).data;
-      const paddedPixels = context.createImageData(textureWidth, textureHeight);
-      const regionRowBytes = regionWidth * 4;
-      const targetRowBytes = textureWidth * 4;
-      for (let targetY = 0; targetY < textureHeight; targetY++) {
-        const sourceY = Math.min(targetY, regionHeight - 1);
-        const sourceRowStart = sourceY * regionRowBytes;
-        const targetRowStart = targetY * targetRowBytes;
-        paddedPixels.data.set(
-          regionPixels.subarray(sourceRowStart, sourceRowStart + regionRowBytes),
-          targetRowStart
-        );
-        const edgePixel = regionPixels.subarray(
-          sourceRowStart + regionRowBytes - 4, sourceRowStart + regionRowBytes
-        );
-        for (let targetX = regionWidth; targetX < textureWidth; targetX++) {
-          paddedPixels.data.set(edgePixel, targetRowStart + targetX * 4);
-        }
-      }
-      context.putImageData(paddedPixels, 0, 0);
-    }
+  const cropPixels = context.createImageData(regionWidth, regionHeight);
+  const sourceRowBytes = width * 4;
+  const cropRowBytes = regionWidth * 4;
+  for (let row = 0; row < regionHeight; row++) {
+    const sourceStart = (y0 + row) * sourceRowBytes + x0 * 4;
+    cropPixels.data.set(sourcePixels.subarray(sourceStart, sourceStart + cropRowBytes), row * cropRowBytes);
   }
+  context.putImageData(cropPixels, 0, 0);
 
   const texture = new THREE.CanvasTexture(canvas);
-  // POT crops keep the atlas' absolute texel phase, but auto-generated GPU mip
-  // chains can still diverge by a few RGB levels across an edge-extruded region.
-  // Build the mip chain from the exact padded RGBA bytes, quantizing each 2x2
-  // level like an 8-bit texture upload; every level retains the crop guard band.
-  if (sourceAligned) {
-    const mipmaps = [];
-    let levelWidth = textureWidth;
-    let levelHeight = textureHeight;
-    let levelPixels = context.getImageData(0, 0, textureWidth, textureHeight).data;
-    while (true) {
-      mipmaps.push({
-        data: new Uint8Array(levelPixels),
-        width: levelWidth,
-        height: levelHeight,
-      });
-      if (levelWidth === 1 && levelHeight === 1) break;
-      const nextWidth = Math.max(1, Math.floor(levelWidth / 2));
-      const nextHeight = Math.max(1, Math.floor(levelHeight / 2));
-      const nextPixels = new Uint8ClampedArray(nextWidth * nextHeight * 4);
-      for (let y = 0; y < nextHeight; y++) {
-        for (let x = 0; x < nextWidth; x++) {
-          for (let channel = 0; channel < 4; channel++) {
-            const p00 = (Math.min(levelHeight - 1, y * 2) * levelWidth
-              + Math.min(levelWidth - 1, x * 2)) * 4 + channel;
-            const p10 = (Math.min(levelHeight - 1, y * 2) * levelWidth
-              + Math.min(levelWidth - 1, x * 2 + 1)) * 4 + channel;
-            const p01 = (Math.min(levelHeight - 1, y * 2 + 1) * levelWidth
-              + Math.min(levelWidth - 1, x * 2)) * 4 + channel;
-            const p11 = (Math.min(levelHeight - 1, y * 2 + 1) * levelWidth
-              + Math.min(levelWidth - 1, x * 2 + 1)) * 4 + channel;
-            nextPixels[(y * nextWidth + x) * 4 + channel] = Math.round(
-              (levelPixels[p00] + levelPixels[p10] + levelPixels[p01] + levelPixels[p11]) / 4
-            );
-          }
-        }
-      }
-      levelPixels = nextPixels;
-      levelWidth = nextWidth;
-      levelHeight = nextHeight;
-    }
-    texture.mipmaps = mipmaps;
-    texture.generateMipmaps = false;
-  } else {
-    texture.generateMipmaps = true;
-  }
-  // Keep legacy GND byte colors encoded for the classic multiply/add blend.
+  texture.generateMipmaps = true;
   texture.colorSpace = THREE.NoColorSpace;
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
@@ -3590,9 +3501,9 @@ function createGndDiffuseRegionTexture(sourceTexture, uvRect) {
   texture.needsUpdate = true;
   return {
     texture,
-    width: textureWidth,
-    height: textureHeight,
-    sourcePixelRect: { x0, y0, x1, y1, width: regionWidth, height: regionHeight, sourceAligned },
+    width: regionWidth,
+    height: regionHeight,
+    sourcePixelRect: { x0, y0, x1, y1, width: regionWidth, height: regionHeight, sourceAligned: false },
   };
 }
 function describeGndTextureFilters(texture) {

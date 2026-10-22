@@ -438,3 +438,6 @@
 
 
 - 2026-10-22 診斷器相容性修正：明確提供 mipmap 層後，crop texture 的 `generateMipmaps` 會刻意設為 `false`；共享 UV 候選配對器不可只檢查該旗標，否則會在 framebuffer 比對前把所有樣本排除並誤報 `pending`。現在同時接受 GPU 自動 mipmap 與具有多層明確 mipmap 的貼圖，LinearMipmapLinearFilter、來源像素、near/mid/far framebuffer 與 RGB 差異門檻均維持不變。
+
+
+- 2026-10-22 後續 framebuffer 證據顯示，明確手動 mipmap 貼圖雖通過 CPU base pixel 比對，GPU shared-UV 在近景仍出現 196–218 階差異；iz_dun03 surfaces 339/491 遠景則出現 78 階差異。根因是 POT atlas 的各 surface 獨立 crop／mipmap 無法保證共享 UV 使用同一 GPU 採樣結果。POT atlas 現改為跨 surface 共用原始 diffuse texture 與原始 mip chain；非 POT 素材仍走緊湊 crop／局部 UV 路徑。GPU 的來源像素、UV 與 near/mid/far framebuffer 門檻維持不變，提交後以真實地圖 GPU 報告與完整 CI 重新驗證。
