@@ -757,6 +757,33 @@ async function validateMap(mapId) {
         neighbours,
       };
     });
+    // Exact surface ID visible in the pale tra_fild diffuse-streak screenshot.
+    // Trace every raw cube using this reusable surface blueprint and its neighbors.
+    const screenshotSurfaceIndex = 9967;
+    addSurface(screenshotSurfaceIndex);
+    const screenshotSurface = gnd.surfaces[screenshotSurfaceIndex];
+    assert.ok(screenshotSurface, 'tra_fild screenshot surface #9967 exists in the raw GND');
+    assert.equal(gnd.textures[screenshotSurface.textureIndex], '필드바닥/prt_도시01.bmp',
+      'tra_fild screenshot surface #9967 must use the inspected prt_도시01 texture');
+    const screenshotUvBounds = {
+      minU: Math.min(...screenshotSurface.uv.map(uv => uv[0])),
+      maxU: Math.max(...screenshotSurface.uv.map(uv => uv[0])),
+      minV: Math.min(...screenshotSurface.uv.map(uv => uv[1])),
+      maxV: Math.max(...screenshotSurface.uv.map(uv => uv[1])),
+    };
+    assert.deepEqual(screenshotUvBounds, { minU: 0.75, maxU: 1, minV: 0, maxV: 0.25 },
+      'tra_fild screenshot surface #9967 UV bounds must match the GPU inspector');
+    const screenshotSurfaceUses = surfaceUseSites.get(screenshotSurfaceIndex) || [];
+    const screenshotSurfaceTraces = screenshotSurfaceUses.map(useSite => {
+      const cube = cubeRecord(useSite.x, useSite.y);
+      const neighbours = {
+        west: cubeRecord(useSite.x - 1, useSite.y),
+        east: cubeRecord(useSite.x + 1, useSite.y),
+        south: cubeRecord(useSite.x, useSite.y - 1),
+        north: cubeRecord(useSite.x, useSite.y + 1),
+      };
+      return { useSite, cube, neighbours };
+    });
     writeFileSync(traceDir + '/tra-fild-raw-gnd-surface-audit.json', JSON.stringify({
       mapId,
       gndVersion: gnd.version,
@@ -773,12 +800,21 @@ async function validateMap(mapId) {
       },
       textureTable: gnd.textures.map((path, index) => ({ index, path })),
       probes: samples,
+      screenshotSurfaceIndex,
+      screenshotSurface: auditedSurfaces.get(screenshotSurfaceIndex),
+      screenshotSurfaceUseSites: screenshotSurfaceUses,
+      screenshotSurfaceTraces,
       uniqueReferencedSurfaces: [...auditedSurfaces.values()].sort((a, b) => a.surfaceIndex - b.surfaceIndex),
       checks: {
         rawSurfaceCountMatchesParser: rawSurfaceCount === gnd.surfaces.length,
         rawCubeCount: gnd.width * gnd.height,
         allCursorSurfaceIdsHaveRawRecords: samples.every(sample => auditedSurfaces.has(sample.cursorSurfaceIndex)),
         reportedCubeMatchesCursorSurfaceCount: samples.filter(sample => sample.representativeCubeTopMatchesCursorSurface).length,
+        screenshotSurfaceRawRecordMatchesInspector: screenshotSurface.textureIndex >= 0
+          && screenshotSurfaceTraces.length > 0,
+        screenshotSurfaceUVMatchesInspector: screenshotUvBounds.minU === 0.75
+          && screenshotUvBounds.maxU === 1 && screenshotUvBounds.minV === 0
+          && screenshotUvBounds.maxV === 0.25,
         rawUvTextureLightmapAndBgraMatchParser: true,
       },
     }, null, 2) + '\n');
