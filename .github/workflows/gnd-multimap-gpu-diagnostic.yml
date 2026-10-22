@@ -1,0 +1,73 @@
+name: GND multi-map GPU diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      maps:
+        description: 'Comma-separated map ids (up to four): ice_dun02, thor_v03, iz_dun03, gl_cas01, gef_fild00, pay_dun00'
+        required: true
+        default: 'ice_dun02,thor_v03'
+        type: string
+  push:
+    branches:
+      - feature/exploration-movement-controls
+    paths:
+      - 'tools/test_ro_explorer_multimap_gpu.mjs'
+      - 'tools/ro_explorer.mjs'
+      - 'tools/ro_map_assets.mjs'
+      - '.github/workflows/gnd-multimap-gpu-diagnostic.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'tools/test_ro_explorer_multimap_gpu.mjs'
+      - 'tools/ro_explorer.mjs'
+      - 'tools/ro_map_assets.mjs'
+      - '.github/workflows/gnd-multimap-gpu-diagnostic.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gnd-multimap-gpu-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install isolated Chromium diagnostics dependency
+        run: |
+          npm install --no-save --no-package-lock --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Check diagnostic script syntax
+        run: node --check tools/test_ro_explorer_multimap_gpu.mjs
+      - name: Run per-map multi-scale source-to-GPU audit
+        env:
+          ROO_GND_DIAGNOSTIC_MAPS: ${{ github.event.inputs.maps || 'ice_dun02,thor_v03' }}
+          ROO_GND_DIAGNOSTIC_MAP_TIMEOUT_MS: '110000'
+          ROO_GND_DIAGNOSTIC_ARTIFACT_DIR: artifacts/gnd-multimap-gpu
+        run: node tools/test_ro_explorer_multimap_gpu.mjs
+      - name: Publish diagnostic summary
+        if: always()
+        run: |
+          if [ -f artifacts/gnd-multimap-gpu/summary.md ]; then
+            cat artifacts/gnd-multimap-gpu/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No diagnostic summary was produced. See the job logs for startup or timeout errors." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload per-map GPU reports and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: roo-gnd-multimap-gpu-diagnostics
+          path: artifacts/gnd-multimap-gpu/
+          if-no-files-found: ignore
+          retention-days: 14
