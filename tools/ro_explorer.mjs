@@ -3953,10 +3953,15 @@ function findGndSharedUvAuditPairs() {
       const pa = cornerData(ea, 'position'), pb = cornerData(eb, 'position');
       const ua = cornerData(ea, 'rooGndSourceUv'), ub = cornerData(eb, 'rooGndSourceUv');
       const ca = cornerData(ea, 'color'), cb = cornerData(eb, 'color');
+      const na = cornerData(ea, 'rooGndVertexNormal'), nb = cornerData(eb, 'rooGndVertexNormal');
       const uv2a = cornerData(ea, 'uv2'), uv2b = cornerData(eb, 'uv2');
-      if (!pa || !pb || !ua || !ub || !ca || !cb || !uv2a || !uv2b) continue;
+      if (!pa || !pb || !ua || !ub || !ca || !cb || !na || !nb || !uv2a || !uv2b) continue;
       if (!corners.a.every((c, i) => equalVec(pa[c], pb[corners.b[i]], 1e-5)
         && equalVec(ua[c], ub[corners.b[i]], 1e-6))) continue;
+      // These pairs share the same real 3D edge. Their normals must remain
+      // identical even if texture/UV splitting placed the quads in different meshes.
+      const sharedEdgeNormalMaxDelta = Math.max(...corners.a.map((c, i) =>
+        maxVectorDelta(na[c], nb[corners.b[i]])));
       const key = axis + ':' + ia + ':' + ib + ':' + uvRectKey(ra) + ':' + uvRectKey(rb);
       if (seen.has(key)) continue;
       seen.add(key);
@@ -3997,6 +4002,8 @@ function findGndSharedUvAuditPairs() {
           meanVertexColorB: meanColorB.map(v => Number(v.toFixed(4))),
           vertexColorMeanDelta: Number(vertexColorMeanDelta.toFixed(4)),
           sharedEdgeVertexColorDelta: Number(sharedEdgeVertexColorDelta.toFixed(4)),
+          sharedEdgeNormalMaxDelta: Number(sharedEdgeNormalMaxDelta.toFixed(8)),
+          sharedEdgeNormalCount: corners.a.length,
           centerLightmapA: {
             rgb: centerLightmapA.filteredRgb, ao: centerLightmapA.filteredAo,
             samplePosition: centerLightmapA.samplePosition,
@@ -4353,9 +4360,16 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
       }
       const limits = { diffuseMipRgb: 12, vertexColorRgb: 3, rswLightRgb: 4,
         rgbLightmap: 4, ao: 4, combinedFromComponents: 4 };
-      const failures = scaleReports.flatMap(s => Object.entries(limits)
-        .filter(([key, limit]) => s.maxDelta[key] > limit)
-        .map(([key, limit]) => ({ scale: s.scale, channel: key, maxDelta: s.maxDelta[key], limit })));
+      const sharedNormalLimit = 1e-5;
+      const sharedNormalDelta = pair.coverage.sharedEdgeNormalMaxDelta;
+      const failures = [
+        ...(Number.isFinite(sharedNormalDelta) && sharedNormalDelta > sharedNormalLimit
+          ? [{ scale: 'shared-edge', channel: 'sharedEdgeNormal',
+            maxDelta: sharedNormalDelta, limit: sharedNormalLimit }] : []),
+        ...scaleReports.flatMap(s => Object.entries(limits)
+          .filter(([key, limit]) => s.maxDelta[key] > limit)
+          .map(([key, limit]) => ({ scale: s.scale, channel: key, maxDelta: s.maxDelta[key], limit }))),
+      ];
       return {
         status: failures.length ? 'mismatch' : 'passed',
         mapId: mapInfo && mapInfo.mapId, texture: gndInfo.textures[pair.surfaceA.textureIndex],
