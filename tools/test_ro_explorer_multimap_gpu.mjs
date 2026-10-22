@@ -14,7 +14,7 @@ const allowedMaps = new Set([
 ]);
 const mapTimeoutMs = Math.max(45000, Math.min(150000,
   Number.parseInt(process.env.ROO_GND_DIAGNOSTIC_MAP_TIMEOUT_MS || '110000', 10) || 110000));
-const maps = [...new Set((process.env.ROO_GND_DIAGNOSTIC_MAPS || 'icecastle,ice_dun02,thor_v03,iz_dun03')
+const maps = [...new Set((process.env.ROO_GND_DIAGNOSTIC_MAPS || 'tra_fild,icecastle,ice_dun02,iz_dun03')
   .split(',').map(value => value.trim().toLowerCase()).filter(Boolean))];
 const maxMaps = 4;
 const assetBaseUrl = 'https://assets.latam-tools.com.br';
@@ -41,7 +41,7 @@ function validateAuditReport(mapId, report) {
   check(report && report.status === 'passed', 'GPU audit status is ' + (report && report.status));
   check(Number(report && report.candidateCount) >= 4, 'fewer than four candidate shared edges');
   check(Number(report && report.selectedPairCount) >= 4
-    && Number(report && report.selectedPairCount) <= 6, 'expected 4–6 selected edge pairs');
+    && Number(report && report.selectedPairCount) <= (mapId === 'tra_fild' ? 9 : 6), 'selected edge-pair count outside the allowed range');
   check(Array.isArray(report && report.axes)
     && report.axes.includes('east') && report.axes.includes('north'), 'east/north edges not both covered');
   check(Number(coverage.aoContrastPairs) > 0, 'no AO-contrast pair selected');
@@ -73,31 +73,43 @@ function validateAuditReport(mapId, report) {
       label + ' is missing AO/lightmap source summaries');
     check(Boolean(audit.sampler && audit.sampler.generateMipmaps), label + ' has mipmaps disabled');
     const cropProbe = audit.diffuseSharedUv;
-    check(Boolean(cropProbe && cropProbe.status === 'passed'),
-      label + ' same-source-UV diffuse crop/mipmap comparison did not pass: ' + JSON.stringify(cropProbe));
-    check(Array.isArray(cropProbe && cropProbe.samples) && cropProbe.samples.length === 3,
-      label + ' same-source-UV diffuse crop probe must cover near/mid/far');
-    check(Number.isFinite(cropProbe && cropProbe.maxInterCropDelta)
-      && cropProbe.maxInterCropDelta <= 2,
-    label + ' diffuse crops disagree at the same source UV: ' + JSON.stringify(cropProbe));
-    check(Number.isFinite(cropProbe && cropProbe.maxCropVsSourceDelta)
-      && cropProbe.maxCropVsSourceDelta <= 2,
-    label + ' isolated diffuse crop does not match the full-source sample: ' + JSON.stringify(cropProbe));
-    check(Boolean(cropProbe && cropProbe.basePixelAudit
-      && cropProbe.basePixelAudit.status === 'passed'
-      && cropProbe.basePixelAudit.maxDelta === 0),
-    label + ' crop base-level pixels differ from the same source-UV pixels: '
-      + JSON.stringify(cropProbe && cropProbe.basePixelAudit));
-    const sourceDimensions = audit.sourceImage || {};
-    const sourceIsPowerOfTwo = value => Number.isInteger(value) && value > 0
-      && (value & (value - 1)) === 0;
-    if (sourceIsPowerOfTwo(sourceDimensions.width) && sourceIsPowerOfTwo(sourceDimensions.height)) {
-      check(Array.isArray(cropProbe && cropProbe.cropTextureDimensions)
-        && cropProbe.cropTextureDimensions.length === 2
-        && cropProbe.cropTextureDimensions.every(size =>
-          size.width === sourceDimensions.width && size.height === sourceDimensions.height),
-      label + ' POT source atlas crops must share the exact source mip-grid dimensions: '
-        + JSON.stringify(cropProbe && cropProbe.cropTextureDimensions));
+    if (audit.wrapBoundary) {
+      check(cropProbe && cropProbe.status === 'not-applicable',
+        label + ' repeat-boundary audit must bypass same-source-UV crop comparison');
+      check(Boolean(audit.wrapBoundary.repeatEquivalent)
+        && ['u', 'v'].includes(audit.wrapBoundary.axis),
+      label + ' repeat-boundary axis metadata is invalid');
+      check(Boolean(audit.samplerWrap && audit.samplerWrap[audit.wrapBoundary.axis === 'u' ? 's' : 't'] === 'repeat'),
+        label + ' source atlas does not use RepeatWrapping along the tested axis');
+      check(audit.scales.every(scale => Number.isFinite(scale.maxRepeatVsClampRgbDelta)),
+        label + ' Repeat-vs-Clamp framebuffer comparison missing at one or more LODs');
+    } else {
+      check(Boolean(cropProbe && cropProbe.status === 'passed'),
+        label + ' same-source-UV diffuse crop/mipmap comparison did not pass: ' + JSON.stringify(cropProbe));
+      check(Array.isArray(cropProbe && cropProbe.samples) && cropProbe.samples.length === 3,
+        label + ' same-source-UV diffuse crop probe must cover near/mid/far');
+      check(Number.isFinite(cropProbe && cropProbe.maxInterCropDelta)
+        && cropProbe.maxInterCropDelta <= 2,
+      label + ' diffuse crops disagree at the same source UV: ' + JSON.stringify(cropProbe));
+      check(Number.isFinite(cropProbe && cropProbe.maxCropVsSourceDelta)
+        && cropProbe.maxCropVsSourceDelta <= 2,
+      label + ' isolated diffuse crop does not match the full-source sample: ' + JSON.stringify(cropProbe));
+      check(Boolean(cropProbe && cropProbe.basePixelAudit
+        && cropProbe.basePixelAudit.status === 'passed'
+        && cropProbe.basePixelAudit.maxDelta === 0),
+      label + ' crop base-level pixels differ from the same source-UV pixels: '
+        + JSON.stringify(cropProbe && cropProbe.basePixelAudit));
+      const sourceDimensions = audit.sourceImage || {};
+      const sourceIsPowerOfTwo = value => Number.isInteger(value) && value > 0
+        && (value & (value - 1)) === 0;
+      if (sourceIsPowerOfTwo(sourceDimensions.width) && sourceIsPowerOfTwo(sourceDimensions.height)) {
+        check(Array.isArray(cropProbe && cropProbe.cropTextureDimensions)
+          && cropProbe.cropTextureDimensions.length === 2
+          && cropProbe.cropTextureDimensions.every(size =>
+            size.width === sourceDimensions.width && size.height === sourceDimensions.height),
+        label + ' POT source atlas crops must share the exact source mip-grid dimensions: '
+          + JSON.stringify(cropProbe && cropProbe.cropTextureDimensions));
+      }
     }
     const scales = Array.isArray(audit.scales) ? audit.scales : [];
     for (let i = 0; i < scales.length; i++) {
@@ -129,6 +141,18 @@ function validateAuditReport(mapId, report) {
           check(Array.isArray(sample.framebuffer && sample.framebuffer[mode])
             && sample.framebuffer[mode].length === 3, label + ' missing ' + mode + ' GPU RGB');
         }
+        if (audit.wrapBoundary) {
+          check(Array.isArray(sample.expected && sample.expected.diffuseClampRgb)
+            && sample.expected.diffuseClampRgb.length === 3
+            && Array.isArray(sample.framebuffer && sample.framebuffer.diffuseClampBoundary)
+            && sample.framebuffer.diffuseClampBoundary.length === 3,
+          label + ' missing ClampToEdge GPU/source mip samples');
+          check(Number.isFinite(sample.errors && sample.errors.diffuseClampMipRgb)
+            && sample.errors.diffuseClampMipRgb <= 12,
+          label + ' ClampToEdge source-to-GPU diffuse mismatch: ' + JSON.stringify(sample.errors));
+          check(Number.isFinite(sample.errors && sample.errors.wrapSamplerDelta),
+            label + ' Repeat-vs-Clamp framebuffer delta is missing');
+        }
         if (requireNonzeroRgbLightmap
           && Array.isArray(sample.expected && sample.expected.rgbLightmap)
           && sample.expected.rgbLightmap.some(value => value >= 16)) {
@@ -141,6 +165,15 @@ function validateAuditReport(mapId, report) {
         }
       }
     }
+  }
+  if (mapId === 'tra_fild') {
+    const findPair = (a, b, axis) => audits.find(audit =>
+      Array.isArray(audit.surfaces) && audit.surfaces.includes(a) && audit.surfaces.includes(b)
+      && (axis === null ? !audit.wrapBoundary
+        : audit.wrapBoundary && audit.wrapBoundary.axis === axis));
+    check(Boolean(findPair(9965, 9967, null)), 'missing exact #9965/#9967 shared-UV audit');
+    check(Boolean(findPair(9967, 9969, 'u')), 'missing exact #9967/#9969 U=1/0 wrap audit');
+    check(Boolean(findPair(9844, 9967, 'v')), 'missing exact #9844/#9967 V=1/0 wrap audit');
   }
   if (requireNonzeroRgbLightmap) {
     check(litSamples.length > 0, 'no visibly lit RGB-lightmap samples found');
