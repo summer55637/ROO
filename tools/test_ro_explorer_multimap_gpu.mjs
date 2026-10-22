@@ -14,7 +14,7 @@ const allowedMaps = new Set([
 ]);
 const mapTimeoutMs = Math.max(45000, Math.min(150000,
   Number.parseInt(process.env.ROO_GND_DIAGNOSTIC_MAP_TIMEOUT_MS || '110000', 10) || 110000));
-const maps = [...new Set((process.env.ROO_GND_DIAGNOSTIC_MAPS || 'icecastle,prontera,tra_fild,ice_dun02')
+const maps = [...new Set((process.env.ROO_GND_DIAGNOSTIC_MAPS || 'icecastle,ice_dun02,thor_v03,iz_dun03')
   .split(',').map(value => value.trim().toLowerCase()).filter(Boolean))];
 const maxMaps = 4;
 const assetBaseUrl = 'https://assets.latam-tools.com.br';
@@ -306,8 +306,15 @@ async function auditMap(mapId) {
           report.status = 'failed';
           report.reason = report.validationFailures[0];
         } else {
+          const baselineMaps = new Set(['icecastle', 'prontera', 'tra_fild']);
+          if (!baselineMaps.has(mapId)) {
+            report.reason = 'Multi-scale GPU boundary audit passed with nonzero RGB lightmap and joint AO contrast';
+          } else if (mapId === 'icecastle') {
+            report.reason = 'Multi-scale GPU boundary audit passed; nonzero RGB lightmap source-to-GPU checks passed';
+          } else {
+            report.reason = 'Multi-scale GPU boundary audit passed for source/GPU channels and AO contrast; this control map does not require nonzero edge RGB lightmap';
+          }
           report.status = 'passed';
-          report.reason = 'Multi-scale GPU boundary audit passed with nonzero RGB lightmap and AO contrast';
         }
       };
 
