@@ -79,8 +79,9 @@ function validateAuditReport(mapId, report) {
       check(Boolean(audit.wrapBoundary.repeatEquivalent)
         && ['u', 'v'].includes(audit.wrapBoundary.axis),
       label + ' repeat-boundary axis metadata is invalid');
-      check(Boolean(audit.samplerWrap && audit.samplerWrap[audit.wrapBoundary.axis === 'u' ? 's' : 't'] === 'repeat'),
-        label + ' source atlas does not use RepeatWrapping along the tested axis');
+      check(Boolean(audit.samplerWrap
+        && audit.samplerWrap[audit.wrapBoundary.axis === 'u' ? 's' : 't'] === 'clamp-to-edge'),
+      label + ' GND source texture must use the official ClampToEdge sampler on the tested axis');
       check(audit.scales.every(scale => Number.isFinite(scale.maxRepeatVsClampRgbDelta)),
         label + ' Repeat-vs-Clamp framebuffer comparison missing at one or more LODs');
     } else {
@@ -142,16 +143,16 @@ function validateAuditReport(mapId, report) {
             && sample.framebuffer[mode].length === 3, label + ' missing ' + mode + ' GPU RGB');
         }
         if (audit.wrapBoundary) {
-          check(Array.isArray(sample.expected && sample.expected.diffuseClampRgb)
-            && sample.expected.diffuseClampRgb.length === 3
-            && Array.isArray(sample.framebuffer && sample.framebuffer.diffuseClampBoundary)
-            && sample.framebuffer.diffuseClampBoundary.length === 3,
-          label + ' missing ClampToEdge GPU/source mip samples');
-          check(Number.isFinite(sample.errors && sample.errors.diffuseClampMipRgb)
-            && sample.errors.diffuseClampMipRgb <= 12,
-          label + ' ClampToEdge source-to-GPU diffuse mismatch: ' + JSON.stringify(sample.errors));
-          check(Number.isFinite(sample.errors && sample.errors.wrapSamplerDelta),
-            label + ' Repeat-vs-Clamp framebuffer delta is missing');
+          check(Array.isArray(sample.expected && sample.expected.diffuseRepeatRgb)
+            && sample.expected.diffuseRepeatRgb.length === 3
+            && Array.isArray(sample.framebuffer && sample.framebuffer.diffuseRepeatBoundary)
+            && sample.framebuffer.diffuseRepeatBoundary.length === 3,
+          label + ' missing diagnostic Repeat GPU/source mip samples');
+          check(Number.isFinite(sample.errors && sample.errors.diffuseRepeatMipRgb)
+            && sample.errors.diffuseRepeatMipRgb <= 12,
+          label + ' diagnostic Repeat source-to-GPU diffuse mismatch: ' + JSON.stringify(sample.errors));
+          check(Number.isFinite(sample.errors && sample.wrapSamplerDelta),
+            label + ' ClampToEdge-vs-Repeat framebuffer delta is missing');
         }
         if (requireNonzeroRgbLightmap
           && Array.isArray(sample.expected && sample.expected.rgbLightmap)
@@ -174,6 +175,9 @@ function validateAuditReport(mapId, report) {
     check(Boolean(findPair(9965, 9967, null)), 'missing exact #9965/#9967 shared-UV audit');
     check(Boolean(findPair(9967, 9969, 'u')), 'missing exact #9967/#9969 U=1/0 wrap audit');
     check(Boolean(findPair(9844, 9967, 'v')), 'missing exact #9844/#9967 V=1/0 wrap audit');
+    const vEdgeNear = findPair(9844, 9967, 'v')?.scales?.find(scale => scale.scale === 'near');
+    check(Boolean(vEdgeNear && vEdgeNear.maxRepeatVsClampRgbDelta > 1),
+      'near #9844/#9967 boundary sample should measure the source-backed ClampToEdge/Repeat difference');
   }
   if (requireNonzeroRgbLightmap) {
     check(litSamples.length > 0, 'no visibly lit RGB-lightmap samples found');

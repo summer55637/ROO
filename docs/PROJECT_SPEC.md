@@ -450,3 +450,12 @@
 - 這輪沒有修改地表 shader、材質 ID 或 UV，也沒有抹除原始貼圖細節；**保留 POT diffuse 跨 surface 共用來源貼圖與原始 mipmap** 的既有修正。只有在新的 framebuffer／來源像素證據確認程式錯誤後，才改渲染程式。
 - 本次程式碼驗收提交 `d849ef8b9f623a2f8a95cd5422a077d3ee47636f`：Regression tests、Native map live smoke 與 GND multi-map GPU diagnostics 的工作均成功；四張額外 GPU 診斷地圖（icecastle、ice_dun02、thor_v03、iz_dun03）4/4 通過。對應報告：[Regression](https://github.com/summer55637/ROO/actions/runs/39798947533)、[Native map live smoke / 原始素材附件](https://github.com/summer55637/ROO/actions/runs/39798947594)、[多地圖 GPU diagnostics](https://github.com/summer55637/ROO/actions/runs/39798948561)。CI 成功代表程式與來源稽核通過，不代表白線已消失或與官方客戶端逐像素一致。
 
+
+
+## 2026-10-23 更新：tra_fild UV 跨界診斷依官方 GND sampler 校正
+
+- 核對 [GRFEditor Texture.cs 的 GndTexture 分支](https://github.com/Tokeiburu/GRFEditor/blob/e6508407c1e193dac5252eef788dc0a0c1d9d07f/GRFEditor/OpenGL/MapComponents/Texture.cs#L489-L500)：GND diffuse 明確使用 `ClampToEdge`（S/T 兩軸），並以線性過濾／可選 mipmap；不能因兩側 UV 的數值相差 1，就推斷官方 sampler 必須 Repeat。
+- 真實 `tra_fild` texture `필드바닥/prt_도시01.bmp` 為 256×256，Surface #9967 UV 是 U=[0.75,1]、V=[0,0.25]；鄰接 #9965、#9969、#9844 共用同一張原始貼圖。原始來源 mipmap 共 9 層；來源影像第 0 層上下邊平均 RGB 約為 [200.367,193.965,187.398] 與 [160.176,150.148,141.352]，兩側並非可直接無痕重複的同一條邊。
+- 舊 GPU 報告中 #9844/#9967 的 near 採樣，ClampToEdge 與 GPU framebuffer 最大差約 0.5 RGB 階；假設 Repeat 的來源預期則偏差約 5.2 階。故將 GND sampler 強制切到 Repeat 會背離此參考 renderer。本次修正讓 POT 共用來源貼圖保持原始 mipmap，並明確使用 ClampToEdge。
+- GND 多尺度診斷現在會以 ClampToEdge 作為正式 framebuffer／來源 mipmap 驗收基準，額外將同一組 near/mid/far 像素切到 Repeat 渲染並記錄兩者差值；原有 12 RGB 階門檻、共享來源貼圖及原 mipmap 均不放寬或替換。
+- 此修正校正的是「診斷器誤把 Repeat 當成官方預期」及對應 sampler 設定；仍不能單憑此項宣稱地表白線已消失。需看提交後的 GPU JSON／場景截圖與完整 Regression 結果，再判定剩餘白線是否為來源紋理、鄰接 UV、mipmap 或其他渲染項目。

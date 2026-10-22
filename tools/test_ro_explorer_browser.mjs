@@ -193,12 +193,13 @@ async function runGndGpuBoundaryAudit(targetPage, mapSlug, options = {}) {
         && expected.surfaces.every(surface => item.surfaces.includes(surface))
         && item.wrapBoundary && item.wrapBoundary.axis === expected.axis);
       assert.ok(audit, mapSlug + ' 缺少 UV=' + expected.axis.toUpperCase()
-        + ' repeat 邊界樣本 ' + expected.surfaces.join(' ↔ '));
-      const wrapKey = expected.axis === 'u' ? 's' : 't';
-      assert.equal(audit.samplerWrap && audit.samplerWrap[wrapKey], 'repeat',
+        + ' 端點跨界樣本 ' + expected.surfaces.join(' ↔ '));
+      assert.equal(audit.samplerWrap && audit.samplerWrap.s, 'clamp-to-edge',
         mapSlug + ' surface ' + expected.surfaces.join(' ↔ ')
-          + ' 的 POT 共用來源貼圖必須沿 ' + expected.axis.toUpperCase()
-          + ' 軸 RepeatWrapping：' + JSON.stringify(audit.samplerWrap));
+          + ' 的 GND 來源貼圖 U 軸應符合官方 ClampToEdge：' + JSON.stringify(audit.samplerWrap));
+      assert.equal(audit.samplerWrap && audit.samplerWrap.t, 'clamp-to-edge',
+        mapSlug + ' surface ' + expected.surfaces.join(' ↔ ')
+          + ' 的 GND 來源貼圖 V 軸應符合官方 ClampToEdge：' + JSON.stringify(audit.samplerWrap));
     }
   }
   assert.ok(report.axes.includes('east') && report.axes.includes('north'),
