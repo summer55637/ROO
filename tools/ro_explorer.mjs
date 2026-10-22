@@ -4183,7 +4183,7 @@ function findGndSharedUvAuditPairs() {
   }
   const selected = [];
   const selectedKeys = new Set();
-  const maxPairs = 6;
+  const maxPairs = mapInfo && mapInfo.mapId === 'tra_fild' ? 9 : 6;
   const addBest = (label, predicate, score) => {
     if (selected.length >= maxPairs) return;
     const options = candidates.filter(pair => !selectedKeys.has(pair)
