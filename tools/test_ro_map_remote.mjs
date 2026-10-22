@@ -864,6 +864,126 @@ async function validateMap(mapId) {
     );
   }
 
+
+  // Preserve the exact atlas named by the lingering tra_fild diffuse-only stripe.
+  // Browser inspection identified surface 5425 using pron-dun-02.bmp / UV [0.25, 0.5] × [0, 0.25].
+  // Save the untouched source plus all used UV regions so the feature can be classified as
+  // source texture content or a renderer/UV mismatch before changing the game shader.
+  if (mapId === 'tra_fild') {
+    const targetTextureIndex = gnd.textures.findIndex(name =>
+      normalizeTextureName(name).endsWith('pron-dun-02.bmp'));
+    assert.ok(targetTextureIndex >= 0, 'tra_fild has the pron-dun-02.bmp diffuse atlas');
+    const targetTextureName = normalizeTextureName(gnd.textures[targetTextureIndex]);
+    const targetTextureUrl = urls.textures[targetTextureName];
+    assert.ok(targetTextureUrl, 'tra_fild pron-dun-02 diffuse URL resolves');
+    const targetResponse = await fetchResponse(targetTextureUrl, 'tra_fild pron-dun-02 diagnostic texture');
+    const targetBytes = Buffer.from(await targetResponse.arrayBuffer());
+    assert.ok(targetBytes.length > 8
+      && targetBytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
+    'tra_fild pron-dun-02 source texture is a valid PNG');
+    const targetImage = decodePngPixels(targetBytes);
+    const sourceArtifactDir = 'artifacts/gnd-source-textures';
+    mkdirSync(sourceArtifactDir, { recursive: true });
+    writeFileSync(sourceArtifactDir + '/tra-fild-pron-dun-02-source.png', targetBytes);
+
+    const boundsForSurface = surface => ({
+      minU: Math.min(...surface.uv.map(uv => uv[0])),
+      maxU: Math.max(...surface.uv.map(uv => uv[0])),
+      minV: Math.min(...surface.uv.map(uv => uv[1])),
+      maxV: Math.max(...surface.uv.map(uv => uv[1])),
+    });
+    const usedRegions = new Map();
+    for (let cubeIndex = 0; cubeIndex < gnd.cubes.length; cubeIndex++) {
+      const surfaceIndex = gnd.cubes[cubeIndex].topSurface;
+      if (surfaceIndex < 0 || surfaceIndex >= gnd.surfaces.length) continue;
+      const surface = gnd.surfaces[surfaceIndex];
+      if (!surface || surface.textureIndex !== targetTextureIndex
+        || !Array.isArray(surface.uv) || surface.uv.length !== 4) continue;
+      const bounds = boundsForSurface(surface);
+      const key = [bounds.minU, bounds.maxU, bounds.minV, bounds.maxV]
+        .map(value => value.toFixed(5)).join(':');
+      if (!usedRegions.has(key)) {
+        usedRegions.set(key, {
+          uvBounds: bounds,
+          sourcePixelBounds: {
+            x0: Math.round(bounds.minU * targetImage.width),
+            x1: Math.round(bounds.maxU * targetImage.width),
+            y0: Math.round((1 - bounds.maxV) * targetImage.height),
+            y1: Math.round((1 - bounds.minV) * targetImage.height),
+          },
+          surfaceCount: 0,
+          examples: [],
+        });
+      }
+      const region = usedRegions.get(key);
+      region.surfaceCount++;
+      if (region.examples.length < 8) {
+        region.examples.push({
+          cube: [cubeIndex % gnd.width, Math.floor(cubeIndex / gnd.width)],
+          surfaceIndex,
+          surfaceUvs: surface.uv,
+        });
+      }
+    }
+    const suspectRegion = [...usedRegions.entries()].find(([, region]) =>
+      Math.abs(region.uvBounds.minU - 0.25) < 1e-5
+      && Math.abs(region.uvBounds.maxU - 0.5) < 1e-5
+      && Math.abs(region.uvBounds.minV - 0) < 1e-5
+      && Math.abs(region.uvBounds.maxV - 0.25) < 1e-5);
+    assert.ok(suspectRegion, 'tra_fild pron-dun-02 contains the inspected UV region');
+    const regionAudit = {
+      mapId,
+      textureName: gnd.textures[targetTextureIndex],
+      textureUrl: targetTextureUrl,
+      imageSize: [targetImage.width, targetImage.height],
+      browserInspectorReference: {
+        surfaceIndex: 5425,
+        uvBounds: { minU: 0.25, maxU: 0.5, minV: 0, maxV: 0.25 },
+      },
+      capturedRegion: suspectRegion[1],
+      usedUvRegions: [...usedRegions.values()],
+      sourcePixelStats: (() => {
+        const { x0, x1, y0, y1 } = suspectRegion[1].sourcePixelBounds;
+        let brightPixels = 0;
+        let darkPixels = 0;
+        let lumaSum = 0;
+        let pixelCount = 0;
+        const brightCountByRow = [];
+        for (let y = y0; y < y1; y++) {
+          let brightInRow = 0;
+          for (let x = x0; x < x1; x++) {
+            const rgba = targetImage.pixelAt(x, y);
+            const luma = 0.2126 * rgba[0] + 0.7152 * rgba[1] + 0.0722 * rgba[2];
+            if (luma >= 220) { brightPixels++; brightInRow++; }
+            if (luma <= 40) darkPixels++;
+            lumaSum += luma;
+            pixelCount++;
+          }
+          brightCountByRow.push(brightInRow);
+        }
+        return {
+          pixelCount,
+          meanLuma: Number((lumaSum / Math.max(1, pixelCount)).toFixed(3)),
+          brightPixels,
+          darkPixels,
+          brightCountByRow,
+        };
+      })(),
+    };
+    writeFileSync(
+      sourceArtifactDir + '/tra-fild-pron-dun-02-source-uv-audit.json',
+      JSON.stringify(regionAudit, null, 2) + '\\n'
+    );
+    console.log('tra_fild inspected diffuse source/UV evidence: ' + JSON.stringify({
+      textureName: regionAudit.textureName,
+      textureUrl: regionAudit.textureUrl,
+      imageSize: regionAudit.imageSize,
+      sourcePixelBounds: regionAudit.capturedRegion.sourcePixelBounds,
+      regionSurfaceCount: regionAudit.capturedRegion.surfaceCount,
+      sourcePixelStats: regionAudit.sourcePixelStats,
+    }));
+  }
+
   const topSurfaceIndexes = new Set();
   for (const cube of gnd.cubes) {
     if (cube.topSurface >= 0 && cube.topSurface < gnd.surfaces.length) {
