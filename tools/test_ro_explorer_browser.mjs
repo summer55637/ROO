@@ -181,7 +181,7 @@ async function runGndGpuBoundaryAudit(targetPage, mapSlug, options = {}) {
     mapSlug + ' 多組 GND 相鄰 surface GPU diffuse／光照比對未通過：' + JSON.stringify(report));
   assert.ok(report.candidateCount >= 4,
     mapSlug + ' 應先掃描到多組真實相鄰 surface：' + JSON.stringify(report));
-  const maxSelectedPairs = mapSlug === 'tra_fild' ? 9 : 6;
+  const maxSelectedPairs = mapSlug === 'tra_fild' || mapSlug === 'tra-fild' ? 9 : 6;
   assert.ok(report.selectedPairCount >= 4 && report.selectedPairCount <= maxSelectedPairs,
     mapSlug + ' 應選出 4–' + maxSelectedPairs + ' 組可重現樣本：' + JSON.stringify(report));
   assert.ok(report.axes.includes('east') && report.axes.includes('north'),
