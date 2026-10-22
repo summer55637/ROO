@@ -3960,20 +3960,25 @@ function buildGndAuditMipPyramid(texture) {
   return levels;
 }
 
-function sampleGndAuditMip(levels, uv, lod) {
+function sampleGndAuditMip(levels, uv, lod, wrapS = true, wrapT = true) {
   const sampleLevel = level => {
     const image = levels[level];
-    const fx = Math.max(0, Math.min(image.width - 1, uv[0] * image.width - 0.5));
-    const fy = Math.max(0, Math.min(image.height - 1, (1 - uv[1]) * image.height - 0.5));
-    const x0 = Math.floor(fx), y0 = Math.floor(fy);
-    const x1 = Math.min(image.width - 1, x0 + 1);
-    const y1 = Math.min(image.height - 1, y0 + 1);
-    const tx = fx - x0, ty = fy - y0;
+    const axis = (coordinate, size, repeat) => {
+      const position = coordinate * size - 0.5;
+      const filtered = repeat ? position : Math.max(0, Math.min(size - 1, position));
+      const lower = Math.floor(filtered);
+      const wrapIndex = value => repeat
+        ? ((value % size) + size) % size
+        : Math.max(0, Math.min(size - 1, value));
+      return { lower: wrapIndex(lower), upper: wrapIndex(lower + 1), weight: filtered - lower };
+    };
+    const x = axis(uv[0], image.width, wrapS);
+    const y = axis(1 - uv[1], image.height, wrapT);
     return [0, 1, 2].map(c => {
-      const at = (x, y) => image.data[(y * image.width + x) * 4 + c];
-      const top = at(x0, y0) * (1 - tx) + at(x1, y0) * tx;
-      const bottom = at(x0, y1) * (1 - tx) + at(x1, y1) * tx;
-      return top * (1 - ty) + bottom * ty;
+      const at = (px, py) => image.data[(py * image.width + px) * 4 + c];
+      const top = at(x.lower, y.lower) * (1 - x.weight) + at(x.upper, y.lower) * x.weight;
+      const bottom = at(x.lower, y.upper) * (1 - x.weight) + at(x.upper, y.upper) * x.weight;
+      return top * (1 - y.weight) + bottom * y.weight;
     });
   };
   const value = Math.max(0, Math.min(levels.length - 1, lod));
@@ -4051,7 +4056,16 @@ function findGndSharedUvAuditPairs() {
     if (Math.abs((ra.maxU - ra.minU) - (rb.maxU - rb.minU)) > 1e-6
       || Math.abs((ra.maxV - ra.minV) - (rb.maxV - rb.minV)) > 1e-6) return null;
     const corners = axis === 'east' ? { a: [1, 3], b: [0, 2] } : { a: [2, 3], b: [0, 1] };
-    if (!corners.a.every((c, i) => equalVec(sa.uv[c], sb.uv[corners.b[i]], 1e-6))) return null;
+    const sharedSourceUv = corners.a.every((c, i) =>
+      equalVec(sa.uv[c], sb.uv[corners.b[i]], 1e-6));
+    const wrapAxis = axis === 'east' ? 'u' : 'v';
+    const repeatWrapBoundary = !sharedSourceUv && corners.a.every((c, i) => {
+      const uvA = sa.uv[c], uvB = sb.uv[corners.b[i]];
+      return wrapAxis === 'u'
+        ? Math.abs(Math.abs(uvA[0] - uvB[0]) - 1) <= 1e-6 && Math.abs(uvA[1] - uvB[1]) <= 1e-6
+        : Math.abs(uvA[0] - uvB[0]) <= 1e-6 && Math.abs(Math.abs(uvA[1] - uvB[1]) - 1) <= 1e-6;
+    });
+    if (!sharedSourceUv && !repeatWrapBoundary) return null;
     for (const ea of entriesBySurface.get(ia) || []) for (const eb of entriesBySurface.get(ib) || []) {
       const ma = Array.isArray(ea.object.material) ? ea.object.material[0] : ea.object.material;
       const mb = Array.isArray(eb.object.material) ? eb.object.material[0] : eb.object.material;
@@ -4071,8 +4085,15 @@ function findGndSharedUvAuditPairs() {
       const na = cornerData(ea, 'rooGndVertexNormal'), nb = cornerData(eb, 'rooGndVertexNormal');
       const uv2a = cornerData(ea, 'uv2'), uv2b = cornerData(eb, 'uv2');
       if (!pa || !pb || !ua || !ub || !ca || !cb || !na || !nb || !uv2a || !uv2b) continue;
-      if (!corners.a.every((c, i) => equalVec(pa[c], pb[corners.b[i]], 1e-5)
-        && equalVec(ua[c], ub[corners.b[i]], 1e-6))) continue;
+      if (!corners.a.every((c, i) => {
+        const uvA = ua[c], uvB = ub[corners.b[i]];
+        const sourceUvMatches = sharedSourceUv
+          ? equalVec(uvA, uvB, 1e-6)
+          : wrapAxis === 'u'
+            ? Math.abs(Math.abs(uvA[0] - uvB[0]) - 1) <= 1e-6 && Math.abs(uvA[1] - uvB[1]) <= 1e-6
+            : Math.abs(uvA[0] - uvB[0]) <= 1e-6 && Math.abs(Math.abs(uvA[1] - uvB[1]) - 1) <= 1e-6;
+        return equalVec(pa[c], pb[corners.b[i]], 1e-5) && sourceUvMatches;
+      })) continue;
       // These pairs share the same real 3D edge. Their normals must remain
       // identical even if texture/UV splitting placed the quads in different meshes.
       const sharedEdgeNormalMaxDelta = Math.max(...corners.a.map((c, i) =>
@@ -4108,7 +4129,11 @@ function findGndSharedUvAuditPairs() {
       candidates.push({
         status: 'ready', axis, grid: [x, y], surfaceIndexA: ia, surfaceIndexB: ib,
         surfaceA: sa, surfaceB: sb, entryA: ea, entryB: eb, rectA: ra, rectB: rb,
-        corners, sharedUv: corners.a.map((c, i) => sa.uv[c]),
+        corners, sharedSourceUv, wrapBoundary: repeatWrapBoundary
+          ? { axis: wrapAxis, surfaceEdgeA: corners.a.map(c => sa.uv[c]),
+            surfaceEdgeB: corners.b.map(c => sb.uv[c]), repeatEquivalent: true }
+          : null,
+        sharedUv: sharedSourceUv ? corners.a.map((c, i) => sa.uv[c]) : null,
         sourceTexture: srcA, cropA, cropB,
         coverage: {
           uvRegionKey: uvRectKey(ra) + '|' + uvRectKey(rb),
@@ -4169,8 +4194,19 @@ function findGndSharedUvAuditPairs() {
     selectedKeys.add(options[0]);
     options[0].coverage.selectedFor.push(label);
   };
-  // Spend the first audit slot on the strongest genuine RGB-lightmap + AO contrast.
-  // Then keep axis coverage while preferring chromatic, brighter lightmap boundaries.
+  // First capture the requested tra_fild streak surfaces. #9965/#9967 share U=.75;
+  // #9967/#9969 cross U=1/0 and #9844/#9967 cross V=1/0.
+  if (mapInfo && mapInfo.mapId === 'tra_fild') {
+    const hasSurfaces = (pair, a, b) => [pair.surfaceIndexA, pair.surfaceIndexB].includes(a)
+      && [pair.surfaceIndexA, pair.surfaceIndexB].includes(b);
+    addBest('tra_fild Surface #9965 ↔ #9967 shared UV',
+      pair => hasSurfaces(pair, 9965, 9967) && !pair.wrapBoundary, () => 1e9);
+    addBest('tra_fild Surface #9967 ↔ #9969 repeat U boundary',
+      pair => hasSurfaces(pair, 9967, 9969) && pair.wrapBoundary && pair.wrapBoundary.axis === 'u', () => 1e9);
+    addBest('tra_fild Surface #9844 ↔ #9967 repeat V boundary',
+      pair => hasSurfaces(pair, 9844, 9967) && pair.wrapBoundary && pair.wrapBoundary.axis === 'v', () => 1e9);
+  }
+  // Use remaining slots for contrast and broader neighboring-surface coverage.
   addBest('非零 RGB＋AO 強對比', pair => pair.coverage.hasNonzeroEdgeRgbLightmap
     && pair.coverage.aoDelta >= 8,
   pair => pair.coverage.edgeRgbColorVariation * 2 + pair.coverage.edgeRgbSignal
@@ -4552,12 +4588,14 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
         const edgeScreen = pixProject(edgeWorld);
         const projectedTilePixels = Math.hypot(centerScreen[0].x - centerScreen[1].x,
           centerScreen[0].y - centerScreen[1].y);
-        const off = Math.max(1, Math.min(4, Math.round(projectedTilePixels * 0.04)));
+        const off = pair.wrapBoundary ? 1 : Math.max(1, Math.min(4, Math.round(projectedTilePixels * 0.04)));
         const choosePixel = (which) => {
           const dx = centerScreen[which].x - edgeScreen.x;
           const dy = centerScreen[which].y - edgeScreen.y;
           const d = Math.hypot(dx, dy) || 1;
-          const maxOff = Math.max(off, Math.min(20, Math.floor(projectedTilePixels * 0.4)));
+          const maxOff = pair.wrapBoundary
+              ? Math.max(1, Math.min(3, Math.floor(projectedTilePixels * 0.2)))
+              : Math.max(off, Math.min(20, Math.floor(projectedTilePixels * 0.4)));
           for (let n = off; n <= maxOff; n++) {
             const pixel = { x: Math.floor(edgeScreen.x + dx / d * n),
               y: Math.floor(edgeScreen.y + dy / d * n) };
@@ -4626,7 +4664,9 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
             hasLightmap: hasLightmap[0],
             lod: Number(lods[i].toFixed(3)),
             expected: {
-              diffuseRgb: sampleGndAuditMip(mips, sourceUv, lods[i]),
+              diffuseRgb: sampleGndAuditMip(mips, sourceUv, lods[i], true, true),
+              diffuseClampRgb: pair.wrapBoundary
+                ? sampleGndAuditMip(mips, sourceUv, lods[i], false, false) : null,
               vertexColorRgb: color.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255)),
               rswLightRgb: rswMultiplier.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255)),
               rgbLightmap: lightmap && lightmap.filteredRgb
@@ -4644,10 +4684,30 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
           renderer.clear(true, true, true);
           renderer.render(auditScene, auditCamera);
           samples.forEach((sample, index) => { sample.framebuffer[mode.key] = readPixel(pixels[index]); });
+          if (mode.key === 'diffuse' && pair.wrapBoundary) {
+            const texture = pair.sourceTexture;
+            const originalWrapS = texture.wrapS;
+            const originalWrapT = texture.wrapT;
+            texture.wrapS = THREE.ClampToEdgeWrapping;
+            texture.wrapT = THREE.ClampToEdgeWrapping;
+            texture.needsUpdate = true;
+            renderer.clear(true, true, true);
+            renderer.render(auditScene, auditCamera);
+            samples.forEach((sample, index) => {
+              sample.framebuffer.diffuseClampBoundary = readPixel(pixels[index]);
+            });
+            texture.wrapS = originalWrapS;
+            texture.wrapT = originalWrapT;
+            texture.needsUpdate = true;
+          }
         }
         for (const sample of samples) {
           sample.errors = {
             diffuseMipRgb: maxDelta(sample.framebuffer.diffuse, sample.expected.diffuseRgb),
+            diffuseClampMipRgb: pair.wrapBoundary
+              ? maxDelta(sample.framebuffer.diffuseClampBoundary, sample.expected.diffuseClampRgb) : 0,
+            wrapSamplerDelta: pair.wrapBoundary
+              ? maxDelta(sample.framebuffer.diffuse, sample.framebuffer.diffuseClampBoundary) : null,
             vertexColorRgb: maxDelta(sample.framebuffer.vertexColor, sample.expected.vertexColorRgb),
             rswLightRgb: maxDelta(sample.framebuffer.rswLight, sample.expected.rswLightRgb),
             rgbLightmap: maxDelta(sample.framebuffer.rgbLightmap, sample.expected.rgbLightmap),
@@ -4666,22 +4726,29 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
           projectedTilePixels: Number(projectedTilePixels.toFixed(3)),
           effectiveLod: samples.map(s => s.lod),
           maxDelta: {
-            diffuseMipRgb: max('diffuseMipRgb'), vertexColorRgb: max('vertexColorRgb'),
+            diffuseMipRgb: max('diffuseMipRgb'), diffuseClampMipRgb: max('diffuseClampMipRgb'),
+            vertexColorRgb: max('vertexColorRgb'),
             rswLightRgb: max('rswLightRgb'), rgbLightmap: max('rgbLightmap'), ao: max('ao'),
             combinedFromComponents: max('combinedFromComponents'),
           },
+          maxRepeatVsClampRgbDelta: Math.max(0, ...samples.map(sample =>
+            Number.isFinite(sample.errors.wrapSamplerDelta) ? sample.errors.wrapSamplerDelta : 0)),
           samples,
         });
       }
-      const diffuseSharedUv = auditGndDiffuseSharedUvCrops(
-        pair, target, width, height, sourceWidth, sourceHeight
-      );
-      const limits = { diffuseMipRgb: 12, vertexColorRgb: 3, rswLightRgb: 4,
+      const diffuseSharedUv = pair.wrapBoundary
+        ? {
+          status: 'not-applicable',
+          reason: '兩側來源 UV 相差一個 Repeat 週期；分別比對來源 mipmap 與 Repeat/Clamp GPU framebuffer。',
+          samples: [], maxInterCropDelta: null, maxCropVsSourceDelta: null,
+        }
+        : auditGndDiffuseSharedUvCrops(pair, target, width, height, sourceWidth, sourceHeight);
+      const limits = { diffuseMipRgb: 12, diffuseClampMipRgb: 12, vertexColorRgb: 3, rswLightRgb: 4,
         rgbLightmap: 4, ao: 4, combinedFromComponents: 4 };
       const sharedNormalLimit = 1e-5;
       const sharedNormalDelta = pair.coverage.sharedEdgeNormalMaxDelta;
       const failures = [
-        ...(diffuseSharedUv.status !== 'passed'
+        ...(diffuseSharedUv.status !== 'passed' && diffuseSharedUv.status !== 'not-applicable'
           ? [{ scale: 'shared-uv', channel: 'diffuseCropContinuity',
             maxDelta: Math.max(
               Number(diffuseSharedUv.maxInterCropDelta) || 999,
@@ -4698,8 +4765,13 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
         status: failures.length ? 'mismatch' : 'passed',
         mapId: mapInfo && mapInfo.mapId, texture: gndInfo.textures[pair.surfaceA.textureIndex],
         axis: pair.axis, grid: pair.grid, surfaces: [pair.surfaceIndexA, pair.surfaceIndexB],
-        sharedUv: pair.sharedUv, diffuseRects: [pair.rectA, pair.rectB], coverage: pair.coverage,
+        sharedUv: pair.sharedUv, wrapBoundary: pair.wrapBoundary,
+        diffuseRects: [pair.rectA, pair.rectB], coverage: pair.coverage,
         cropPixelRects: [pair.cropA, pair.cropB],
+        samplerWrap: {
+          s: pair.sourceTexture.wrapS === THREE.RepeatWrapping ? 'repeat' : 'clamp-or-other',
+          t: pair.sourceTexture.wrapT === THREE.RepeatWrapping ? 'repeat' : 'clamp-or-other',
+        },
         lightmaps: [pair.surfaceA.lightmapIndex, pair.surfaceB.lightmapIndex],
         sourceImage: { width: sourceWidth, height: sourceHeight }, mipLevels: mips.length,
         sampler: { minFilter: meshes[0].material.map.minFilter, magFilter: meshes[0].material.map.magFilter,
