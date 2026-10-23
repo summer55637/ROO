@@ -150,4 +150,59 @@ t.eq('新重生目標不會沿用死亡狀態', respawnResult.killed, false);
 t.eq('新重生目標使用原始怪物最大 HP', respawnResult.maxHp, originalMonster.hp);
 t.ok('對重生目標可再次造成實際傷害', respawnResult.damageDealt > 0);
 
-process.exit(t.report('原生探索普攻／Bash 掉落、背包、重載與新重生目標'));
+/* 用可控時鐘讓同一隻真實怪物走到反擊時間，確認玩家 HP 真正下降。 */
+const NativeDate = Date;
+let fakeNow = NativeDate.now();
+g.Date = class TestDate extends NativeDate {
+  static now() { return fakeNow; }
+};
+def.hp = originalMonster.hp;
+def.exp = originalMonster.exp;
+def.jobExp = originalMonster.jobExp;
+def.atkInterval = 0.01; // 僅縮短測試所需等待；命中仍使用正式怪物傷害流程。
+def.drops = JSON.parse(JSON.stringify(originalMonster.drops));
+g.Math = Object.create(Math);
+g.Math.random = () => 0.99;
+g.createCharacter('探索怪物反擊測試',
+  { str: 1, agi: 1, vit: 1, int: 1, dex: 99, luk: 1 }, 'male');
+g.state.jobId = 'swordsman';
+g.state.mapId = map.id;
+g.state.farmMode = 0;
+g.state.learnedSkills.bash = 5;
+g.recomputeDerived(true);
+g.state.hp = g.state.maxHp;
+g.state.sp = g.state.maxSp;
+g.state.attackInterval = 100;
+g.state.hit = 999;
+g.state.critRate = 0;
+g.state.flee = 0;
+g.state.perfectDodge = 0;
+g.state.blockChance = 0;
+g.state.hasBackslideDodge = false;
+g.state.hasAutoRevive1 = false;
+g.state.hasAutoRevive2 = false;
+const retaliationIdleMonsters = [{ defId: spawn.id, hp: 777, maxHp: 777, id: 7 }];
+g.state.monsters = retaliationIdleMonsters;
+g.state.monster = retaliationIdleMonsters[0];
+const firstRetaliationProbe = g.attackRoExplorerMonster(
+  'ex-retaliation', 'retaliation-target', map.id, spawn.id);
+t.eq('反擊測試首次普攻成功結算', firstRetaliationProbe.accepted, true);
+t.ok('反擊測試首次普攻有實際傷害', firstRetaliationProbe.damageDealt > 0);
+const playerHpBeforeRetaliation = g.state.hp;
+fakeNow += 1000;
+const retaliationResult = g.attackRoExplorerMonster(
+  'ex-retaliation', 'retaliation-target', map.id, spawn.id);
+t.eq('等待怪物攻擊間隔後普攻可再次結算', retaliationResult.accepted, true);
+t.ok('怪物反擊確實讓玩家 HP 下降', retaliationResult.playerHp < playerHpBeforeRetaliation,
+  '反擊前 HP ' + playerHpBeforeRetaliation + '；反擊後 HP ' + retaliationResult.playerHp);
+t.eq('反擊回覆 HP 與即時角色狀態一致', retaliationResult.playerHp, g.state.hp);
+
+/* 還原測試對正式怪物資料與時鐘的所有臨時修改。 */
+def.hp = originalMonster.hp;
+def.exp = originalMonster.exp;
+def.jobExp = originalMonster.jobExp;
+def.atkInterval = originalMonster.atkInterval;
+def.drops = JSON.parse(JSON.stringify(originalMonster.drops));
+g.Date = NativeDate;
+
+process.exit(t.report('原生探索普攻／Bash 掉落、背包、重載、重生與怪物反擊'));
