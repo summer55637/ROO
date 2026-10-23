@@ -975,23 +975,122 @@ function drawRoExplorer2DProp(context, prop, point) {
       Math.cos(style.screenAngleRadians), Math.sin(style.screenAngleRadians), 0, 1, 0, 0
     );
     const x = 0, y = 0;
+    if (style.kind === 'stump') {
+      // 나무기둥 RSM assets are trunks, not leafy trees.
+      const barkTop = y - height * 0.74;
+      context.fillStyle = '#4b3428';
+      context.beginPath();
+      context.moveTo(x - width * 0.25, y);
+      context.lineTo(x - width * 0.19, barkTop);
+      context.lineTo(x + width * 0.17, barkTop);
+      context.lineTo(x + width * 0.24, y);
+      context.closePath(); context.fill();
+      context.strokeStyle = '#8a6240';
+      context.lineWidth = Math.max(1, width * 0.055);
+      context.beginPath();
+      context.moveTo(x - width * 0.06, y - height * 0.08);
+      context.lineTo(x - width * 0.015, barkTop + height * 0.08);
+      context.moveTo(x + width * 0.11, y - height * 0.13);
+      context.lineTo(x + width * 0.09, barkTop + height * 0.17);
+      context.stroke();
+      context.fillStyle = '#b38a5d';
+      context.beginPath();
+      context.ellipse(x - width * 0.01, barkTop, width * 0.2, height * 0.095, 0, 0, Math.PI * 2);
+      context.fill();
+      context.strokeStyle = '#5b3c2a';
+      context.lineWidth = Math.max(1, unit * 0.65);
+      context.beginPath();
+      context.ellipse(x - width * 0.01, barkTop, width * 0.11, height * 0.047, 0, 0, Math.PI * 2);
+      context.stroke();
+      return;
+    }
     if (style.kind === 'tree') {
+      const variant = style.variant || 0;
       const trunkTop = y - height * 0.38;
+      const trunkHalf = width * (variant === 2 ? 0.105 : 0.14);
       context.fillStyle = '#4b3424';
       context.beginPath();
-      context.moveTo(x - width * 0.15, y); context.lineTo(x - width * 0.09, trunkTop);
-      context.lineTo(x + width * 0.12, trunkTop); context.lineTo(x + width * 0.17, y);
+      context.moveTo(x - trunkHalf, y); context.lineTo(x - trunkHalf * 0.62, trunkTop);
+      context.lineTo(x + trunkHalf * 0.72, trunkTop); context.lineTo(x + trunkHalf * 1.15, y);
       context.closePath(); context.fill();
-      context.strokeStyle = '#a37b47'; context.lineWidth = Math.max(1, width * 0.055);
+      context.strokeStyle = '#a37b47'; context.lineWidth = Math.max(1, width * 0.045);
       context.beginPath(); context.moveTo(x - width * 0.015, y - height * 0.08);
       context.lineTo(x + width * 0.025, trunkTop + height * 0.06); context.stroke();
-      context.fillStyle = '#183b2a';
-      context.beginPath(); context.ellipse(x, y - height * 0.68, width * 0.48, height * 0.3, 0, 0, Math.PI * 2); context.fill();
-      context.fillStyle = '#28613b';
-      context.beginPath(); context.ellipse(x - width * 0.19, y - height * 0.72, width * 0.3, height * 0.25, -0.15, 0, Math.PI * 2); context.fill();
-      context.beginPath(); context.ellipse(x + width * 0.2, y - height * 0.76, width * 0.31, height * 0.27, 0.12, 0, Math.PI * 2); context.fill();
-      context.fillStyle = '#43844b';
-      context.beginPath(); context.ellipse(x - width * 0.07, y - height * 0.83, width * 0.23, height * 0.18, -0.2, 0, Math.PI * 2); context.fill();
+
+      if (variant === 1) {
+        // Layered fir silhouette: a pointed crown instead of another round blob.
+        const levels = [
+          { y: 0.39, half: 0.22, color: '#32603a' },
+          { y: 0.54, half: 0.34, color: '#245331' },
+          { y: 0.68, half: 0.43, color: '#1c472d' },
+          { y: 0.81, half: 0.49, color: '#173b27' },
+        ];
+        for (const level of levels) {
+          context.fillStyle = level.color;
+          context.beginPath();
+          context.moveTo(x, y - height * (level.y + 0.18));
+          context.lineTo(x - width * level.half, y - height * level.y);
+          context.lineTo(x + width * level.half, y - height * level.y);
+          context.closePath(); context.fill();
+          context.strokeStyle = 'rgba(101,151,78,0.82)';
+          context.lineWidth = Math.max(0.8, unit * 0.75);
+          context.beginPath();
+          context.moveTo(x, y - height * (level.y + 0.14));
+          context.lineTo(x - width * level.half * 0.72, y - height * (level.y + 0.025));
+          context.stroke();
+        }
+      } else if (variant === 2) {
+        // Tall, narrow crowns break up repetitive rounded tree silhouettes.
+        context.fillStyle = '#183b2a';
+        context.beginPath();
+        context.ellipse(x, y - height * 0.69, width * 0.34, height * 0.36, 0, 0, Math.PI * 2);
+        context.fill();
+        context.fillStyle = '#28613b';
+        context.beginPath();
+        context.ellipse(x - width * 0.08, y - height * 0.74, width * 0.24, height * 0.28, -0.12, 0, Math.PI * 2);
+        context.ellipse(x + width * 0.09, y - height * 0.64, width * 0.22, height * 0.24, 0.1, 0, Math.PI * 2);
+        context.fill();
+        context.fillStyle = '#43844b';
+        context.beginPath();
+        context.ellipse(x - width * 0.03, y - height * 0.85, width * 0.17, height * 0.19, -0.16, 0, Math.PI * 2);
+        context.fill();
+      } else if (variant === 3) {
+        // Irregular multi-cluster canopy, with small highlights for readable depth.
+        const clusters = [
+          [-0.22, 0.63, 0.30, 0.22, '#245331'],
+          [0.19, 0.67, 0.32, 0.25, '#1d482d'],
+          [0, 0.76, 0.34, 0.25, '#28613b'],
+          [-0.08, 0.84, 0.22, 0.17, '#43844b'],
+          [0.25, 0.82, 0.18, 0.16, '#347442'],
+        ];
+        for (const [cx, cy, rx, ry, color] of clusters) {
+          context.fillStyle = color;
+          context.beginPath();
+          context.ellipse(x + width * cx, y - height * cy, width * rx, height * ry, cx * 0.4, 0, Math.PI * 2);
+          context.fill();
+        }
+      } else {
+        // Broadleaf crown with edge highlights instead of a single flat ellipse.
+        context.fillStyle = '#183b2a';
+        context.beginPath();
+        context.ellipse(x, y - height * 0.68, width * 0.48, height * 0.3, 0, 0, Math.PI * 2);
+        context.fill();
+        context.fillStyle = '#28613b';
+        context.beginPath();
+        context.ellipse(x - width * 0.19, y - height * 0.72, width * 0.3, height * 0.25, -0.15, 0, Math.PI * 2);
+        context.ellipse(x + width * 0.2, y - height * 0.76, width * 0.31, height * 0.27, 0.12, 0, Math.PI * 2);
+        context.fill();
+        context.fillStyle = '#43844b';
+        context.beginPath();
+        context.ellipse(x - width * 0.07, y - height * 0.83, width * 0.23, height * 0.18, -0.2, 0, Math.PI * 2);
+        context.fill();
+      }
+      // Shared small rim highlights make the silhouettes read against dark grass.
+      context.strokeStyle = 'rgba(116,166,87,0.56)';
+      context.lineWidth = Math.max(0.7, unit * 0.65);
+      context.beginPath();
+      context.ellipse(x - width * 0.13, y - height * 0.77, width * 0.16, height * 0.09, -0.2, Math.PI, Math.PI * 1.75);
+      context.stroke();
       return;
     }
     if (style.kind === 'building') {
