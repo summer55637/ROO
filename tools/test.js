@@ -69,6 +69,7 @@ const SUITES = [
   'test_ro_explorer_vitals_bridge.mjs', // 原生探索 HP／SP 即時同步橋接
   'test_ro_explorer_feedback.mjs', // 原生探索戰鬥傷害跳字
   'test_ro_explorer_minimap.mjs', // 原生探索小地圖地形與座標
+  'test_ro_explorer_2d.mjs', // 純 2D 等角投影與原始貼圖三角形映射
   'test_ro_explorer_monsters.mjs', // 原生探索怪物生成與選取資料
   'test_ro_explorer_lifecycle.mjs', // 原生探索怪物死亡與重生週期
   'test_ro_explorer_skill_catalog.mjs', // 原生探索技能目錄跨檔接線
