@@ -6383,12 +6383,17 @@ function handleRenderPageHide(event) {
 window.addEventListener('pagehide', handleRenderPageHide);
 
 const params = new URLSearchParams(window.location.search);
-const requestedMap = params.get('map');
+const requestedGameMap = params.get('map');
+const requestedNativeMap = params.get('nativeMap');
+const requestedMap = requestedNativeMap || requestedGameMap;
 if (requestedMap) {
   if (/^[a-z0-9_@-]{1,64}$/i.test(requestedMap)) {
     nativeMapInput.value = requestedMap.toLowerCase();
   }
-  setStatus('目標地圖：' + requestedMap + '。可選「原生地圖」直接載入公開 GND/GAT，或使用本機 GLB/GAT。');
+  const targetDescription = requestedNativeMap && requestedGameMap !== requestedNativeMap
+    ? '遊戲地圖：' + requestedGameMap + '；原生畫面地圖：' + requestedNativeMap
+    : '目標地圖：' + requestedMap;
+  setStatus(targetDescription + '。可選「原生地圖」直接載入公開 GND/GAT，或使用本機 GLB/GAT。');
 }
 loadNativeMapButton.addEventListener('click', () => loadRagassetsMap(nativeMapInput.value));
 window.addEventListener('roo-explorer-mode', event => {

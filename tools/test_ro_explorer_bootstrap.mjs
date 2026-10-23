@@ -98,6 +98,27 @@ assert.ok(gameUiSource.includes("openRoExplorer('2d')"),
   '主遊戲地圖分頁必須提供直接進入純 2D 的入口');
 assert.ok(gameUiSource.includes("url.searchParams.set('view', '2d')"),
   '主遊戲 2D 入口必須帶入可重開的網址參數');
+
+// Tutorial/test maps do not have native RO GND/GAT files; map the visual asset
+// separately while preserving the logical map ID used by combat validation.
+const aliasStart = gameUiSource.indexOf('const RO_EXPLORER_NATIVE_MAP_FALLBACKS = Object.freeze({');
+const aliasEnd = gameUiSource.indexOf('function openRoExplorer(view = \'3d\')', aliasStart);
+assert.ok(aliasStart >= 0 && aliasEnd > aliasStart, '主遊戲必須提供可測試的原生地圖素材對應表。');
+const aliasResolver = vm.runInNewContext(
+  gameUiSource.slice(aliasStart, aliasEnd) + String.fromCharCode(10) + 'resolveRoExplorerNativeMapId;',
+  {},
+);
+assert.equal(aliasResolver('novice_safe'), 'prontera');
+assert.equal(aliasResolver('novice_ground'), 'prt_fild08');
+assert.equal(aliasResolver('test_arena'), 'prt_fild08');
+assert.equal(aliasResolver('tra_fild'), 'tra_fild');
+assert.equal(aliasResolver('prontera'), 'prontera');
+assert.ok(gameUiSource.includes("url.searchParams.set('nativeMap', nativeMapId)"),
+  '素材地圖必須使用獨立 nativeMap 參數，不能覆蓋遊戲邏輯地圖。');
+assert.ok(explorerModuleSource.includes("const requestedMap = requestedNativeMap || requestedGameMap;"),
+  '探索端必須先載入獨立原生素材地圖。');
+assert.ok(explorerModuleSource.includes("explorerParams.get('map') || '').trim().toLowerCase()"),
+  '戰鬥橋接仍必須沿用遊戲邏輯 map 參數。');
 assert.ok(gameUiSource.includes("openRoExplorer('3d')"),
   '原生 3D／地圖診斷入口必須保留');
 
