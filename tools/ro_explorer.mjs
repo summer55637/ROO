@@ -1008,6 +1008,16 @@ function drawRoExplorer2DProp(context, prop, point) {
       const variant = style.variant || 0;
       const trunkTop = y - height * 0.38;
       const trunkHalf = width * (variant === 2 ? 0.105 : 0.14);
+      // Root flare ties the proxy to its ground tile instead of making the trunk float.
+      context.fillStyle = '#503827';
+      context.beginPath();
+      context.moveTo(x - trunkHalf * 0.72, y - height * 0.11);
+      context.lineTo(x - width * 0.29, y);
+      context.lineTo(x - trunkHalf * 0.42, y - height * 0.035);
+      context.lineTo(x + trunkHalf * 0.42, y - height * 0.035);
+      context.lineTo(x + width * 0.27, y);
+      context.lineTo(x + trunkHalf * 0.72, y - height * 0.11);
+      context.closePath(); context.fill();
       context.fillStyle = '#4b3424';
       context.beginPath();
       context.moveTo(x - trunkHalf, y); context.lineTo(x - trunkHalf * 0.62, trunkTop);
@@ -1101,6 +1111,15 @@ function drawRoExplorer2DProp(context, prop, point) {
       context.lineTo(right + width * 0.13, y); context.lineTo(right, y); context.closePath(); context.fill();
       context.fillStyle = '#8a6a50';
       context.fillRect(left, roofY + height * 0.22, right - left, height * 0.78);
+      // Fine facade seams preserve a clear front plane on narrow mobile canvases.
+      context.strokeStyle = 'rgba(48,35,29,0.48)';
+      context.lineWidth = Math.max(0.7, unit * 0.55);
+      context.beginPath();
+      context.moveTo(left + width * 0.08, roofY + height * 0.31);
+      context.lineTo(left + width * 0.08, y - height * 0.04);
+      context.moveTo(right - width * 0.08, roofY + height * 0.31);
+      context.lineTo(right - width * 0.08, y - height * 0.04);
+      context.stroke();
       context.fillStyle = '#743f38';
       context.beginPath(); context.moveTo(left - width * 0.12, roofY + height * 0.25);
       context.lineTo(x, roofY); context.lineTo(right + width * 0.2, roofY + height * 0.25);
