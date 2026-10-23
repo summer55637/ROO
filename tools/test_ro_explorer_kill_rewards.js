@@ -176,7 +176,11 @@ t.eq('新重生目標不會沿用死亡狀態', respawnResult.killed, false);
 t.eq('新重生目標使用原始怪物最大 HP', respawnResult.maxHp, originalMonster.hp);
 t.ok('對重生目標可再次造成實際傷害', respawnResult.damageDealt > 0);
 
-/* 用可控時鐘讓同一隻真實怪物走到反擊時間，確認玩家 HP 真正下降。 */
+/* 用可控時鐘讓同一隻真實怪物走到反擊時間，確認玩家 HP 真正下降。
+   只驗普通攻擊承傷：特殊技能（例如自療）可能取代當次普攻；暫時隔離該怪物技能表，
+   測完會還原原始參照，避免把「施放技能」誤判成普通攻擊沒有造成傷害。 */
+const originalMonsterSkillList = g.MONSTER_SKILLS && g.MONSTER_SKILLS[spawn.id];
+const hadMonsterSkillList = !!(g.MONSTER_SKILLS && Object.prototype.hasOwnProperty.call(g.MONSTER_SKILLS, spawn.id));
 const NativeDate = Date;
 let fakeNow = NativeDate.now();
 g.Date = class TestDate extends NativeDate {
@@ -191,6 +195,7 @@ def.atkInterval = 0.01; // 僅縮短測試所需等待；命中仍使用正式�
 def.drops = JSON.parse(JSON.stringify(originalMonster.drops));
 g.Math = Object.create(Math);
 g.Math.random = () => 0.99;
+if (g.MONSTER_SKILLS) g.MONSTER_SKILLS[spawn.id] = [];
 g.createCharacter('探索怪物反擊測試',
   { str: 1, agi: 1, vit: 1, int: 1, dex: 99, luk: 1 }, 'male');
 g.state.jobId = 'swordsman';
@@ -233,6 +238,10 @@ def.atk = originalMonster.atk;
 def.element = originalMonster.element;
 def.atkInterval = originalMonster.atkInterval;
 def.drops = JSON.parse(JSON.stringify(originalMonster.drops));
+if (g.MONSTER_SKILLS) {
+  if (hadMonsterSkillList) g.MONSTER_SKILLS[spawn.id] = originalMonsterSkillList;
+  else delete g.MONSTER_SKILLS[spawn.id];
+}
 g.Date = NativeDate;
 
 process.exit(t.report('原生探索普攻／Bash 掉落、背包、重載、重生與怪物反擊'));
