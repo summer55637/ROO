@@ -248,6 +248,62 @@ function validateAuditReport(mapId, report) {
         label + ' ' + (scale && scale.scale) + ' actual framebuffer UV drifted from the fixed probe');
       }
     }
+    const profileExpected = [
+      { id: 'streak-west', surfaceIndex: 9965, uv: [0.6710, 0.0012],
+        corners: [[0.5, 0], [0.75, 0], [0.5, 0.25], [0.75, 0.25]] },
+      { id: 'streak-center', surfaceIndex: 9967, uv: [0.9210, 0.0012],
+        corners: [[0.75, 0], [1, 0], [0.75, 0.25], [1, 0.25]] },
+      { id: 'streak-east', surfaceIndex: 9969, uv: [0.1710, 0.0012],
+        corners: [[0, 0], [0.25, 0], [0, 0.25], [0.25, 0.25]] },
+      { id: 'streak-opposite-v-edge', surfaceIndex: 9844, uv: [0.9210, 0.9988],
+        corners: [[0.75, 0.75], [1, 0.75], [0.75, 1], [1, 1]] },
+    ];
+    for (const expectedProbe of profileExpected) {
+      const sample = (targetAudit && Array.isArray(targetAudit.samples) ? targetAudit.samples : [])
+        .find(item => item.probeId === expectedProbe.id);
+      const label = expectedProbe.id + ' / surface #' + expectedProbe.surfaceIndex;
+      check(Boolean(sample && sample.surfaceIndex === expectedProbe.surfaceIndex && sample.status === 'passed'),
+        label + ' did not pass near/mid/far source/GPU checks');
+      check(Boolean(sample && Array.isArray(sample.requestedUv)
+        && sample.requestedUv.every((value, index) =>
+          Math.abs(value - expectedProbe.uv[index]) <= 1e-6)),
+      label + ' did not retain the screenshot-derived UV probe');
+      check(Boolean(sample && Array.isArray(sample.uvCorners) && sample.uvCorners.length === 4
+        && sample.uvCorners.every((uv, index) => Array.isArray(uv)
+          && Math.abs(uv[0] - expectedProbe.corners[index][0]) <= 1e-6
+          && Math.abs(uv[1] - expectedProbe.corners[index][1]) <= 1e-6)),
+      label + ' full source UV corners changed');
+      check(Boolean(sample && sample.texturePath
+        && /prt_도시01\.bmp$/i.test(String(sample.texturePath).replaceAll('\\', '/'))),
+      label + ' is not using the inspected source texture');
+      check(Boolean(sample && Array.isArray(sample.actualViewScreenPoint)
+        && Number.isFinite(sample.actualViewScreenPoint.x)
+        && Number.isFinite(sample.actualViewScreenPoint.y)),
+      label + ' is missing its projected screen location in the white-streak view');
+      check(Boolean(sample && sample.sampler
+        && sample.sampler.wrapS === 'clamp-to-edge'
+        && sample.sampler.wrapT === 'clamp-to-edge'
+        && sample.sampler.minFilter === 1008
+        && sample.sampler.generateMipmaps === true
+        && sample.mipReferenceLevels >= 9),
+      label + ' sampler or source mipmap reference changed');
+      const scales = sample && Array.isArray(sample.scales) ? sample.scales : [];
+      check(scales.length === 3
+        && ['near', 'mid', 'far'].every(name => scales.some(scale => scale.scale === name)),
+      label + ' must record near/mid/far GPU samples');
+      for (const scale of scales) {
+        check(Boolean(scale && Array.isArray(scale.expectedSourceMipRgb)
+          && scale.expectedSourceMipRgb.length === 3
+          && Array.isArray(scale.framebufferRgb) && scale.framebufferRgb.length === 3
+          && Number.isFinite(scale.maxRgbDelta) && scale.maxRgbDelta <= 12),
+        label + ' ' + (scale && scale.scale) + ' exceeds existing 12-step RGB limit: '
+          + JSON.stringify(scale));
+        check(Boolean(scale && Array.isArray(scale.actualSourceUv)
+          && scale.actualSourceUv.every((value, index) =>
+            Number.isFinite(value) && Math.abs(value - expectedProbe.uv[index]) <= 0.006)),
+        label + ' ' + (scale && scale.scale) + ' actual sampled UV differs from screenshot probe');
+      }
+    }
   }
   return failures;
 }
@@ -532,6 +588,17 @@ async function auditMap(mapId) {
         const shotPath = path.join(artifactDir, mapId + '-scene.png');
         await page.screenshot({ path: shotPath, fullPage: false, animations: 'disabled', timeout: 10000 });
         report.screenshot = path.basename(shotPath);
+        if (mapId === 'tra_fild') {
+          report.whiteStreakView = await page.evaluate(() =>
+            window.__rooGndGpuBoundaryAudit.frameWhiteStreakProfileView()
+          );
+          await sleep(350);
+          const streakShotPath = path.join(artifactDir, 'tra-fild-white-streak-profile-scene.png');
+          await page.screenshot({
+            path: streakShotPath, fullPage: false, animations: 'disabled', timeout: 10000,
+          });
+          report.whiteStreakScreenshot = path.basename(streakShotPath);
+        }
 
         const auditDeadline = Date.now() + 35000;
         let audit = null;
