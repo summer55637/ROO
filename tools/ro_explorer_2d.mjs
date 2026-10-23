@@ -30,8 +30,10 @@ export function buildRoExplorer2DFallbackProps(rswModels, renderedPositions = []
       .replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 160) || 'RO 場景物件';
     const modelScale = Array.isArray(model.scale) && model.scale.length >= 3
       ? model.scale.slice(0, 3).map(value => Number.isFinite(value) ? value : 1) : [1, 1, 1];
+    const modelRotation = Array.isArray(model.rotation) && model.rotation.length >= 3
+      ? model.rotation.slice(0, 3).map(value => Number.isFinite(value) ? value : 0) : [0, 0, 0];
     props.push({
-      name, modelName, modelScale, position, fallback: true,
+      name, modelName, modelScale, modelRotation, position, fallback: true,
       kind: classifyRoExplorer2DProp(name + ' ' + modelName),
     });
   }
@@ -75,8 +77,39 @@ export function classifyRoExplorer2DProp(value) {
   return 'unknown';
 }
 
-/** Fit a scene proxy to RSW per-axis scale, while clamping malformed/extreme values. */
-export function getRoExplorer2DPropStyle(name, modelScale = [1, 1, 1]) {
+const RO_EXPLORER_2D_ROTATABLE_KINDS = new Set([
+  'tree', 'building', 'wall', 'bridge', 'plant', 'fixture', 'water',
+]);
+
+/**
+ * Convert RSW yaw into the proxy's isometric screen-plane angle.
+ * RSW's Z axis is mirrored by the native map transform, so its yaw sign flips.
+ */
+export function getRoExplorer2DPropOrientation(rotation = [0, 0, 0]) {
+  const rawYaw = Array.isArray(rotation) ? Number(rotation[1]) : Number(rotation);
+  if (!Number.isFinite(rawYaw)) {
+    return { yawDegrees: 0, screenAngleRadians: 0, screenAngleDegrees: 0 };
+  }
+  const normalizedYaw = ((rawYaw % 360) + 360) % 360;
+  const yawDegrees = -(normalizedYaw > 180 ? normalizedYaw - 360 : normalizedYaw);
+  const theta = yawDegrees * Math.PI / 180;
+  const screenBaseline = Math.atan2(0.5, 1);
+  let screenAngleRadians = Math.atan2(
+    (Math.cos(theta) + Math.sin(theta)) * 0.5,
+    Math.cos(theta) - Math.sin(theta)
+  ) - screenBaseline;
+  // A prop's horizontal axis is undirected; keep the canvas shear within ±90°.
+  while (screenAngleRadians > Math.PI / 2) screenAngleRadians -= Math.PI;
+  while (screenAngleRadians < -Math.PI / 2) screenAngleRadians += Math.PI;
+  return {
+    yawDegrees,
+    screenAngleRadians,
+    screenAngleDegrees: screenAngleRadians * 180 / Math.PI,
+  };
+}
+
+/** Fit a scene proxy to RSW scale and yaw, clamping malformed/extreme values. */
+export function getRoExplorer2DPropStyle(name, modelScale = [1, 1, 1], modelRotation = [0, 0, 0]) {
   const kind = classifyRoExplorer2DProp(name);
   const base = RO_EXPLORER_2D_PROP_BASES[kind] || RO_EXPLORER_2D_PROP_BASES.unknown;
   const readScale = index => {
@@ -86,6 +119,8 @@ export function getRoExplorer2DPropStyle(name, modelScale = [1, 1, 1]) {
   };
   const horizontalScale = Math.max(0.55, Math.min(1.9, Math.sqrt(readScale(0) * readScale(2))));
   const verticalScale = Math.max(0.55, Math.min(1.9, readScale(1)));
+  const orientation = getRoExplorer2DPropOrientation(modelRotation);
+  const orientationAware = RO_EXPLORER_2D_ROTATABLE_KINDS.has(kind);
   return {
     kind,
     width: base.width * horizontalScale,
@@ -93,10 +128,23 @@ export function getRoExplorer2DPropStyle(name, modelScale = [1, 1, 1]) {
     shadowWidth: base.width * base.shadow * horizontalScale,
     horizontalScale,
     verticalScale,
+    orientationAware,
+    yawDegrees: orientation.yawDegrees,
+    screenAngleRadians: orientationAware ? orientation.screenAngleRadians : 0,
+    screenAngleDegrees: orientationAware ? orientation.screenAngleDegrees : 0,
   };
 }
 
-/** Sort by projected ground-anchor Y; equal-depth scenery stays behind monsters/player. */
+/**
+ * Painter depth uses the ground plane only. World Y is height/elevation, not camera depth;
+ * including it in sort keys can put a raised object in front of or behind the wrong actor.
+ */
+export function getRoExplorer2DDepthKey(position) {
+  if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.z)) return null;
+  return position.x - position.z;
+}
+
+/** Sort from far to near; ground-depth ties keep scenery, monster, then player order. */
 export function sortRoExplorer2DSceneItems(items) {
   if (!Array.isArray(items)) return [];
   const layerOrder = { prop: 0, monster: 1, player: 2 };

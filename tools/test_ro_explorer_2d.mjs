@@ -11,6 +11,8 @@ import {
   buildRoExplorer2DFallbackProps,
   classifyRoExplorer2DProp,
   getRoExplorer2DPropStyle,
+  getRoExplorer2DPropOrientation,
+  getRoExplorer2DDepthKey,
   sortRoExplorer2DSceneItems,
 } from './ro_explorer_2d.mjs';
 
@@ -46,7 +48,7 @@ assert.equal(isRoExplorer2DPointVisible({ x: -100, y: 20 }, 800, 480), false);
 assert.throws(() => projectRoExplorer2DPoint(point, center, 0, 480, 8), /有效的世界座標/);
 
 const fallbackProps = buildRoExplorer2DFallbackProps([
-  { name: 'named instance', modelName: 'field_tree01.rsm', position: [10, 2, -20] },
+  { name: 'named instance', modelName: 'field_tree01.rsm', position: [10, 2, -20], rotation: [0, 35, 0] },
   { name: 'house instance', modelName: 'field_house01.rsm', position: [30, 4, 50] },
   { name: 'invalid placement', modelName: 'broken.rsm', position: [NaN, 0, 0] },
 ], [{ x: 2, y: -0.4, z: 4.0000001 }], 0.2);
@@ -56,6 +58,8 @@ assert.equal(fallbackProps[0].name, 'field_house01.rsm');
 assert.equal(fallbackProps[0].modelName, 'field_house01.rsm');
 assert.equal(fallbackProps[0].fallback, true);
 assert.deepEqual(fallbackProps[0].position, { x: 6, y: -0.8, z: -10 });
+assert.deepEqual(fallbackProps[0].modelRotation, [0, 35, 0],
+  'RSM 未載入的代理物件仍須保留 RSW 原始朝向');
 assert.equal(buildRoExplorer2DFallbackProps([
   { modelName: 'tree.rsm', position: [1, 2, 3] },
 ], [], 0).length, 0, '不合理世界比例不得產生代理物件');
@@ -73,6 +77,7 @@ assert.equal(classifyRoExplorer2DProp('unmatched_asset.rsm'), 'unknown');
 const treeStyle = getRoExplorer2DPropStyle('field_tree01.rsm', [2, 1.5, 2]);
 const rockStyle = getRoExplorer2DPropStyle('rock_04.rsm', [1, 1, 1]);
 assert.equal(treeStyle.kind, 'tree');
+assert.ok(treeStyle.orientationAware, '樹木代理也應保留 RSW 朝向資訊');
 assert.ok(treeStyle.height > rockStyle.height,
   '樹木代理應比石塊更高，不應所有物件共用同一比例');
 assert.ok(treeStyle.width <= 30 * 1.9 && treeStyle.height <= 45 * 1.9,
@@ -82,6 +87,28 @@ assert.deepEqual(
   getRoExplorer2DPropStyle('field_tree01.rsm', [1, 1, 1]),
   '缺失或無效模型縮放應回到安全比例'
 );
+const neutralOrientation = getRoExplorer2DPropOrientation([0, 0, 0]);
+const rotatedOrientation = getRoExplorer2DPropOrientation([0, 45, 0]);
+const reverseOrientation = getRoExplorer2DPropOrientation([0, -45, 0]);
+assert.equal(neutralOrientation.screenAngleDegrees, 0, '零旋轉不可改變代理圖形方向');
+assert.ok(Math.abs(rotatedOrientation.screenAngleDegrees + 26.5650511771) < 1e-6,
+  'RSW yaw 需依 Z 軸鏡射後轉成正確的等角螢幕方向');
+assert.ok(Math.abs(reverseOrientation.screenAngleDegrees - 63.4349488229) < 1e-6,
+  '相反 RSW yaw 應得到另一個可辨認的投影方向');
+assert.equal(getRoExplorer2DPropStyle('field_fence01.rsm', [1, 1, 1], [0, 45, 0])
+  .screenAngleRadians, rotatedOrientation.screenAngleRadians,
+  '牆／橋／建築代理繪圖樣式須採用實際 RSW yaw');
+assert.equal(getRoExplorer2DPropStyle('rock_04.rsm', [1, 1, 1], [0, 45, 0])
+  .screenAngleRadians, 0, '對稱石塊不應因 yaw 被不必要地拉斜');
+
+assert.equal(getRoExplorer2DDepthKey({ x: 12, y: 50, z: 8 }), 4);
+assert.equal(getRoExplorer2DDepthKey({ x: 12, y: -50, z: 8 }), 4,
+  '地面深度排序不得把物件高度／海拔混入遮擋順序');
+assert.ok(getRoExplorer2DDepthKey({ x: 8, z: 10 }) < getRoExplorer2DDepthKey({ x: 12, z: 6 }),
+  '地面更遠的物件應先繪製，較近的角色或物件後繪製');
+assert.equal(getRoExplorer2DDepthKey({ x: NaN, z: 1 }), null,
+  '無效座標不得產生可用的深度鍵');
+
 const unsortedSceneItems = [
   { kind: 'player', depth: 20, id: 'player' },
   { kind: 'monster', depth: 10, id: 'monster-back' },

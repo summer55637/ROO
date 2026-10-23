@@ -82,6 +82,7 @@ import {
   drawRoExplorer2DSelectionRing,
   buildRoExplorer2DFallbackProps,
   getRoExplorer2DPropStyle,
+  getRoExplorer2DDepthKey,
   sortRoExplorer2DSceneItems,
 } from './ro_explorer_2d.mjs';
 
@@ -411,6 +412,7 @@ let ro2dPixelRatio = 1;
 let ro2dMetrics = {
   terrainTiles: 0, texturedTiles: 0, visibleProps: 0, visibleMonsters: 0,
   modelPlacements: 0, loadedModelProps: 0, fallbackProps: 0, propKinds: {},
+  groundDepthMode: 'x-minus-z', orientationAwareProps: 0, rotatedProps: 0,
 };
 const RO_EXPLORER_2D_PIXELS_PER_WORLD_UNIT = 1.6;
 let minimapGatInfo = null;
@@ -741,12 +743,15 @@ function rebuildRoExplorer2DSceneIndex() {
         const modelName = String(object.userData.rooModelName || object.name || 'RO 場景物件');
         const modelScale = Array.isArray(object.userData.rooModelScale)
           ? object.userData.rooModelScale.slice(0, 3) : [object.scale.x, object.scale.y, object.scale.z];
+        const modelRotation = Array.isArray(object.userData.rooModelRotation)
+          ? object.userData.rooModelRotation.slice(0, 3) : [0, 0, 0];
         ro2dDecorations.push({
           object,
           name: String(object.name || modelName),
           modelName,
           modelScale,
-          kind: getRoExplorer2DPropStyle(modelName, modelScale).kind,
+          modelRotation,
+          kind: getRoExplorer2DPropStyle(modelName, modelScale, modelRotation).kind,
           position,
           fallback: false,
         });
@@ -762,11 +767,22 @@ function rebuildRoExplorer2DSceneIndex() {
   ro2dMetrics.loadedModelProps = ro2dDecorations.filter(prop => prop.object && !prop.fallback).length;
   ro2dMetrics.fallbackProps = ro2dDecorations.filter(prop => prop.fallback).length;
   ro2dMetrics.propKinds = ro2dDecorations.reduce((counts, prop) => {
-    const style = getRoExplorer2DPropStyle(prop.modelName || prop.name, prop.modelScale);
+    const style = getRoExplorer2DPropStyle(
+      prop.modelName || prop.name, prop.modelScale, prop.modelRotation
+    );
     prop.kind = style.kind;
     counts[style.kind] = (counts[style.kind] || 0) + 1;
     return counts;
   }, {});
+  ro2dMetrics.groundDepthMode = 'x-minus-z';
+  ro2dMetrics.orientationAwareProps = ro2dDecorations.filter(prop =>
+    getRoExplorer2DPropStyle(prop.modelName || prop.name, prop.modelScale, prop.modelRotation)
+      .orientationAware
+  ).length;
+  ro2dMetrics.rotatedProps = ro2dDecorations.filter(prop =>
+    Math.abs(getRoExplorer2DPropStyle(prop.modelName || prop.name, prop.modelScale, prop.modelRotation)
+      .screenAngleRadians) > 0.01
+  ).length;
   ro2dTerrainCenter = null;
   ro2dTerrainDirty = true;
   ro2dLastTerrainRenderAt = 0;
@@ -939,13 +955,20 @@ function drawRoExplorer2DPath(context, center) {
 }
 
 function drawRoExplorer2DProp(context, prop, point) {
-  const style = getRoExplorer2DPropStyle(prop.modelName || prop.name, prop.modelScale);
+  const style = getRoExplorer2DPropStyle(
+    prop.modelName || prop.name, prop.modelScale, prop.modelRotation
+  );
   const unit = Math.max(0.75, Math.min(1.65, ro2dPixelsPerWorldUnit() / 8));
-  const x = point.x, y = point.y;
+  const anchorX = point.x, anchorY = point.y;
   const width = style.width * unit, height = style.height * unit;
-  drawRoExplorer2DGroundShadow(context, x, y, style.shadowWidth * unit);
+  drawRoExplorer2DGroundShadow(context, anchorX, anchorY, style.shadowWidth * unit);
   context.save();
   try {
+    context.translate(anchorX, anchorY);
+    context.transform(
+      Math.cos(style.screenAngleRadians), Math.sin(style.screenAngleRadians), 0, 1, 0, 0
+    );
+    const x = 0, y = 0;
     if (style.kind === 'tree') {
       const trunkTop = y - height * 0.38;
       context.fillStyle = '#4b3424';
@@ -1159,18 +1182,24 @@ function renderRoExplorer2DFrame(now) {
     const world = prop.object ? prop.object.getWorldPosition(new THREE.Vector3()) : prop.position;
     if (!world || ![world.x, world.y, world.z].every(Number.isFinite)) continue;
     const point = ro2dProject({ x: world.x, y: world.y, z: world.z }, center);
-    if (isRoExplorer2DPointVisible(point, width, height, pad)) items.push({ kind: 'prop', prop, point, depth: point.y });
+    if (isRoExplorer2DPointVisible(point, width, height, pad)) {
+      items.push({ kind: 'prop', prop, point, depth: getRoExplorer2DDepthKey(world) });
+    }
   }
   let visibleMonsters = 0;
   for (const entry of monsterEntries) {
     if (!entry || entry.dead || !entry.cell) continue;
-    const point = ro2dProject(cellWorldPosition(entry.cell), center);
+    const world = cellWorldPosition(entry.cell);
+    const point = ro2dProject(world, center);
     if (!isRoExplorer2DPointVisible(point, width, height, pad)) continue;
-    items.push({ kind: 'monster', entry, point, depth: point.y }); visibleMonsters++;
+    items.push({ kind: 'monster', entry, point, depth: getRoExplorer2DDepthKey(world) }); visibleMonsters++;
   }
   if (currentCell && playerRoot) {
-    const point = ro2dProject({ x: playerRoot.position.x, y: playerRoot.position.y, z: playerRoot.position.z }, center);
-    if (isRoExplorer2DPointVisible(point, width, height, pad)) items.push({ kind: 'player', point, depth: point.y });
+    const world = { x: playerRoot.position.x, y: playerRoot.position.y, z: playerRoot.position.z };
+    const point = ro2dProject(world, center);
+    if (isRoExplorer2DPointVisible(point, width, height, pad)) {
+      items.push({ kind: 'player', point, depth: getRoExplorer2DDepthKey(world) });
+    }
   }
   const orderedItems = sortRoExplorer2DSceneItems(items);
   let visibleProps = 0;
@@ -2077,6 +2106,8 @@ async function loadAndPlaceRswModels(rsw, urls, mapRoot, scale, isCurrentRequest
     transform.userData.rooMapObject = true;
     transform.userData.rooModelName = String(placement.modelName || '');
     transform.userData.rooModelScale = Array.isArray(placement.scale) ? placement.scale.slice(0, 3) : [1, 1, 1];
+    transform.userData.rooModelRotation = Array.isArray(placement.rotation)
+      ? placement.rotation.slice(0, 3) : [0, 0, 0];
     transform.name = placement.name || placement.modelName;
     mapRoot.add(transform);
     renderedPlacements++;
