@@ -1311,6 +1311,34 @@ if (explorerParams.get('roo-2d-test') === '1') {
       stageClassName: stage.className,
       stageCanvasCount: stage.querySelectorAll('canvas').length,
     }),
+    getRswPlacementNameDiagnostics: () => {
+      const models = rswInfo && Array.isArray(rswInfo.models) ? rswInfo.models : [];
+      const summarize = field => {
+        const counts = new Map();
+        for (const model of models) {
+          const value = String(model && model[field] || '').trim() || '(blank)';
+          counts.set(value, (counts.get(value) || 0) + 1);
+        }
+        return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+          .slice(0, 50).map(([value, count]) => ({ value, count }));
+      };
+      return {
+        count: models.length,
+        blankResourceNames: models.filter(model => !String(model && model.modelName || '').trim()).length,
+        blankInstanceNames: models.filter(model => !String(model && model.name || '').trim()).length,
+        distinctResourceNames: new Set(models.map(model => String(model && model.modelName || '').trim())).size,
+        distinctInstanceNames: new Set(models.map(model => String(model && model.name || '').trim())).size,
+        resourceNames: summarize('modelName'),
+        instanceNames: summarize('name'),
+        samples: models.slice(0, 24).map((model, index) => ({
+          index,
+          name: String(model && model.name || ''),
+          modelName: String(model && model.modelName || ''),
+          nodeName: String(model && model.nodeName || ''),
+          rotation: Array.isArray(model && model.rotation) ? model.rotation.slice(0, 3) : null,
+        })),
+      };
+    },
     getWalkableTargets: () => {
       if (!ro2dActive || !currentCell || !gatInfo || !ro2dFrameCenter) return [];
       const result = [];

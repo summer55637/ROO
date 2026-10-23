@@ -871,6 +871,12 @@ async function run() {
     stage: (() => { const r = document.getElementById('stage').getBoundingClientRect(); return { width: r.width, height: r.height }; })(),
   }));
   console.log('原生場景初始化診斷：' + JSON.stringify(sceneReadiness));
+  const rswPlacementNameDiagnostics = await page.evaluate(() =>
+    window.__rooExplorer2DTest?.getRswPlacementNameDiagnostics() || null
+  );
+  console.log('tra_fild RSW 模型名稱實測：' + JSON.stringify(rswPlacementNameDiagnostics));
+  assert.ok(rswPlacementNameDiagnostics && rswPlacementNameDiagnostics.count > 0,
+    '純 2D 分類診斷無法讀到實際 RSW 模型擺放名稱。');
   assert.ok(!sceneReadiness.minimapHidden, '地圖顯示成功但小地圖仍隱藏：' + JSON.stringify(sceneReadiness));
   await page.waitForFunction(() => {
     const text = document.getElementById('stats')?.textContent || '';
