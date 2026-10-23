@@ -87,6 +87,7 @@ async function minimapTargets(targetPage) {
 }
 
 async function clickMinimapUntilMoving(targetPage, useTouch, label) {
+  const originalSpeed = await targetPage.locator('#move-speed').inputValue();
   await targetPage.evaluate(() => {
     window.__rooMinimapAcceptanceClicks = { count: 0, last: null };
     const canvas = document.getElementById('minimap');
@@ -152,6 +153,15 @@ async function clickMinimapUntilMoving(targetPage, useTouch, label) {
     await targetPage.locator('#stop-movement').click();
   }
   await targetPage.locator('#stop-movement').waitFor({ state: 'hidden', timeout: 3000 });
+  // The minimap test temporarily uses speed 1 for deterministic stop-button checks.
+  // Restore the user's previous setting so later combat checks do not inherit slow movement.
+  await targetPage.evaluate(value => {
+    const slider = document.getElementById('move-speed');
+    slider.value = value;
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+  }, originalSpeed);
+  assert.equal(await targetPage.locator('#move-speed').inputValue(), originalSpeed,
+    label + ' 小地圖驗收結束後未還原原移動速度。');
 }
 
 const GND_DEBUG_SCREENSHOT_MODES = [
