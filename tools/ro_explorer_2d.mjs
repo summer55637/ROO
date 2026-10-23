@@ -252,6 +252,154 @@ export function transformRoExplorer2DPoint(matrix, point) {
   };
 }
 
+/**
+ * Project a loaded static RSM mesh into textured Canvas 2D triangles.
+ * The returned triangle coordinates are relative to the projected model anchor.
+ * Return null for unsupported/unfinished geometry so the caller can safely use a proxy.
+ */
+export function collectRoExplorer2DModelTriangles(modelRoot, projectPoint, anchorPoint,
+  maxTriangles = 12000) {
+  if (!modelRoot || typeof projectPoint !== 'function' || !anchorPoint
+    || !finite(anchorPoint.x) || !finite(anchorPoint.y)
+    || !Number.isInteger(maxTriangles) || maxTriangles < 1 || maxTriangles > 24000) return null;
+
+  const triangles = [];
+  let failed = false;
+  let stableOrder = 0;
+  const component = (attribute, index, axis) => {
+    if (!attribute || !Number.isInteger(index) || index < 0) return NaN;
+    const getter = axis === 0 ? 'getX' : axis === 1 ? 'getY' : 'getZ';
+    if (typeof attribute[getter] === 'function') return attribute[getter](index);
+    const itemSize = Number.isInteger(attribute.itemSize) ? attribute.itemSize : 0;
+    const array = attribute.array;
+    if (!array || itemSize <= axis) return NaN;
+    return array[index * itemSize + axis];
+  };
+  const indexAt = (indexAttribute, offset) => {
+    if (!indexAttribute) return offset;
+    if (typeof indexAttribute.getX === 'function') return indexAttribute.getX(offset);
+    return indexAttribute.array ? indexAttribute.array[offset] : NaN;
+  };
+  const attributeCount = attribute => Number.isInteger(attribute && attribute.count)
+    ? attribute.count
+    : attribute && attribute.array && Number.isInteger(attribute.itemSize) && attribute.itemSize > 0
+      ? Math.floor(attribute.array.length / attribute.itemSize) : 0;
+  const colorString = color => {
+    if (color && typeof color.getHexString === 'function') return '#' + color.getHexString();
+    if (color && [color.r, color.g, color.b].every(finite)) {
+      const channel = value => Math.max(0, Math.min(255, Math.round(value * 255)));
+      return 'rgb(' + channel(color.r) + ',' + channel(color.g) + ',' + channel(color.b) + ')';
+    }
+    return '#b8b4a0';
+  };
+  const visit = (node, inheritedVisible = true) => {
+    if (failed || !node || inheritedVisible === false || node.visible === false) return;
+    const geometry = node.geometry;
+    const positionAttribute = geometry && geometry.attributes && geometry.attributes.position;
+    if (node.isMesh && geometry && positionAttribute) {
+      const positionCount = attributeCount(positionAttribute);
+      const uvAttribute = geometry.attributes.uv;
+      const indices = geometry.index;
+      const elementCount = indices ? attributeCount(indices) : positionCount;
+      const materials = Array.isArray(node.material) ? node.material : [node.material];
+      const groups = Array.isArray(geometry.groups) && geometry.groups.length
+        ? geometry.groups
+        : [{ start: 0, count: elementCount, materialIndex: 0 }];
+      const matrix = node.matrixWorld && node.matrixWorld.elements;
+      if (!matrix || matrix.length !== 16 || !matrix.every(finite)
+        || positionCount < 3 || elementCount < 3) {
+        failed = true;
+        return;
+      }
+      const drawStart = geometry.drawRange && finite(geometry.drawRange.start)
+        ? Math.max(0, geometry.drawRange.start) : 0;
+      const drawCount = geometry.drawRange && finite(geometry.drawRange.count)
+        ? Math.max(0, geometry.drawRange.count) : elementCount;
+      const drawEnd = Math.min(elementCount, drawStart + drawCount);
+
+      for (const group of groups) {
+        const start = Math.max(drawStart, Number.isFinite(group.start) ? group.start : 0);
+        const groupEnd = Math.min(drawEnd, start + Math.max(0,
+          Number.isFinite(group.count) ? group.count : drawEnd - start));
+        const materialIndex = Number.isInteger(group.materialIndex) ? group.materialIndex : 0;
+        const material = materials[materialIndex];
+        if (!material) continue;
+        const opacity = finite(material.opacity) ? Math.max(0, Math.min(1, material.opacity)) : 1;
+        if (opacity <= 0) continue;
+        const image = material.map && material.map.image ? material.map.image : null;
+        const imageWidth = image && Number(image.naturalWidth || image.videoWidth || image.width);
+        const imageHeight = image && Number(image.naturalHeight || image.videoHeight || image.height);
+        if (material.map && (!image || !finite(imageWidth) || !finite(imageHeight)
+          || imageWidth <= 0 || imageHeight <= 0 || !uvAttribute)) {
+          failed = true;
+          return;
+        }
+        const materialColor = colorString(material.color);
+
+        for (let offset = start; offset + 2 < groupEnd; offset += 3) {
+          if (triangles.length >= maxTriangles) {
+            failed = true;
+            return;
+          }
+          const vertexIndices = [
+            indexAt(indices, offset),
+            indexAt(indices, offset + 1),
+            indexAt(indices, offset + 2),
+          ];
+          if (!vertexIndices.every(index => Number.isInteger(index) && index >= 0 && index < positionCount)) {
+            failed = true;
+            return;
+          }
+          const worldPoints = [];
+          const sourcePoints = [];
+          const screenPoints = [];
+          for (const vertexIndex of vertexIndices) {
+            const x = component(positionAttribute, vertexIndex, 0);
+            const y = component(positionAttribute, vertexIndex, 1);
+            const z = component(positionAttribute, vertexIndex, 2);
+            if (![x, y, z].every(finite)) { failed = true; return; }
+            const world = {
+              x: matrix[0] * x + matrix[4] * y + matrix[8] * z + matrix[12],
+              y: matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13],
+              z: matrix[2] * x + matrix[6] * y + matrix[10] * z + matrix[14],
+            };
+            if (!Object.values(world).every(finite)) { failed = true; return; }
+            const screen = projectPoint(world);
+            if (!screen || !finite(screen.x) || !finite(screen.y)) { failed = true; return; }
+            worldPoints.push(world);
+            screenPoints.push({ x: screen.x - anchorPoint.x, y: screen.y - anchorPoint.y });
+            if (image) {
+              const u = component(uvAttribute, vertexIndex, 0);
+              const v = component(uvAttribute, vertexIndex, 1);
+              if (![u, v].every(finite)) { failed = true; return; }
+              sourcePoints.push({ x: u * imageWidth, y: (1 - v) * imageHeight });
+            }
+          }
+          const depth = worldPoints.reduce((sum, point) => sum + point.x - point.z, 0) / 3;
+          triangles.push({
+            image,
+            sourcePoints: image ? sourcePoints : null,
+            points: screenPoints,
+            depth,
+            opacity,
+            color: materialColor,
+            order: stableOrder++,
+          });
+        }
+      }
+    }
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) visit(child, inheritedVisible && node.visible !== false);
+    }
+  };
+
+  if (typeof modelRoot.updateMatrixWorld === 'function') modelRoot.updateMatrixWorld(true);
+  visit(modelRoot);
+  if (failed || !triangles.length) return null;
+  triangles.sort((a, b) => a.depth - b.depth || a.order - b.order);
+  return triangles;
+}
+
 export function drawRoExplorer2DTexturedTriangle(context, image, sourcePoints, targetPoints) {
   if (!context || !image || !image.width || !image.height
     || !Array.isArray(targetPoints) || targetPoints.length !== 3) return false;
