@@ -1070,8 +1070,13 @@ async function run() {
   await page.waitForFunction(() => {
     const status = document.getElementById('status')?.textContent || '';
     const stats = document.getElementById('stats')?.textContent || '';
-    return status.includes('原生地圖已載入') && stats.includes('GAT：prontera.gat');
+    return status.includes('公開原生地圖載入失敗') || /GAT[：:]\\s*prontera\\.gat/.test(stats);
   }, null, { timeout: 150000 });
+  assert.ok(
+    !(await page.locator('#status').innerText()).includes('公開原生地圖載入失敗')
+      && /GAT[：:]\\s*prontera\\.gat/.test(await page.locator('#stats').innerText()),
+    '普隆德拉原生地圖載入失敗：' + await page.locator('#status').innerText(),
+  );
   await page.waitForFunction(() => {
     const stats = document.getElementById('stats')?.textContent || '';
     const match = stats.match(/GND 地表貼圖：已解析 (\d+)\/(\d+)；載入成功 (\d+)；失敗 (\d+)；缺少匹配 (\d+)/);
@@ -1111,8 +1116,13 @@ async function run() {
   await page.waitForFunction(() => {
     const status = document.getElementById('status')?.textContent || '';
     const stats = document.getElementById('stats')?.textContent || '';
-    return status.includes('原生地圖已載入') && stats.includes('GAT：icecastle.gat');
+    return status.includes('公開原生地圖載入失敗') || /GAT[：:]\\s*icecastle\\.gat/.test(stats);
   }, null, { timeout: 150000 });
+  assert.ok(
+    !(await page.locator('#status').innerText()).includes('公開原生地圖載入失敗')
+      && /GAT[：:]\\s*icecastle\\.gat/.test(await page.locator('#stats').innerText()),
+    '冰城原生地圖載入失敗：' + await page.locator('#status').innerText(),
+  );
   await page.waitForFunction(() => {
     const stats = document.getElementById('stats')?.textContent || '';
     const match = stats.match(/GND 地表貼圖：已解析 (\d+)\/(\d+)；載入成功 (\d+)；失敗 (\d+)；缺少匹配 (\d+)/);
@@ -1157,8 +1167,13 @@ async function run() {
   await page.waitForFunction(() => {
     const status = document.getElementById('status')?.textContent || '';
     const stats = document.getElementById('stats')?.textContent || '';
-    return status.includes('原生地圖已載入') && stats.includes('GAT：tra_fild.gat');
+    return status.includes('公開原生地圖載入失敗') || /GAT[：:]\\s*tra_fild\\.gat/.test(stats);
   }, null, { timeout: 150000 });
+  assert.ok(
+    !(await page.locator('#status').innerText()).includes('公開原生地圖載入失敗')
+      && /GAT[：:]\\s*tra_fild\\.gat/.test(await page.locator('#stats').innerText()),
+    '草原原生地圖載入失敗：' + await page.locator('#status').innerText(),
+  );
   await page.waitForFunction(() => {
     const stats = document.getElementById('stats')?.textContent || '';
     const match = stats.match(/GND 地表貼圖：已解析 (\d+)\/(\d+)；載入成功 (\d+)；失敗 (\d+)；缺少匹配 (\d+)/);
@@ -1349,11 +1364,19 @@ async function run() {
   await page.locator('#native-toolbar').waitFor({ state: 'visible', timeout: 30000 });
   await page.waitForFunction(() => {
     const text = document.getElementById('status')?.textContent || '';
-    return text.includes('原生地圖已載入') || text.includes('公開原生地圖載入失敗');
+    const metrics = window.__rooExplorer2DTest?.getMetrics();
+    // Direct 2D entry replaces the one-time native-load message with the 2D mode status.
+    return text.includes('公開原生地圖載入失敗')
+      || Boolean(metrics && metrics.active && metrics.terrainTiles > 0);
   }, null, { timeout: 150000 });
   const directMobileStatus = await page.locator('#status').innerText();
-  assert.ok(directMobileStatus.includes('原生地圖已載入'),
-    '手機 view=2d 直接網址沒有載入原生地圖：' + directMobileStatus);
+  const directMobileMetrics = await page.evaluate(() => window.__rooExplorer2DTest?.getMetrics());
+  assert.ok(
+    !directMobileStatus.includes('公開原生地圖載入失敗')
+      && directMobileMetrics?.active && directMobileMetrics.terrainTiles > 0,
+    '手機 view=2d 直接網址沒有載入原生地圖：' + directMobileStatus
+      + '; metrics=' + JSON.stringify(directMobileMetrics),
+  );
   await page.waitForFunction(() => {
     const canvas = document.getElementById('ro-2d-stage');
     const metrics = window.__rooExplorer2DTest?.getMetrics();
