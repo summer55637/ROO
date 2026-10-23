@@ -181,11 +181,6 @@ t.ok('對重生目標可再次造成實際傷害', respawnResult.damageDealt > 0
    測完會還原原始參照，避免把「施放技能」誤判成普通攻擊沒有造成傷害。 */
 const originalMonsterSkillList = g.MONSTER_SKILLS && g.MONSTER_SKILLS[spawn.id];
 const hadMonsterSkillList = !!(g.MONSTER_SKILLS && Object.prototype.hasOwnProperty.call(g.MONSTER_SKILLS, spawn.id));
-const NativeDate = Date;
-let fakeNow = NativeDate.now();
-g.Date = class TestDate extends NativeDate {
-  static now() { return fakeNow; }
-};
 def.hp = originalMonster.hp;
 def.exp = originalMonster.exp;
 def.jobExp = originalMonster.jobExp;
@@ -222,7 +217,10 @@ const firstRetaliationProbe = g.attackRoExplorerMonster(
 t.eq('反擊測試首次普攻成功結算', firstRetaliationProbe.accepted, true);
 t.ok('反擊測試首次普攻有實際傷害', firstRetaliationProbe.damageDealt > 0);
 const playerHpBeforeRetaliation = g.state.hp;
-fakeNow += 1000;
+/* attackRoExplorerMonster 有 100ms 最短攻速與 75% 節流門檻。
+   用真實時鐘等待，避免替換 VM 的 Date 屬性卻沒有推進引擎內部時鐘，導致怪物反擊分支未觸發。 */
+const retaliationReadyAt = Date.now() + 150;
+while (Date.now() < retaliationReadyAt) { /* 此段僅等待測試冷卻，不推進遊戲狀態。 */ }
 const retaliationResult = g.attackRoExplorerMonster(
   'ex-retaliation', 'retaliation-target', map.id, spawn.id);
 t.eq('等待怪物攻擊間隔後普攻可再次結算', retaliationResult.accepted, true);
@@ -242,6 +240,5 @@ if (g.MONSTER_SKILLS) {
   if (hadMonsterSkillList) g.MONSTER_SKILLS[spawn.id] = originalMonsterSkillList;
   else delete g.MONSTER_SKILLS[spawn.id];
 }
-g.Date = NativeDate;
 
 process.exit(t.report('原生探索普攻／Bash 掉落、背包、重載、重生與怪物反擊'));
