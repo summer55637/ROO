@@ -33,6 +33,9 @@
     #local-mode:not([hidden]) { display: flex; flex-direction: column; min-height: 0; }
     #stage { flex: 1 1 auto; height: auto; min-height: 420px; position: relative; overflow: hidden; touch-action: pan-y; }
     #stage > canvas { display: block; width: 100%; height: 100%; }
+    #ro-2d-stage { position: absolute; inset: 0; z-index: 0; display: block; width: 100%; height: 100%; touch-action: manipulation; cursor: crosshair; background: #283e2d; image-rendering: auto; }
+    #ro-2d-stage[hidden] { display: none; }
+    #stage.roo-2d-active #gnd-debug-picker, #stage.roo-2d-active #gnd-surface-inspector { display: none; }
     #status { position: absolute; top: 12px; left: 12px; z-index: 2; max-width: min(660px, calc(100% - 24px)); padding: 10px 12px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .9); color: #d9e7f8; font-size: 12px; line-height: 1.5; white-space: pre-line; pointer-events: none; }
     #status.error { color: #fecaca; border-color: #9f4141; }
     #gnd-debug-picker { position: absolute; top: 12px; right: 12px; z-index: 5; max-width: min(250px, calc(100% - 24px)); padding: 8px 10px; border: 1px solid #526985; border-radius: 8px; background: rgba(7, 13, 22, .92); color: #d9e7f8; }
@@ -192,12 +195,14 @@
     <div id="movement-toolbar" aria-label="探索操作">
       <label>速度 <input id="move-speed" type="range" min="1" max="8" value="4"><span id="speed-value">4</span></label>
       <button id="stop-movement" type="button" hidden>停止移動／接近</button>
+      <button id="toggle-2d-view" type="button" aria-pressed="false" disabled>切換純 2D 原型</button>
       <label><input id="show-cells" type="checkbox">顯示通行格</label>
       <label><input id="show-minimap" type="checkbox" checked>小地圖</label>
       <label><input id="follow-player" type="checkbox" checked>跟隨角色視角</label>
       <button id="recenter" type="button">重置視角</button>
     </div>
     <div id="stage">
+      <canvas id="ro-2d-stage" hidden aria-label="RO 真實地表與角色的 Canvas 2D 探索畫面"></canvas>
       <label id="gnd-debug-picker">地表診斷
         <select id="gnd-debug-mode" aria-label="GND 地表材質診斷模式">
           <option value="0">完整合成</option>
