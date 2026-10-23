@@ -57,6 +57,8 @@ jobs:
           node --check tools/ro_explorer_sprites.mjs
           node --check tools/test_ro_explorer_sprites.mjs
           node --check tools/ro_explorer_minimap.mjs
+          node --check tools/ro_explorer_2d.mjs
+          node --check tools/test_ro_explorer_2d.mjs
           node --check tools/test_ro_explorer_minimap.mjs
           node --check tools/ro_explorer_monsters.mjs
           node --check tools/test_ro_explorer_monsters.mjs
@@ -74,6 +76,8 @@ jobs:
         run: node tools/test_ro_explorer_bootstrap.mjs
       - name: Test native exploration minimap
         run: node tools/test_ro_explorer_minimap.mjs
+      - name: Test Canvas 2D exploration projection
+        run: node tools/test_ro_explorer_2d.mjs
       - name: Test native exploration monster spawns
         run: node tools/test_ro_explorer_monsters.mjs
       - name: Test native exploration support and recovery skills
