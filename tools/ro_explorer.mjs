@@ -72,8 +72,20 @@ import {
   resolveRoExplorerCameraSnapshot,
 } from './ro_explorer_camera.mjs';
 import { getRoExplorerCameraFollowDelta } from './ro_explorer_camera_follow.mjs';
+import {
+  projectRoExplorer2DPoint,
+  unprojectRoExplorer2DPoint,
+  drawRoExplorer2DTexturedTriangle,
+  getRoExplorer2DViewportRadius,
+  isRoExplorer2DPointVisible,
+} from './ro_explorer_2d.mjs';
 
 const stage = document.getElementById('stage');
+const ro2dCanvas = document.getElementById('ro-2d-stage');
+const toggle2DViewButton = document.getElementById('toggle-2d-view');
+const ro2dContext = ro2dCanvas ? ro2dCanvas.getContext('2d', { alpha: false }) : null;
+const ro2dTerrainCanvas = document.createElement('canvas');
+const ro2dTerrainContext = ro2dTerrainCanvas.getContext('2d', { alpha: false });
 const status = document.getElementById('status');
 const stats = document.getElementById('stats');
 const combatFeedbackLayer = document.getElementById('combat-feedback-layer');
@@ -380,6 +392,19 @@ let movementPath = null;
 let pathIndex = 1;
 let lastFrame = 0;
 let worldScale = 0.2;
+let ro2dActive = false;
+let ro2dSourceImages = new Map();
+let ro2dDecorations = [];
+let ro2dCameraCenter = null;
+let ro2dFrameCenter = null;
+let ro2dTerrainCenter = null;
+let ro2dTerrainDirty = true;
+let ro2dLastTerrainRenderAt = 0;
+let ro2dViewportWidth = 1;
+let ro2dViewportHeight = 1;
+let ro2dPixelRatio = 1;
+let ro2dMetrics = { terrainTiles: 0, texturedTiles: 0, visibleProps: 0, visibleMonsters: 0 };
+const RO_EXPLORER_2D_PIXELS_PER_WORLD_UNIT = 1.6;
 let minimapGatInfo = null;
 let minimapBaseImage = null;
 let minimapBaseWidth = 0;
@@ -647,6 +672,474 @@ function cellWorldPosition(cell, lift = 0) {
   const point = roMapWorldPointFromCell(gatInfo, cell.x, cell.y, worldScale);
   return new THREE.Vector3(point.x, groundHeight(cell) + tileSize() * lift, point.z);
 }
+
+function ro2dPixelsPerWorldUnit() {
+  return RO_EXPLORER_2D_PIXELS_PER_WORLD_UNIT / Math.max(worldScale, 0.01);
+}
+
+function ro2dWorldPointFromGndCorner(x, z, heightValue) {
+  return {
+    x: (x * 10 - gndInfo.width * 5) * worldScale,
+    y: heightValue === 0 ? 0 : -heightValue * worldScale,
+    z: -(z * 10 - gndInfo.height * 5) * worldScale,
+  };
+}
+
+function ro2dGndTileWorldCorners(x, z, cube) {
+  return [
+    ro2dWorldPointFromGndCorner(x, z, cube.hSW),
+    ro2dWorldPointFromGndCorner(x + 1, z, cube.hSE),
+    ro2dWorldPointFromGndCorner(x, z + 1, cube.hNW),
+    ro2dWorldPointFromGndCorner(x + 1, z + 1, cube.hNE),
+  ];
+}
+
+function ro2dProject(point, center = ro2dFrameCenter) {
+  return projectRoExplorer2DPoint(point, center, ro2dViewportWidth, ro2dViewportHeight,
+    ro2dPixelsPerWorldUnit());
+}
+
+function ro2dRefreshSourceImages() {
+  if (!mapRoot) return;
+  const next = new Map();
+  mapRoot.traverse(object => {
+    if (!object || !object.userData) return;
+    const textureIndex = object.userData.rooGndTextureIndex;
+    const texture = object.userData.rooGndDiffuseSourceTexture;
+    if (Number.isInteger(textureIndex) && texture && texture.image && !next.has(textureIndex)) {
+      next.set(textureIndex, texture.image);
+    }
+  });
+  ro2dSourceImages = next;
+}
+
+function rebuildRoExplorer2DSceneIndex() {
+  ro2dSourceImages = new Map();
+  ro2dDecorations = [];
+  if (mapRoot && gndInfo) {
+    mapRoot.updateMatrixWorld(true);
+    mapRoot.traverse(object => {
+      if (!object || !object.userData) return;
+      const textureIndex = object.userData.rooGndTextureIndex;
+      const texture = object.userData.rooGndDiffuseSourceTexture;
+      if (Number.isInteger(textureIndex) && texture && texture.image && !ro2dSourceImages.has(textureIndex)) {
+        ro2dSourceImages.set(textureIndex, texture.image);
+      }
+      if (object.userData.rooMapObject) {
+        const world = object.getWorldPosition(new THREE.Vector3());
+        ro2dDecorations.push({
+          object,
+          name: String(object.name || object.userData.rooModelName || 'RO 場景物件'),
+          position: { x: world.x, y: world.y, z: world.z },
+        });
+      }
+    });
+  }
+  ro2dTerrainCenter = null;
+  ro2dTerrainDirty = true;
+  ro2dLastTerrainRenderAt = 0;
+  if (toggle2DViewButton) {
+    toggle2DViewButton.disabled = !(mapInfo && mapInfo.native && gndInfo && gatInfo);
+  }
+}
+
+function resizeRoExplorer2DCanvases(width, height) {
+  ro2dViewportWidth = Math.max(1, Math.floor(width));
+  ro2dViewportHeight = Math.max(1, Math.floor(height));
+  ro2dPixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  const backingWidth = Math.max(1, Math.round(ro2dViewportWidth * ro2dPixelRatio));
+  const backingHeight = Math.max(1, Math.round(ro2dViewportHeight * ro2dPixelRatio));
+  if (ro2dCanvas && (ro2dCanvas.width !== backingWidth || ro2dCanvas.height !== backingHeight)) {
+    ro2dCanvas.width = backingWidth;
+    ro2dCanvas.height = backingHeight;
+    ro2dTerrainDirty = true;
+  }
+  if (ro2dTerrainCanvas.width !== backingWidth || ro2dTerrainCanvas.height !== backingHeight) {
+    ro2dTerrainCanvas.width = backingWidth;
+    ro2dTerrainCanvas.height = backingHeight;
+    ro2dTerrainDirty = true;
+  }
+  if (ro2dContext) ro2dContext.setTransform(ro2dPixelRatio, 0, 0, ro2dPixelRatio, 0, 0);
+  if (ro2dTerrainContext) ro2dTerrainContext.setTransform(ro2dPixelRatio, 0, 0, ro2dPixelRatio, 0, 0);
+}
+
+function ro2dFallbackTerrainColor(textureName, x, z) {
+  const value = String(textureName || '').toLowerCase();
+  const variation = ((x * 17 + z * 31) % 9 + 9) % 9;
+  if (/water|lake|river/.test(value)) return 'rgb(' + (43 + variation) + ',' + (100 + variation * 2) + ',' + (137 + variation * 3) + ')';
+  if (/road|stone|city|prt_|floor|pavement/.test(value)) return 'rgb(' + (111 + variation * 2) + ',' + (109 + variation * 2) + ',' + (97 + variation) + ')';
+  return 'rgb(' + (50 + variation * 2) + ',' + (92 + variation * 2) + ',' + (52 + variation) + ')';
+}
+
+function ro2dFillQuad(context, points, color) {
+  if (!points || points.length !== 4) return;
+  context.beginPath();
+  context.moveTo(points[0].x, points[0].y);
+  context.lineTo(points[1].x, points[1].y);
+  context.lineTo(points[3].x, points[3].y);
+  context.lineTo(points[2].x, points[2].y);
+  context.closePath();
+  context.fillStyle = color;
+  context.fill();
+}
+
+function drawRoExplorer2DTerrainTile(context, x, z, cube, center) {
+  if (!cube || !Number.isInteger(cube.topSurface) || cube.topSurface < 0
+    || cube.topSurface >= gndInfo.surfaces.length) return { drawn: false, textured: false };
+  const surface = gndInfo.surfaces[cube.topSurface];
+  if (!surface) return { drawn: false, textured: false };
+  const worldCorners = ro2dGndTileWorldCorners(x, z, cube);
+  const points = worldCorners.map(point => ro2dProject(point, center));
+  if (!points.every(point => isRoExplorer2DPointVisible(point, ro2dViewportWidth, ro2dViewportHeight, 36))) {
+    return { drawn: false, textured: false };
+  }
+  const textureName = gndInfo.textures && gndInfo.textures[surface.textureIndex];
+  const image = ro2dSourceImages.get(surface.textureIndex);
+  const imageWidth = image && (image.naturalWidth || image.videoWidth || image.width);
+  const imageHeight = image && (image.naturalHeight || image.videoHeight || image.height);
+  const uv = Array.isArray(surface.uv) ? surface.uv : null;
+  if (image && imageWidth > 0 && imageHeight > 0 && uv && uv.length === 4
+    && uv.every(point => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]))) {
+    const sourcePoints = uv.map(point => ({ x: point[0] * imageWidth, y: (1 - point[1]) * imageHeight }));
+    try {
+      const first = drawRoExplorer2DTexturedTriangle(context, image,
+        [sourcePoints[0], sourcePoints[1], sourcePoints[2]], [points[0], points[1], points[2]]);
+      const second = drawRoExplorer2DTexturedTriangle(context, image,
+        [sourcePoints[2], sourcePoints[1], sourcePoints[3]], [points[2], points[1], points[3]]);
+      if (first && second) return { drawn: true, textured: true };
+    } catch (error) {}
+  }
+  ro2dFillQuad(context, points, ro2dFallbackTerrainColor(textureName, x, z));
+  return { drawn: true, textured: false };
+}
+
+function renderRoExplorer2DTerrain(center, now) {
+  if (!ro2dTerrainContext || !gndInfo || !Array.isArray(gndInfo.cubes)
+    || !gndInfo.width || !gndInfo.height) return;
+  ro2dRefreshSourceImages();
+  const context = ro2dTerrainContext;
+  const width = ro2dViewportWidth, height = ro2dViewportHeight;
+  context.setTransform(ro2dPixelRatio, 0, 0, ro2dPixelRatio, 0, 0);
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = '#263d2c';
+  context.fillRect(0, 0, width, height);
+  const radius = getRoExplorer2DViewportRadius(width, height);
+  const cx = Math.floor(center.x / (10 * worldScale) + gndInfo.width / 2);
+  const cz = Math.floor(gndInfo.height / 2 - center.z / (10 * worldScale));
+  const minX = Math.max(0, cx - radius.x);
+  const maxX = Math.min(gndInfo.width - 1, cx + radius.x);
+  const minZ = Math.max(0, cz - radius.z);
+  const maxZ = Math.min(gndInfo.height - 1, cz + radius.z);
+  const tiles = [];
+  for (let z = minZ; z <= maxZ; z++) {
+    for (let x = minX; x <= maxX; x++) {
+      const cube = gndInfo.cubes[z * gndInfo.width + x];
+      if (cube && cube.topSurface >= 0) tiles.push({ x, z, cube, depth: x + z });
+    }
+  }
+  tiles.sort((a, b) => a.depth - b.depth);
+  let drawn = 0, textured = 0;
+  for (const tile of tiles) {
+    const result = drawRoExplorer2DTerrainTile(context, tile.x, tile.z, tile.cube, center);
+    if (result.drawn) drawn++;
+    if (result.textured) textured++;
+  }
+  ro2dTerrainCenter = { x: center.x, y: center.y, z: center.z };
+  ro2dLastTerrainRenderAt = now;
+  ro2dTerrainDirty = false;
+  ro2dMetrics.terrainTiles = drawn;
+  ro2dMetrics.texturedTiles = textured;
+}
+
+function drawRoExplorer2DGatGrid(context, center) {
+  if (!showCellsInput.checked || !gatInfo || !currentCell) return;
+  const ppu = ro2dPixelsPerWorldUnit();
+  const radiusX = Math.ceil(ro2dViewportWidth / Math.max(4, ppu * tileSize() * 2.5)) + 4;
+  const radiusY = Math.ceil(ro2dViewportHeight / Math.max(4, ppu * tileSize() * 1.25)) + 4;
+  const startX = Math.max(0, currentCell.x - radiusX);
+  const endX = Math.min(gatInfo.width - 1, currentCell.x + radiusX);
+  const startY = Math.max(0, currentCell.y - radiusY);
+  const endY = Math.min(gatInfo.height - 1, currentCell.y + radiusY);
+  for (let y = startY; y <= endY; y++) {
+    for (let x = startX; x <= endX; x++) {
+      const index = y * gatInfo.width + x;
+      const world = cellWorldPosition({ x, y }, 0.015);
+      const at = ro2dProject(world, center);
+      if (!isRoExplorer2DPointVisible(at, ro2dViewportWidth, ro2dViewportHeight, 18)) continue;
+      const halfW = 2.5 * worldScale * ppu;
+      const halfH = halfW * 0.5;
+      context.beginPath();
+      context.moveTo(at.x, at.y - halfH);
+      context.lineTo(at.x + halfW, at.y);
+      context.lineTo(at.x, at.y + halfH);
+      context.lineTo(at.x - halfW, at.y);
+      context.closePath();
+      if (gatInfo.water && gatInfo.water[index]) context.fillStyle = 'rgba(62,169,234,0.22)';
+      else if (gatInfo.walkable[index]) context.fillStyle = 'rgba(77,222,151,0.14)';
+      else if (gatInfo.terrainTypes[index] === 5) context.fillStyle = 'rgba(247,157,69,0.27)';
+      else context.fillStyle = 'rgba(245,92,102,0.22)';
+      context.fill();
+      context.strokeStyle = gatInfo.walkable[index] ? 'rgba(124,255,195,0.20)' : 'rgba(255,126,130,0.25)';
+      context.lineWidth = 0.5;
+      context.stroke();
+    }
+  }
+}
+
+function drawRoExplorer2DPath(context, center) {
+  if (!movementPath || movementPath.length < 2) return;
+  const cells = movementPath.slice(Math.max(0, pathIndex - 1));
+  context.beginPath();
+  cells.forEach((cell, index) => {
+    const point = ro2dProject(cellWorldPosition(cell, 0.12), center);
+    if (index === 0) context.moveTo(point.x, point.y);
+    else context.lineTo(point.x, point.y);
+  });
+  context.strokeStyle = '#ffe18a';
+  context.lineWidth = 3;
+  context.lineJoin = 'round';
+  context.lineCap = 'round';
+  context.stroke();
+  const target = movementPath[movementPath.length - 1];
+  const p = ro2dProject(cellWorldPosition(target, 0.18), center);
+  context.beginPath(); context.arc(p.x, p.y, 5, 0, Math.PI * 2);
+  context.fillStyle = '#fff0ad'; context.fill();
+  context.strokeStyle = '#5a4220'; context.lineWidth = 1.5; context.stroke();
+}
+
+function drawRoExplorer2DProp(context, prop, point) {
+  const name = String(prop.name || '').toLowerCase();
+  const scale = Math.max(0.75, Math.min(1.65, ro2dPixelsPerWorldUnit() / 8));
+  if (/tree|palm|plant|bush|leaf|flower|grass|shrub|banana|mushroom/.test(name)) {
+    context.fillStyle = 'rgba(0,0,0,0.24)';
+    context.beginPath(); context.ellipse(point.x, point.y - 1, 13 * scale, 4 * scale, 0, 0, Math.PI * 2); context.fill();
+    context.fillStyle = '#6b4a2d'; context.fillRect(point.x - 2.5 * scale, point.y - 22 * scale, 5 * scale, 23 * scale);
+    context.fillStyle = '#214b35'; context.beginPath(); context.arc(point.x, point.y - 29 * scale, 15 * scale, 0, Math.PI * 2); context.fill();
+    context.fillStyle = '#34764a';
+    context.beginPath(); context.arc(point.x - 8 * scale, point.y - 34 * scale, 10 * scale, 0, Math.PI * 2); context.fill();
+    context.beginPath(); context.arc(point.x + 8 * scale, point.y - 32 * scale, 11 * scale, 0, Math.PI * 2); context.fill();
+    return;
+  }
+  if (/house|building|tower|inn|castle|wall|roof|gate/.test(name)) {
+    context.fillStyle = '#4b3e3d'; context.fillRect(point.x - 12, point.y - 28, 24, 28);
+    context.fillStyle = '#8d5141';
+    context.beginPath(); context.moveTo(point.x - 16, point.y - 27);
+    context.lineTo(point.x, point.y - 41); context.lineTo(point.x + 16, point.y - 27);
+    context.closePath(); context.fill();
+    context.strokeStyle = 'rgba(255,230,190,0.65)'; context.stroke();
+    return;
+  }
+  context.fillStyle = '#665b52';
+  context.beginPath(); context.moveTo(point.x - 9, point.y - 3);
+  context.lineTo(point.x - 7, point.y - 11); context.lineTo(point.x + 1, point.y - 16);
+  context.lineTo(point.x + 9, point.y - 7); context.lineTo(point.x + 7, point.y - 2);
+  context.closePath(); context.fill();
+}
+
+function ro2dDrawableImage(image) {
+  return image && Number(image.naturalWidth || image.videoWidth || image.width) > 0
+    && Number(image.naturalHeight || image.videoHeight || image.height) > 0;
+}
+
+function drawRoExplorer2DSprite(context, image, point, width, height, fallbackColor, selected = false) {
+  const x = point.x, y = point.y;
+  if (selected) {
+    context.strokeStyle = '#ffe18a'; context.lineWidth = 2.5;
+    context.beginPath(); context.ellipse(x, y + 1, width * 0.56, 6, 0, 0, Math.PI * 2); context.stroke();
+  }
+  if (ro2dDrawableImage(image)) {
+    const iw = image.naturalWidth || image.videoWidth || image.width;
+    const ih = image.naturalHeight || image.videoHeight || image.height;
+    const drawWidth = Math.min(width * 1.65, height * iw / ih);
+    try { context.drawImage(image, x - drawWidth / 2, y - height, drawWidth, height); return; } catch (error) {}
+  }
+  context.fillStyle = 'rgba(0,0,0,0.24)';
+  context.beginPath(); context.ellipse(x, y, width * 0.42, 4, 0, 0, Math.PI * 2); context.fill();
+  context.fillStyle = fallbackColor;
+  context.beginPath(); context.ellipse(x, y - height * 0.72, width * 0.34, height * 0.27, 0, 0, Math.PI * 2); context.fill();
+  context.fillRect(x - width * 0.16, y - height * 0.56, width * 0.32, height * 0.42);
+  context.fillStyle = '#f0d6b4'; context.beginPath(); context.arc(x, y - height * 0.88, width * 0.16, 0, Math.PI * 2); context.fill();
+}
+
+function ro2dDrawCombatFeedback(context, center) {
+  const now = performance.now();
+  combatFeedbackEntries.forEach(item => {
+    const elapsed = now - item.startedAt;
+    if (elapsed >= item.durationMs) { item.element.remove(); combatFeedbackEntries.delete(item); return; }
+    const point = ro2dProject(item.worldPosition, center);
+    if (!isRoExplorer2DPointVisible(point, ro2dViewportWidth, ro2dViewportHeight, 36)) return;
+    const remaining = 1 - elapsed / item.durationMs;
+    context.globalAlpha = Math.min(1, remaining * 1.8);
+    context.font = '900 18px system-ui, sans-serif'; context.textAlign = 'center';
+    context.lineWidth = 3; context.strokeStyle = 'rgba(5,8,13,0.9)';
+    context.fillStyle = item.element.classList.contains('combat-feedback--miss') ? '#d7e3f2'
+      : item.element.classList.contains('combat-feedback--player-hit') ? '#ff7777'
+        : item.element.classList.contains('combat-feedback--skill') ? '#9cecff'
+          : item.element.classList.contains('combat-feedback--dot') ? '#c5ff7d' : '#fff0a3';
+    const lift = 26 * (elapsed / Math.max(1, item.durationMs));
+    context.strokeText(item.element.textContent, point.x, point.y - lift);
+    context.fillText(item.element.textContent, point.x, point.y - lift);
+    context.globalAlpha = 1;
+  });
+}
+
+function renderRoExplorer2DFrame(now) {
+  if (!ro2dActive || !ro2dContext || !ro2dCanvas || !mapInfo || !gatInfo || !gndInfo || !currentCell) return;
+  const width = ro2dViewportWidth, height = ro2dViewportHeight;
+  if (followPlayerInput.checked || !ro2dCameraCenter) {
+    ro2dCameraCenter = { x: playerRoot.position.x, y: playerRoot.position.y, z: playerRoot.position.z };
+  }
+  const center = { x: ro2dCameraCenter.x, y: ro2dCameraCenter.y, z: ro2dCameraCenter.z };
+  ro2dFrameCenter = center;
+  if (!ro2dTerrainCenter || ro2dTerrainDirty) renderRoExplorer2DTerrain(center, now);
+  else {
+    const centerProjection = ro2dProject(center, ro2dTerrainCenter);
+    const shiftX = width / 2 - centerProjection.x;
+    const shiftY = height / 2 - centerProjection.y;
+    if (Math.abs(shiftX) > width * 0.22 || Math.abs(shiftY) > height * 0.22 || now - ro2dLastTerrainRenderAt > 650) {
+      renderRoExplorer2DTerrain(center, now);
+    }
+  }
+  const context = ro2dContext;
+  context.setTransform(ro2dPixelRatio, 0, 0, ro2dPixelRatio, 0, 0);
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = '#263d2c'; context.fillRect(0, 0, width, height);
+  if (ro2dTerrainCenter) {
+    const c = ro2dProject(center, ro2dTerrainCenter);
+    context.drawImage(ro2dTerrainCanvas, width / 2 - c.x, height / 2 - c.y, width, height);
+  }
+  drawRoExplorer2DGatGrid(context, center);
+  drawRoExplorer2DPath(context, center);
+
+  const items = [];
+  const pad = 60;
+  for (const prop of ro2dDecorations) {
+    if (!prop.object || !prop.object.visible) continue;
+    const world = prop.object.getWorldPosition(new THREE.Vector3());
+    const point = ro2dProject({ x: world.x, y: world.y, z: world.z }, center);
+    if (isRoExplorer2DPointVisible(point, width, height, pad)) items.push({ kind: 'prop', prop, point, depth: point.y });
+  }
+  let visibleMonsters = 0;
+  for (const entry of monsterEntries) {
+    if (!entry || entry.dead || !entry.cell) continue;
+    const point = ro2dProject(cellWorldPosition(entry.cell), center);
+    if (!isRoExplorer2DPointVisible(point, width, height, pad)) continue;
+    items.push({ kind: 'monster', entry, point, depth: point.y }); visibleMonsters++;
+  }
+  if (currentCell && playerRoot) {
+    const point = ro2dProject({ x: playerRoot.position.x, y: playerRoot.position.y, z: playerRoot.position.z }, center);
+    if (isRoExplorer2DPointVisible(point, width, height, pad)) items.push({ kind: 'player', point, depth: point.y });
+  }
+  items.sort((a, b) => a.depth - b.depth);
+  let visibleProps = 0;
+  for (const item of items) {
+    if (item.kind === 'prop') { drawRoExplorer2DProp(context, item.prop, item.point); visibleProps++; continue; }
+    if (item.kind === 'monster') {
+      const entry = item.entry;
+      const image = entry.texture && entry.texture.image
+        || entry.sprite && entry.sprite.material && entry.sprite.material.map && entry.sprite.material.map.image;
+      const size = Math.max(18, tileSize() * ro2dPixelsPerWorldUnit() * 3.7);
+      drawRoExplorer2DSprite(context, image, item.point, size * 0.92, size, '#c76570', entry === selectedMonsterEntry);
+      if (entry.currentHp !== undefined || entry.maxHp !== undefined) {
+        const hp = Number.isFinite(entry.currentHp) ? entry.currentHp : entry.monster.hp;
+        const maxHp = Number.isFinite(entry.maxHp) ? entry.maxHp : entry.monster.hp;
+        const ratio = maxHp > 0 ? Math.max(0, Math.min(1, hp / maxHp)) : 0;
+        context.fillStyle = 'rgba(12,16,20,0.85)'; context.fillRect(item.point.x - size * 0.4, item.point.y - size - 7, size * 0.8, 4);
+        context.fillStyle = '#f36f81'; context.fillRect(item.point.x - size * 0.4, item.point.y - size - 7, size * 0.8 * ratio, 4);
+      }
+    } else if (item.kind === 'player') {
+      const image = playerSprite && playerSprite.material && playerSprite.material.map && playerSprite.material.map.image;
+      const size = Math.max(22, tileSize() * ro2dPixelsPerWorldUnit() * 4.15);
+      drawRoExplorer2DSprite(context, image, item.point, size * 0.85, size, '#58e0a1');
+    }
+  }
+  ro2dMetrics.visibleProps = visibleProps; ro2dMetrics.visibleMonsters = visibleMonsters;
+  ro2dDrawCombatFeedback(context, center);
+  context.fillStyle = 'rgba(8,14,21,0.78)'; context.strokeStyle = 'rgba(151,186,147,0.52)'; context.lineWidth = 1;
+  context.beginPath(); context.roundRect(12, 12, Math.min(250, width - 24), 49, 9); context.fill(); context.stroke();
+  context.fillStyle = '#edf6e6'; context.font = '600 12px system-ui, sans-serif';
+  context.fillText('ROO 2D 探索原型 · ' + (mapInfo.mapId || 'RO 地圖'), 24, 31);
+  context.fillStyle = '#b9cdb6'; context.font = '11px system-ui, sans-serif';
+  context.fillText('真實 GND 貼圖 · GAT 尋路 · 點擊移動', 24, 49);
+}
+
+function setRoExplorer2DActive(active) {
+  const next = !!active;
+  if (next && !(mapInfo && mapInfo.native && gndInfo && gatInfo && currentCell)) {
+    setStatus('純 2D 原型需要先載入一張原生 RO GND/GAT 地圖。', true); return;
+  }
+  ro2dActive = next;
+  if (ro2dCanvas) ro2dCanvas.hidden = !next;
+  if (renderer && renderer.domElement) renderer.domElement.style.display = next ? 'none' : '';
+  if (stage) stage.classList.toggle('roo-2d-active', next);
+  if (toggle2DViewButton) {
+    toggle2DViewButton.setAttribute('aria-pressed', String(next));
+    toggle2DViewButton.textContent = next ? '返回原生 3D' : '切換純 2D 原型';
+    toggle2DViewButton.disabled = !(mapInfo && mapInfo.native && gndInfo && gatInfo);
+  }
+  if (next) {
+    ro2dCameraCenter = { x: playerRoot.position.x, y: playerRoot.position.y, z: playerRoot.position.z };
+    ro2dTerrainCenter = null; ro2dTerrainDirty = true;
+    setStatus('純 2D 原型已開啟：地面使用真實 GND diffuse UV/貼圖，角色與怪物使用 RO 2D 動畫；場景模型暫以簡圖呈現。點擊地面可移動，GAT/A*、戰鬥與本機存檔沿用現有系統。');
+  } else setStatus('已返回原生 3D 地圖。');
+}
+
+function handleRoExplorer2DCanvasClick(event) {
+  if (!ro2dActive || !mapInfo || !gatInfo || !gndInfo || !currentCell) return;
+  const rect = ro2dCanvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const x = event.clientX - rect.left, y = event.clientY - rect.top;
+  const center = ro2dFrameCenter || ro2dCameraCenter;
+  if (!center) return;
+  let nearestMonster = null, nearestDistance = Infinity;
+  for (const entry of monsterEntries) {
+    if (!entry || entry.dead || !entry.cell) continue;
+    const point = ro2dProject(cellWorldPosition(entry.cell), center);
+    const distance = Math.hypot(point.x - x, point.y - y);
+    if (distance < nearestDistance) { nearestDistance = distance; nearestMonster = entry; }
+  }
+  if (nearestMonster && nearestDistance <= 23) { selectRoExplorerMonster(nearestMonster); return; }
+  let guess = unprojectRoExplorer2DPoint(x, y, center, ro2dViewportWidth, ro2dViewportHeight,
+    ro2dPixelsPerWorldUnit(), center.y);
+  let target = roMapCellFromWorldPoint(gatInfo, guess.x, guess.z, worldScale);
+  if (target && target.x >= 0 && target.y >= 0 && target.x < gatInfo.width && target.y < gatInfo.height) {
+    guess = unprojectRoExplorer2DPoint(x, y, center, ro2dViewportWidth, ro2dViewportHeight,
+      ro2dPixelsPerWorldUnit(), groundHeight(target));
+    target = roMapCellFromWorldPoint(gatInfo, guess.x, guess.z, worldScale);
+  }
+  if (target) requestWalkToCell(target);
+}
+if (ro2dCanvas) ro2dCanvas.addEventListener('click', handleRoExplorer2DCanvasClick);
+if (toggle2DViewButton) toggle2DViewButton.addEventListener('click', () => setRoExplorer2DActive(!ro2dActive));
+window.addEventListener('roo-explorer-mode', event => {
+  if (event.detail !== 'native' && ro2dActive) setRoExplorer2DActive(false);
+  if (event.detail !== 'native' && toggle2DViewButton) toggle2DViewButton.disabled = true;
+});
+if (explorerParams.get('roo-2d-test') === '1') {
+  window.__rooExplorer2DTest = {
+    getMetrics: () => ({ ...ro2dMetrics, active: ro2dActive, canvasHidden: !ro2dCanvas || ro2dCanvas.hidden }),
+    getWalkableTargets: () => {
+      if (!ro2dActive || !currentCell || !gatInfo || !ro2dFrameCenter) return [];
+      const result = [];
+      for (let radius = 3; radius <= 14 && result.length < 30; radius++) {
+        for (let dy = -radius; dy <= radius && result.length < 30; dy++) {
+          for (let dx = -radius; dx <= radius && result.length < 30; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
+            const x = currentCell.x + dx, y = currentCell.y + dy;
+            if (x < 0 || y < 0 || x >= gatInfo.width || y >= gatInfo.height) continue;
+            const index = y * gatInfo.width + x;
+            if (!gatInfo.walkable[index] || (gatInfo.water && gatInfo.water[index])) continue;
+            const point = ro2dProject(cellWorldPosition({ x, y }), ro2dFrameCenter);
+            if (point.x < 8 || point.y < 8 || point.x > ro2dViewportWidth - 8 || point.y > ro2dViewportHeight - 8) continue;
+            result.push({ x, y, screenX: point.x, screenY: point.y });
+          }
+        }
+      }
+      return result;
+    },
+  };
+}
+
 
 function updatePlayerPosition() {
   if (!currentCell || !gatInfo) return;
@@ -1981,6 +2474,7 @@ async function loadRagassetsMap(mapName) {
     activeRsmAnimations = nextRsmAnimations;
     scene.add(mapRoot);
     mapRoot.updateMatrixWorld(true);
+    rebuildRoExplorer2DSceneIndex();
     mapBounds = new THREE.Box3().setFromObject(mapRoot);
     mapInfo = {
       name: mapId + '（公開 GND/RSW）',
@@ -1991,6 +2485,7 @@ async function loadRagassetsMap(mapName) {
     gatInfo = parsedGat;
     gndInfo = parsedGnd;
     rswInfo = parsedRsw;
+    rebuildRoExplorer2DSceneIndex();
     nativeRenderStats = {
       ...modelRenderStats,
       waterTileCount: nextWaterStats.waterTileCount,
@@ -2058,6 +2553,7 @@ async function loadMapFile(file) {
     mapBounds = new THREE.Box3().setFromObject(mapRoot);
     mapInfo = { name: file.name, mapId: mapIdFromName(file.name), size, native: false };
     gndInfo = null;
+    rebuildRoExplorer2DSceneIndex();
     rswInfo = null;
     nativeRenderStats = null;
     resetRswLighting();
@@ -2250,6 +2746,7 @@ function showRoExplorerPlayerDamageFeedback(damage) {
 }
 
 function updateRoExplorerCombatFeedback(now) {
+  if (ro2dActive) { combatFeedbackEntries.forEach(item => { item.element.hidden = true; }); return; }
   const width = stage.clientWidth;
   const height = stage.clientHeight;
   if (width <= 0 || height <= 0) return;
@@ -3061,6 +3558,8 @@ function resize() {
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
   renderer.setSize(width, height, false);
+  resizeRoExplorer2DCanvases(width, height);
+  ro2dTerrainDirty = true;
 }
 new ResizeObserver(resize).observe(stage);
 resize();
@@ -3921,8 +4420,11 @@ const stopRenderLoop = createVisibilityAwareFrameLoop(
     refreshAnimatedMonsterTextures(now);
     controls.update();
     updateRoExplorerCombatFeedback(now);
-    renderer.render(scene, camera);
-    sampleGndInspectorFramebuffer();
+    if (ro2dActive) renderRoExplorer2DFrame(now);
+    else {
+      renderer.render(scene, camera);
+      sampleGndInspectorFramebuffer();
+    }
   },
   callback => window.requestAnimationFrame(callback),
   frameId => window.cancelAnimationFrame(frameId)
