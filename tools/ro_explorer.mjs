@@ -979,6 +979,15 @@ function drawRoExplorer2DPath(context, center) {
 function getRoExplorer2DModelSprite(prop, anchorPoint) {
   const modelRoot = prop && prop.object;
   if (!modelRoot || !modelRoot.userData || typeof modelRoot.traverse !== 'function') return null;
+  if (!modelRoot.userData.roo2dAnimationChecked) {
+    let hasAnimation = false;
+    modelRoot.traverse(node => {
+      const data = node && node.userData;
+      if (data && (data.rooRsmAnimation || data.rooRsmTextureAnimation)) hasAnimation = true;
+    });
+    modelRoot.userData.roo2dAnimationChecked = true;
+    if (hasAnimation) modelRoot.userData.roo2dProjectionSkip = true;
+  }
   if (modelRoot.userData.roo2dProjectionSkip) return null;
 
   // Placement translation is removed by projecting relative to the anchor, so matching
@@ -1001,18 +1010,6 @@ function getRoExplorer2DModelSprite(prop, anchorPoint) {
 
   const now = performance.now();
   if ((ro2dModelProjectionRetryAt.get(modelKey) || 0) > now) return null;
-  if (!modelRoot.userData.roo2dAnimationChecked) {
-    let hasAnimation = false;
-    modelRoot.traverse(node => {
-      const data = node && node.userData;
-      if (data && (data.rooRsmAnimation || data.rooRsmTextureAnimation)) hasAnimation = true;
-    });
-    modelRoot.userData.roo2dAnimationChecked = true;
-    if (hasAnimation) {
-      modelRoot.userData.roo2dProjectionSkip = true;
-      return null;
-    }
-  }
 
   modelRoot.updateMatrixWorld(true);
   const triangles = collectRoExplorer2DModelTriangles(
@@ -1042,7 +1039,7 @@ function getRoExplorer2DModelSprite(prop, anchorPoint) {
     || width < 1 || height < 1
     || width > RO_EXPLORER_2D_MODEL_SPRITE_EDGE_LIMIT
     || height > RO_EXPLORER_2D_MODEL_SPRITE_EDGE_LIMIT
-    || pixelCount > RO_EXPLORER_2D_MODEL_SPRITE_PIXEL_LIMIT / 30) {
+    || pixelCount > RO_EXPLORER_2D_MODEL_SPRITE_PIXEL_LIMIT) {
     // Same resource and placement transform will produce the same unsafe bounds next time.
     ro2dModelProjectionSkipKeys.add(modelKey);
     modelRoot.userData.roo2dProjectionSkip = true;
