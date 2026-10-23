@@ -1070,11 +1070,11 @@ async function run() {
   await page.waitForFunction(() => {
     const status = document.getElementById('status')?.textContent || '';
     const stats = document.getElementById('stats')?.textContent || '';
-    return status.includes('公開原生地圖載入失敗') || /GAT[：:]\\s*prontera\\.gat/.test(stats);
+    return status.includes('公開原生地圖載入失敗') || /GAT[：:]\s*prontera\.gat/.test(stats);
   }, null, { timeout: 150000 });
   assert.ok(
     !(await page.locator('#status').innerText()).includes('公開原生地圖載入失敗')
-      && /GAT[：:]\\s*prontera\\.gat/.test(await page.locator('#stats').innerText()),
+      && /GAT[：:]\s*prontera\.gat/.test(await page.locator('#stats').innerText()),
     '普隆德拉原生地圖載入失敗：' + await page.locator('#status').innerText(),
   );
   await page.waitForFunction(() => {
@@ -1116,11 +1116,11 @@ async function run() {
   await page.waitForFunction(() => {
     const status = document.getElementById('status')?.textContent || '';
     const stats = document.getElementById('stats')?.textContent || '';
-    return status.includes('公開原生地圖載入失敗') || /GAT[：:]\\s*icecastle\\.gat/.test(stats);
+    return status.includes('公開原生地圖載入失敗') || /GAT[：:]\s*icecastle\.gat/.test(stats);
   }, null, { timeout: 150000 });
   assert.ok(
     !(await page.locator('#status').innerText()).includes('公開原生地圖載入失敗')
-      && /GAT[：:]\\s*icecastle\\.gat/.test(await page.locator('#stats').innerText()),
+      && /GAT[：:]\s*icecastle\.gat/.test(await page.locator('#stats').innerText()),
     '冰城原生地圖載入失敗：' + await page.locator('#status').innerText(),
   );
   await page.waitForFunction(() => {
@@ -1167,11 +1167,11 @@ async function run() {
   await page.waitForFunction(() => {
     const status = document.getElementById('status')?.textContent || '';
     const stats = document.getElementById('stats')?.textContent || '';
-    return status.includes('公開原生地圖載入失敗') || /GAT[：:]\\s*tra_fild\\.gat/.test(stats);
+    return status.includes('公開原生地圖載入失敗') || /GAT[：:]\s*tra_fild\.gat/.test(stats);
   }, null, { timeout: 150000 });
   assert.ok(
     !(await page.locator('#status').innerText()).includes('公開原生地圖載入失敗')
-      && /GAT[：:]\\s*tra_fild\\.gat/.test(await page.locator('#stats').innerText()),
+      && /GAT[：:]\s*tra_fild\.gat/.test(await page.locator('#stats').innerText()),
     '草原原生地圖載入失敗：' + await page.locator('#status').innerText(),
   );
   await page.waitForFunction(() => {
