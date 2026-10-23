@@ -4798,6 +4798,309 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
 }
 
 
+
+function runGndTargetSurfaceGpuAudit() {
+  const targetSpecs = [
+    { surfaceIndex: 9963, uv: [0.4306, 0.2271] },
+    { surfaceIndex: 9843, uv: [0.5641, 0.9895] },
+  ];
+  if (!mapRoot || !gndInfo || !Array.isArray(gndInfo.surfaces)) {
+    return { status: 'pending', reason: '原生 GND 尚未載入。', samples: [] };
+  }
+  const entriesBySurface = new Map();
+  mapRoot.traverse(object => {
+    const indices = object.userData && object.userData.rooGndSurfaceIndices;
+    if (!object.userData.rooTerrainSurface || !Array.isArray(indices)) return;
+    indices.forEach((surfaceIndex, quadIndex) => {
+      if (!entriesBySurface.has(surfaceIndex)) entriesBySurface.set(surfaceIndex, []);
+      entriesBySurface.get(surfaceIndex).push({ object, quadIndex, surfaceIndex });
+    });
+  });
+  const width = 512, height = 128;
+  const targetTexture = new THREE.WebGLRenderTarget(width, height, {
+    format: THREE.RGBAFormat, type: THREE.UnsignedByteType,
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+    depthBuffer: true, stencilBuffer: false,
+  });
+  targetTexture.texture.colorSpace = THREE.SRGBColorSpace;
+  const auditScene = new THREE.Scene();
+  auditScene.background = new THREE.Color(0x000000);
+  const auditCamera = new THREE.OrthographicCamera(-1, 1, 0.25, -0.25, 0.001, 100000);
+  auditCamera.up.set(0, 0, 1);
+  const ray = new THREE.Raycaster();
+  const originalTarget = renderer.getRenderTarget();
+  const originalViewport = renderer.getViewport(new THREE.Vector4());
+  const originalScissor = renderer.getScissor(new THREE.Vector4());
+  const originalScissorTest = renderer.getScissorTest();
+  const originalClear = renderer.getClearColor(new THREE.Color()).clone();
+  const originalClearAlpha = renderer.getClearAlpha();
+  const originalMode = GND_DEBUG_MODE_UNIFORM.value;
+  const deltaRgb = (a, b) => a && b && a.length === 3 && b.length === 3
+    ? Math.max(...a.map((value, index) => Math.abs(value - b[index]))) : null;
+  const barycentric2D = (p, a, b, c) => {
+    const denominator = (b[1] - c[1]) * (a[0] - c[0])
+      + (c[0] - b[0]) * (a[1] - c[1]);
+    if (Math.abs(denominator) < 1e-10) return null;
+    const u = ((b[1] - c[1]) * (p[0] - c[0])
+      + (c[0] - b[0]) * (p[1] - c[1])) / denominator;
+    const v = ((c[1] - a[1]) * (p[0] - c[0])
+      + (a[0] - c[0]) * (p[1] - c[1])) / denominator;
+    return [u, v, 1 - u - v];
+  };
+  const attrPoint = (attribute, index) => new THREE.Vector3(
+    attribute.getX(index), attribute.getY(index), attribute.getZ(index)
+  );
+  const interpolateAttribute = (attribute, indices, weights) =>
+    Array.from({ length: attribute.itemSize }, (_, component) =>
+      indices.reduce((sum, index, i) => {
+        const value = component === 0 ? attribute.getX(index)
+          : component === 1 ? attribute.getY(index)
+            : component === 2 ? attribute.getZ(index)
+              : component === 3 ? attribute.getW(index) : 0;
+        return sum + value * weights[i];
+      }, 0));
+  const readPixel = pixel => {
+    const rgba = new Uint8Array(4);
+    renderer.readRenderTargetPixels(targetTexture, pixel.x, height - 1 - pixel.y, 1, 1, rgba);
+    return Array.from(rgba.slice(0, 3));
+  };
+  const samples = [];
+  try {
+    renderer.setRenderTarget(targetTexture);
+    renderer.setViewport(0, 0, width, height);
+    renderer.setScissorTest(false);
+    renderer.setClearColor(0x000000, 1);
+    GND_DEBUG_MODE_UNIFORM.value = 7;
+    for (const spec of targetSpecs) {
+      const surface = gndInfo.surfaces[spec.surfaceIndex];
+      const entries = entriesBySurface.get(spec.surfaceIndex) || [];
+      const entry = entries.find(candidate => {
+        const material = Array.isArray(candidate.object.material)
+          ? candidate.object.material[0] : candidate.object.material;
+        return material && material.map && material.map.image
+          && candidate.object.geometry.getAttribute('rooGndSourceUv')
+          && candidate.object.geometry.getAttribute('position');
+      });
+      if (!surface || !entry) {
+        samples.push({
+          status: 'unavailable', surfaceIndex: spec.surfaceIndex, requestedUv: spec.uv,
+          reason: '找不到帶真實 diffuse 紋理的目標 surface mesh。',
+        });
+        continue;
+      }
+      const material = Array.isArray(entry.object.material) ? entry.object.material[0] : entry.object.material;
+      const sourceTexture = material.map;
+      const image = sourceTexture.image;
+      const sourceWidth = image.naturalWidth || image.videoWidth || image.width;
+      const sourceHeight = image.naturalHeight || image.videoHeight || image.height;
+      const mipReference = buildGndAuditMipPyramid(sourceTexture);
+      const sourceTextureUv = entry.object.geometry.getAttribute('rooGndSourceUv');
+      const uvCorners = [0, 1, 2, 3].map(corner => [
+        sourceTextureUv.getX(entry.quadIndex * 4 + corner),
+        sourceTextureUv.getY(entry.quadIndex * 4 + corner),
+      ]);
+      const triangleCandidates = [[0, 1, 2], [2, 1, 3]].map(indices => ({
+        indices,
+        weights: barycentric2D(spec.uv, ...indices.map(index => uvCorners[index])),
+      })).filter(candidate => candidate.weights
+        && candidate.weights.every(weight => weight >= -1e-4 && weight <= 1.0001));
+      if (!triangleCandidates.length) {
+        samples.push({
+          status: 'failed', surfaceIndex: spec.surfaceIndex, requestedUv: spec.uv,
+          uvCorners, reason: '固定 UV 不在該 surface 的兩個三角形內。',
+        });
+        continue;
+      }
+      const triangle = triangleCandidates[0];
+      const geometry = buildGndAuditQuad(entry);
+      const position = geometry.getAttribute('position');
+      const sourceUv = geometry.getAttribute('rooGndSourceUv');
+      const targetPoint = triangle.indices.reduce((sum, index, i) =>
+        sum.add(attrPoint(position, index).multiplyScalar(triangle.weights[i])), new THREE.Vector3());
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.name = 'roo-gnd-target-surface-' + spec.surfaceIndex;
+      mesh.frustumCulled = false;
+      auditScene.clear();
+      auditScene.add(mesh);
+      const positions = [0, 1, 2, 3].map(index => attrPoint(position, index));
+      const tileWidth = Math.max(
+        positions[0].distanceTo(positions[1]), positions[2].distanceTo(positions[3]), 1e-4
+      );
+      const tileDepth = Math.max(
+        positions[0].distanceTo(positions[2]), positions[1].distanceTo(positions[3]), 1e-4
+      );
+      const scaleReports = [];
+      for (const scale of [
+        { name: 'near', tilePixels: 96 },
+        { name: 'mid', tilePixels: 16 },
+        { name: 'far', tilePixels: 4 },
+      ]) {
+        const frustumWidth = Math.max(tileWidth, tileDepth) * width / scale.tilePixels;
+        const frustumHeight = frustumWidth * height / width;
+        auditCamera.left = -frustumWidth / 2;
+        auditCamera.right = frustumWidth / 2;
+        auditCamera.top = frustumHeight / 2;
+        auditCamera.bottom = -frustumHeight / 2;
+        auditCamera.position.set(
+          targetPoint.x,
+          targetPoint.y + Math.max(100, frustumWidth * 20),
+          targetPoint.z
+        );
+        auditCamera.lookAt(targetPoint);
+        auditCamera.updateProjectionMatrix();
+        auditCamera.updateMatrixWorld(true);
+        const projected = targetPoint.clone().project(auditCamera);
+        const pixel = {
+          x: Math.max(1, Math.min(width - 2, Math.floor((projected.x + 1) * width / 2))),
+          y: Math.max(1, Math.min(height - 2, Math.floor((1 - projected.y) * height / 2))),
+        };
+        renderer.clear(true, true, true);
+        renderer.render(auditScene, auditCamera);
+        ray.setFromCamera(new THREE.Vector2(
+          ((pixel.x + 0.5) / width) * 2 - 1,
+          1 - ((pixel.y + 0.5) / height) * 2
+        ), auditCamera);
+        const hit = ray.intersectObject(mesh, false)[0];
+        if (!hit) {
+          scaleReports.push({
+            scale: scale.name, pixel, status: 'failed',
+            reason: '中心像素未命中目標 surface。',
+          });
+          continue;
+        }
+        const faceIndices = [hit.face.a, hit.face.b, hit.face.c];
+        const bary = THREE.Triangle.getBarycoord(
+          hit.point,
+          attrPoint(position, faceIndices[0]),
+          attrPoint(position, faceIndices[1]),
+          attrPoint(position, faceIndices[2]),
+          new THREE.Vector3()
+        );
+        const weights = bary ? [bary.x, bary.y, bary.z] : null;
+        if (!weights || !weights.every(Number.isFinite)) {
+          scaleReports.push({
+            scale: scale.name, pixel, status: 'failed',
+            reason: '無法從 GPU 取樣像素回算三角形 UV。',
+          });
+          continue;
+        }
+        const actualUv = interpolateAttribute(sourceUv, faceIndices, weights).slice(0, 2);
+        const projectedCorners = positions.map(point => {
+          const result = point.clone().project(auditCamera);
+          return { x: (result.x + 1) * width / 2, y: (1 - result.y) * height / 2 };
+        });
+        const cornerUv = [0, 1, 2].map(index => uvCorners[index]);
+        const edgePixels01 = Math.max(1e-6, Math.hypot(
+          projectedCorners[1].x - projectedCorners[0].x,
+          projectedCorners[1].y - projectedCorners[0].y
+        ));
+        const edgePixels02 = Math.max(1e-6, Math.hypot(
+          projectedCorners[2].x - projectedCorners[0].x,
+          projectedCorners[2].y - projectedCorners[0].y
+        ));
+        const rho01 = Math.max(
+          Math.abs(cornerUv[1][0] - cornerUv[0][0]) * sourceWidth,
+          Math.abs(cornerUv[1][1] - cornerUv[0][1]) * sourceHeight
+        ) / edgePixels01;
+        const rho02 = Math.max(
+          Math.abs(cornerUv[2][0] - cornerUv[0][0]) * sourceWidth,
+          Math.abs(cornerUv[2][1] - cornerUv[0][1]) * sourceHeight
+        ) / edgePixels02;
+        const lod = Math.max(0, Math.min(mipReference.length - 1,
+          Math.log2(Math.max(1, rho01, rho02))));
+        const expectedRgb = sampleGndAuditMip(mipReference, actualUv, lod, false, false);
+        const framebufferRgb = readPixel(pixel);
+        const maxRgbDelta = deltaRgb(framebufferRgb, expectedRgb);
+        const sourceX = Math.max(0, Math.min(sourceWidth - 1, Math.floor(actualUv[0] * sourceWidth)));
+        const sourceY = Math.max(0, Math.min(sourceHeight - 1,
+          sourceHeight - 1 - Math.floor(actualUv[1] * sourceHeight)));
+        const sourceOffset = (sourceY * sourceWidth + sourceX) * 4;
+        const raw = mipReference[0].data;
+        const nearestSourceRgba = Array.from(raw.slice(sourceOffset, sourceOffset + 4));
+        scaleReports.push({
+          status: Number.isFinite(maxRgbDelta) && maxRgbDelta <= 12 ? 'passed' : 'failed',
+          scale: scale.name,
+          targetTilePixels: scale.tilePixels,
+          projectedSurfacePixels: {
+            width: Number(Math.max(projectedCorners[0].x, projectedCorners[1].x,
+              projectedCorners[2].x, projectedCorners[3].x)
+              - Math.min(projectedCorners[0].x, projectedCorners[1].x,
+                projectedCorners[2].x, projectedCorners[3].x)).toFixed(3),
+            height: Number(Math.max(projectedCorners[0].y, projectedCorners[1].y,
+              projectedCorners[2].y, projectedCorners[3].y)
+              - Math.min(projectedCorners[0].y, projectedCorners[1].y,
+                projectedCorners[2].y, projectedCorners[3].y)).toFixed(3),
+          },
+          pixel,
+          requestedUv: spec.uv,
+          actualSourceUv: actualUv.map(value => Number(value.toFixed(6))),
+          effectiveLod: Number(lod.toFixed(3)),
+          expectedSourceMipRgb: expectedRgb,
+          nearestSourcePixel: [sourceX, sourceY],
+          nearestSourceRgba: nearestSourceRgba,
+          framebufferRgb,
+          maxRgbDelta: Number(maxRgbDelta.toFixed(3)),
+          limitRgbDelta: 12,
+        });
+      }
+      const texturePath = Array.isArray(gndInfo.textures)
+        ? gndInfo.textures[surface.textureIndex] : null;
+      const allScalesPassed = scaleReports.length === 3
+        && scaleReports.every(scale => scale.status === 'passed');
+      samples.push({
+        status: allScalesPassed ? 'passed'
+          : (scaleReports.some(scale => scale.status === 'failed') ? 'failed' : 'unavailable'),
+        surfaceIndex: spec.surfaceIndex,
+        quadIndex: entry.quadIndex,
+        cubeUseSites: gndInfo.cubes
+          .map((cube, index) => cube.topSurface === spec.surfaceIndex
+            ? { index, x: index % gndInfo.width, y: Math.floor(index / gndInfo.width) } : null)
+          .filter(Boolean).slice(0, 12),
+        textureIndex: surface.textureIndex,
+        texturePath,
+        imageUrl: image.currentSrc || image.src || null,
+        sourceImage: [sourceWidth, sourceHeight],
+        uvCorners,
+        requestedUv: spec.uv,
+        mipReferenceLevels: mipReference.length,
+        sampler: {
+          wrapS: sourceTexture.wrapS === THREE.ClampToEdgeWrapping ? 'clamp-to-edge'
+            : sourceTexture.wrapS === THREE.RepeatWrapping ? 'repeat' : 'other',
+          wrapT: sourceTexture.wrapT === THREE.ClampToEdgeWrapping ? 'clamp-to-edge'
+            : sourceTexture.wrapT === THREE.RepeatWrapping ? 'repeat' : 'other',
+          minFilter: sourceTexture.minFilter,
+          magFilter: sourceTexture.magFilter,
+          generateMipmaps: sourceTexture.generateMipmaps,
+          originalMipmapsArrayLength: Array.isArray(sourceTexture.mipmaps)
+            ? sourceTexture.mipmaps.length : 0,
+        },
+        scales: scaleReports,
+      });
+      geometry.dispose();
+    }
+    const failures = samples.filter(sample => sample.status !== 'passed');
+    return {
+      status: failures.length === 0 && samples.length === targetSpecs.length ? 'passed' : 'failed',
+      mode: 'diffuse-only',
+      limits: { diffuseMaxRgbDelta: 12 },
+      samples,
+      failures: failures.map(sample => ({
+        surfaceIndex: sample.surfaceIndex, status: sample.status, reason: sample.reason || null,
+      })),
+    };
+  } catch (error) {
+    return { status: 'error', message: error && error.message ? error.message : String(error), samples };
+  } finally {
+    renderer.setRenderTarget(originalTarget);
+    renderer.setViewport(originalViewport);
+    renderer.setScissor(originalScissor);
+    renderer.setScissorTest(originalScissorTest);
+    renderer.setClearColor(originalClear, originalClearAlpha);
+    GND_DEBUG_MODE_UNIFORM.value = originalMode;
+    targetTexture.dispose();
+  }
+}
+
 function runGndSharedUvGpuBoundaryAudit() {
   const scan = findGndSharedUvAuditPairs();
   if (scan.status !== 'ready') return scan;
@@ -4843,7 +5146,10 @@ function runGndSharedUvGpuBoundaryAudit() {
   };
 }
 if (explorerParams.get('roo-gnd-gpu-audit') === '1') {
-  window.__rooGndGpuBoundaryAudit = { run: runGndSharedUvGpuBoundaryAudit };
+  window.__rooGndGpuBoundaryAudit = {
+  run: runGndSharedUvGpuBoundaryAudit,
+  runTargetSurfaces: runGndTargetSurfaceGpuAudit,
+};
 }
 
 function handleRenderPageHide(event) {
