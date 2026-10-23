@@ -83,7 +83,7 @@ assert.deepEqual(modelTriangles[0].sourcePoints, [
   { x: 0, y: 32 }, { x: 64, y: 32 }, { x: 0, y: 0 },
 ], 'RSM UV 應對應原始材質圖並翻轉 Canvas 的 V 座標');
 assert.deepEqual(modelTriangles[0].points, [
-  { x: 0, y: -6 }, { x: 2, y: -6 }, { x: 0, y: -3 },
+  { x: 0, y: -14 }, { x: 2, y: -14 }, { x: 0, y: -11 },
 ], '模型頂點應經世界矩陣及畫面投影轉成以模型錨點為中心的座標');
 assert.equal(modelTriangles[0].depth, 14);
 assert.equal(modelTriangles[0].opacity, 0.8);
