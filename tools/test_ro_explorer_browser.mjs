@@ -940,6 +940,13 @@ async function run() {
   console.log('Canvas 2D 瀏覽器實際狀態：' + JSON.stringify(twoDReady));
   assert.ok(twoDReady.metrics.terrainTiles > 0 && twoDReady.metrics.texturedTiles > 0,
     '2D 畫面沒有繪製真實 GND 來源貼圖：' + JSON.stringify(twoDReady));
+  assert.ok(twoDReady.metrics.modelPlacements > 0,
+    '真實 tra_fild RSW 場景模型擺放資料未載入：' + JSON.stringify(twoDReady));
+  assert.ok(twoDReady.metrics.visibleProps > 0,
+    '純 2D 畫面沒有顯示任何 RSW 場景物件／代理圖形：' + JSON.stringify(twoDReady));
+  assert.equal(twoDReady.metrics.loadedModelProps + twoDReady.metrics.fallbackProps
+    >= Math.min(450, twoDReady.metrics.modelPlacements), true,
+    '每個 RSW 模型位置都應由載入物件或 2D 代理圖形呈現：' + JSON.stringify(twoDReady));
   assert.equal(twoDReady.metrics.active, true);
   assert.equal(twoDReady.metrics.canvasHidden, false);
   assert.equal(twoDReady.webglHidden, true, '純 2D 模式應隱藏 WebGL 畫布。');

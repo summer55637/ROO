@@ -8,6 +8,7 @@ import {
   isRoExplorer2DPointVisible,
   drawRoExplorer2DGroundShadow,
   drawRoExplorer2DSelectionRing,
+  buildRoExplorer2DFallbackProps,
 } from './ro_explorer_2d.mjs';
 
 const center = { x: 13.5, y: -0.4, z: -22.25 };
@@ -40,6 +41,24 @@ assert.deepEqual(radius, { x: 29, z: 34 });
 assert.equal(isRoExplorer2DPointVisible({ x: 10, y: 20 }, 800, 480), true);
 assert.equal(isRoExplorer2DPointVisible({ x: -100, y: 20 }, 800, 480), false);
 assert.throws(() => projectRoExplorer2DPoint(point, center, 0, 480, 8), /有效的世界座標/);
+
+const fallbackProps = buildRoExplorer2DFallbackProps([
+  { name: 'named instance', modelName: 'field_tree01.rsm', position: [10, 2, -20] },
+  { name: 'house instance', modelName: 'field_house01.rsm', position: [30, 4, 50] },
+  { name: 'invalid placement', modelName: 'broken.rsm', position: [NaN, 0, 0] },
+], [{ x: 2, y: -0.4, z: 4.0000001 }], 0.2);
+assert.equal(fallbackProps.length, 1,
+  'RSW 擺放有有效位置但 RSM 未載入時要補位；已渲染的同位置模型不得重複畫');
+assert.equal(fallbackProps[0].name, 'field_house01.rsm');
+assert.equal(fallbackProps[0].modelName, 'field_house01.rsm');
+assert.equal(fallbackProps[0].fallback, true);
+assert.deepEqual(fallbackProps[0].position, { x: 6, y: -0.8, z: -10 });
+assert.equal(buildRoExplorer2DFallbackProps([
+  { modelName: 'tree.rsm', position: [1, 2, 3] },
+], [], 0).length, 0, '不合理世界比例不得產生代理物件');
+assert.equal(buildRoExplorer2DFallbackProps([
+  { modelName: 'tree.rsm', position: [1, 2, 3] },
+], [], 1, 1).length, 1, '代理物件數不得超過指定擺放上限');
 
 
 

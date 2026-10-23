@@ -80,6 +80,7 @@ import {
   isRoExplorer2DPointVisible,
   drawRoExplorer2DGroundShadow,
   drawRoExplorer2DSelectionRing,
+  buildRoExplorer2DFallbackProps,
 } from './ro_explorer_2d.mjs';
 
 const stage = document.getElementById('stage');
@@ -405,7 +406,10 @@ let ro2dLastTerrainRenderAt = 0;
 let ro2dViewportWidth = 1;
 let ro2dViewportHeight = 1;
 let ro2dPixelRatio = 1;
-let ro2dMetrics = { terrainTiles: 0, texturedTiles: 0, visibleProps: 0, visibleMonsters: 0 };
+let ro2dMetrics = {
+  terrainTiles: 0, texturedTiles: 0, visibleProps: 0, visibleMonsters: 0,
+  modelPlacements: 0, loadedModelProps: 0, fallbackProps: 0,
+};
 const RO_EXPLORER_2D_PIXELS_PER_WORLD_UNIT = 1.6;
 let minimapGatInfo = null;
 let minimapBaseImage = null;
@@ -718,6 +722,7 @@ function ro2dRefreshSourceImages() {
 function rebuildRoExplorer2DSceneIndex() {
   ro2dSourceImages = new Map();
   ro2dDecorations = [];
+  const renderedPositions = [];
   if (mapRoot && gndInfo) {
     mapRoot.updateMatrixWorld(true);
     mapRoot.traverse(object => {
@@ -729,14 +734,25 @@ function rebuildRoExplorer2DSceneIndex() {
       }
       if (object.userData.rooMapObject) {
         const world = object.getWorldPosition(new THREE.Vector3());
+        const position = { x: world.x, y: world.y, z: world.z };
+        renderedPositions.push(position);
         ro2dDecorations.push({
           object,
           name: String(object.name || object.userData.rooModelName || 'RO 場景物件'),
-          position: { x: world.x, y: world.y, z: world.z },
+          position,
+          fallback: false,
         });
       }
     });
   }
+  if (rswInfo && Array.isArray(rswInfo.models)) {
+    ro2dDecorations.push(...buildRoExplorer2DFallbackProps(
+      rswInfo.models, renderedPositions, worldScale, MAX_NATIVE_MODEL_PLACEMENTS
+    ));
+  }
+  ro2dMetrics.modelPlacements = rswInfo && Array.isArray(rswInfo.models) ? rswInfo.models.length : 0;
+  ro2dMetrics.loadedModelProps = ro2dDecorations.filter(prop => prop.object && !prop.fallback).length;
+  ro2dMetrics.fallbackProps = ro2dDecorations.filter(prop => prop.fallback).length;
   ro2dTerrainCenter = null;
   ro2dTerrainDirty = true;
   ro2dLastTerrainRenderAt = 0;
@@ -744,7 +760,6 @@ function rebuildRoExplorer2DSceneIndex() {
     toggle2DViewButton.disabled = !(mapInfo && mapInfo.native && gndInfo && gatInfo);
   }
 }
-
 function resizeRoExplorer2DCanvases(width, height) {
   ro2dViewportWidth = Math.max(1, Math.floor(width));
   ro2dViewportHeight = Math.max(1, Math.floor(height));
@@ -1013,8 +1028,9 @@ function renderRoExplorer2DFrame(now) {
   const items = [];
   const pad = 60;
   for (const prop of ro2dDecorations) {
-    if (!prop.object || !prop.object.visible) continue;
-    const world = prop.object.getWorldPosition(new THREE.Vector3());
+    if (prop.object && !prop.object.visible) continue;
+    const world = prop.object ? prop.object.getWorldPosition(new THREE.Vector3()) : prop.position;
+    if (!world || ![world.x, world.y, world.z].every(Number.isFinite)) continue;
     const point = ro2dProject({ x: world.x, y: world.y, z: world.z }, center);
     if (isRoExplorer2DPointVisible(point, width, height, pad)) items.push({ kind: 'prop', prop, point, depth: point.y });
   }
@@ -1086,7 +1102,7 @@ function setRoExplorer2DActive(active) {
   if (next) {
     ro2dCameraCenter = { x: playerRoot.position.x, y: playerRoot.position.y, z: playerRoot.position.z };
     ro2dTerrainCenter = null; ro2dTerrainDirty = true;
-    setStatus('純 2D 原型已開啟：地面使用真實 GND diffuse UV/貼圖，角色與怪物使用 RO 2D 動畫；場景模型暫以簡圖呈現。點擊地面可移動，GAT/A*、戰鬥與本機存檔沿用現有系統。');
+    setStatus('純 2D 原型已開啟：地面使用真實 GND 貼圖，角色與怪物使用 RO 動畫；RSW 擺放位置在 RSM 載入失敗時也會以簡圖補位。點擊地面移動，沿用 GAT/A*、主引擎戰鬥與本機存檔。');
   } else setStatus('已返回原生 3D 地圖。');
 }
 

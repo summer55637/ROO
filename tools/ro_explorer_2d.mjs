@@ -1,5 +1,38 @@
 const finite = value => Number.isFinite(value);
 
+/**
+ * RSW placements still have useful map coordinates when their RSM asset cannot load.
+ * Return lightweight 2D stand-ins only for placements without a rendered 3D model.
+ */
+export function buildRoExplorer2DFallbackProps(rswModels, renderedPositions = [], worldScale = 1,
+  maxPlacements = 450) {
+  if (!Array.isArray(rswModels) || !Array.isArray(renderedPositions)
+    || !finite(worldScale) || worldScale <= 0 || worldScale > 10
+    || !Number.isInteger(maxPlacements) || maxPlacements < 0) return [];
+
+  const positionKey = position => {
+    if (!position || ![position.x, position.y, position.z].every(finite)) return null;
+    return [position.x, position.y, position.z].map(value => Math.round(value * 1000)).join(':');
+  };
+  const renderedKeys = new Set(renderedPositions.map(positionKey).filter(Boolean));
+  const props = [];
+  for (const model of rswModels.slice(0, Math.min(450, maxPlacements))) {
+    if (!model || !Array.isArray(model.position) || model.position.length < 3
+      || !model.position.slice(0, 3).every(finite)) continue;
+    const position = {
+      x: model.position[0] * worldScale,
+      y: -model.position[1] * worldScale,
+      z: -model.position[2] * worldScale,
+    };
+    if (renderedKeys.has(positionKey(position))) continue;
+    const modelName = String(model.modelName || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 160);
+    const name = String(model.modelName || model.name || 'RO 場景物件')
+      .replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 160) || 'RO 場景物件';
+    props.push({ name, modelName, position, fallback: true });
+  }
+  return props;
+}
+
 function readPoint(point) {
   if (Array.isArray(point)) return { x: Number(point[0]), y: Number(point[1]) };
   return { x: Number(point && point.x), y: Number(point && point.y) };
