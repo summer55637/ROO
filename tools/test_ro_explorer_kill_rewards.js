@@ -20,7 +20,8 @@ const def = g.MONSTERS[spawn.id];
 const selectedDropIndex = def.drops.findIndex(drop => drop && typeof drop.item === 'string' && g.ITEMS[drop.item]);
 const selectedDropItem = def.drops[selectedDropIndex].item;
 const originalMonster = {
-  hp: def.hp, exp: def.exp, jobExp: def.jobExp, atkInterval: def.atkInterval,
+  hp: def.hp, exp: def.exp, jobExp: def.jobExp, atk: def.atk,
+  element: def.element, atkInterval: def.atkInterval,
   drops: JSON.parse(JSON.stringify(def.drops)),
 };
 
@@ -50,6 +51,15 @@ function prepareScenario(name) {
   g.state.jobExp = Math.max(0, jobNeed - 1);
   g.state.hp = Math.max(1, g.state.maxHp - 7);
   g.state.sp = g.state.maxSp;
+  // Reward assertions must not depend on the selected field monster's flee or element.
+  // Force the normal weapon-neutral test route to hit and deal non-zero damage.
+  g.state.hit = 9999;
+  g.state.critRate = 100;
+  g.state.perfectDodge = 0;
+  g.state.blockChance = 0;
+  g.state.hasBackslideDodge = false;
+  g.state.hasAutoRevive1 = false;
+  g.state.hasAutoRevive2 = false;
   const idleMonsters = [{ defId: spawn.id, hp: 777, maxHp: 777, id: 7 }];
   g.state.monsters = idleMonsters;
   g.state.monster = idleMonsters[0];
@@ -100,6 +110,8 @@ def.drops = originalMonster.drops.map((drop, index) => ({
 def.hp = 1;
 def.exp = 3;
 def.jobExp = 3;
+def.element = 'none';
+def.atk = Math.max(20, Number(def.atk) || 0);
 /* 避免 1 HP 測試怪在擊殺測試中途反擊；反擊另外用原始 HP 獨立測。 */
 def.atkInterval = 999999;
 
@@ -206,6 +218,8 @@ t.eq('反擊回覆 HP 與即時角色狀態一致', retaliationResult.playerHp, 
 def.hp = originalMonster.hp;
 def.exp = originalMonster.exp;
 def.jobExp = originalMonster.jobExp;
+def.atk = originalMonster.atk;
+def.element = originalMonster.element;
 def.atkInterval = originalMonster.atkInterval;
 def.drops = JSON.parse(JSON.stringify(originalMonster.drops));
 g.Date = NativeDate;
