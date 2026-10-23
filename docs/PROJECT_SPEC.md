@@ -459,3 +459,12 @@
 - 舊 GPU 報告中 #9844/#9967 的 near 採樣，ClampToEdge 與 GPU framebuffer 最大差約 0.5 RGB 階；假設 Repeat 的來源預期則偏差約 5.2 階。故將 GND sampler 強制切到 Repeat 會背離此參考 renderer。本次修正讓 POT 共用來源貼圖保持原始 mipmap，並明確使用 ClampToEdge。
 - GND 多尺度診斷現在會以 ClampToEdge 作為正式 framebuffer／來源 mipmap 驗收基準，額外將同一組 near/mid/far 像素切到 Repeat 渲染並記錄兩者差值；原有 12 RGB 階門檻、共享來源貼圖及原 mipmap 均不放寬或替換。
 - 此修正校正的是「診斷器誤把 Repeat 當成官方預期」及對應 sampler 設定；仍不能單憑此項宣稱地表白線已消失。需看提交後的 GPU JSON／場景截圖與完整 Regression 結果，再判定剩餘白線是否為來源紋理、鄰接 UV、mipmap 或其他渲染項目。
+
+## 2026-10-23 更新：純 2D 路線決策與 tra_fild Canvas 原型
+
+- 遊戲主方向已確定為純 2D；先以真實 RO 野外地圖 `tra_fild` 建立可玩原型，驗收完成後再擴充其他地圖。
+- 原型用 Canvas 2D 繪製 GND 地表來源貼圖與原始 UV，角色／怪物優先使用 RO 素材動畫；點擊地面沿用 GAT 可走判定及 A* 尋路。
+- 怪物目標及戰鬥指令沿用既有主遊戲引擎橋接，不另造傷害公式；維持瀏覽器本機存檔、單機、純前端、免費非營利方向。
+- 不在原型階段刪除 3D 解析／診斷程式，保留其作為交叉參考與備援。Canvas 2D 已有桌面瀏覽器驗收：真實 GND 貼圖、WebGL 畫布隱藏、可走地面點擊尋路與返回 3D；本次另加入手機觸控版相同流程的瀏覽器驗收。
+- 目前限制：RSW/RSM 場景模型仍以簡化圖形代替，尚未完成完整的經典 2D 地圖物件外觀、前後景遮擋順序與整段戰鬥視覺驗收；不得宣稱已和官方客戶端逐像素一致。
+- 仍以 `feature/exploration-movement-controls`／PR #1 作為開發線。分支未合併至 `main` 前，不會自動更新正式 GitHub Pages 網站。

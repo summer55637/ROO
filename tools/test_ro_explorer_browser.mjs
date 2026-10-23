@@ -1063,6 +1063,74 @@ async function run() {
   assert.ok(boxes.monster.left >= 0 && boxes.monster.right <= boxes.viewportWidth + 1,
     '手機版怪物操作面板超出畫面：' + JSON.stringify(boxes));
   await page.screenshot({ path: path.join(artifactDir, 'mobile.png'), fullPage: true, animations: 'disabled' });
+
+  // Exercise the same real GND-backed Canvas 2D view and ground-click movement on a touch viewport.
+  await page.locator('#monster-panel').evaluate(element => { element.hidden = true; });
+  const mobileTwoDToggle = page.locator('#toggle-2d-view');
+  assert.ok(await mobileTwoDToggle.isEnabled(), '手機版載入 tra_fild 後純 2D 原型按鈕不可用。');
+  await mobileTwoDToggle.tap();
+  await page.waitForFunction(() => {
+    const canvas = document.getElementById('ro-2d-stage');
+    const metrics = window.__rooExplorer2DTest?.getMetrics();
+    return canvas && !canvas.hidden && metrics && metrics.active
+      && metrics.terrainTiles > 0 && metrics.texturedTiles > 0;
+  }, null, { timeout: 15000 });
+  const mobileTwoD = await page.evaluate(() => {
+    const canvas = document.getElementById('ro-2d-stage');
+    const stage = document.getElementById('stage');
+    const webgl = Array.from(stage.querySelectorAll('canvas')).find(item => item !== canvas);
+    const rect = stage.getBoundingClientRect();
+    const metrics = window.__rooExplorer2DTest.getMetrics();
+    const targets = window.__rooExplorer2DTest.getWalkableTargets();
+    const visibleTargets = targets.filter(target => {
+      const x = rect.left + target.screenX, y = rect.top + target.screenY;
+      return x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight
+        && document.elementFromPoint(x, y) === canvas;
+    });
+    return {
+      metrics,
+      targetCount: visibleTargets.length,
+      targets: visibleTargets,
+      canvasRect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      canvasHidden: canvas.hidden,
+      webglDisplay: webgl ? getComputedStyle(webgl).display : 'missing',
+      webglHidden: metrics.rendererCanvasHidden,
+      buttonPressed: document.getElementById('toggle-2d-view').getAttribute('aria-pressed'),
+    };
+  });
+  assert.ok(mobileTwoD.targetCount > 0,
+    '手機純 2D 畫面找不到視窗內可觸控的 GAT 可走格：' + JSON.stringify({
+      count: mobileTwoD.metrics.terrainTiles, canvas: mobileTwoD.canvasRect,
+      viewport: await page.evaluate(() => ({ width: innerWidth, height: innerHeight })),
+    }));
+  assert.equal(mobileTwoD.canvasHidden, false);
+  assert.equal(mobileTwoD.webglDisplay, 'none', '手機純 2D 模式仍顯示 WebGL 畫布。');
+  assert.equal(mobileTwoD.webglHidden, true);
+  assert.equal(mobileTwoD.buttonPressed, 'true');
+  let mobileTwoDTarget = null;
+  for (const target of mobileTwoD.targets) {
+    const x = mobileTwoD.canvasRect.left + target.screenX;
+    const y = mobileTwoD.canvasRect.top + target.screenY;
+    await page.touchscreen.tap(x, y);
+    if (await page.locator('#stop-movement').isVisible()) {
+      mobileTwoDTarget = target;
+      break;
+    }
+    if (await page.locator('#monster-panel').isVisible()) {
+      await page.locator('#clear-monster-target').tap();
+    }
+  }
+  assert.ok(mobileTwoDTarget,
+    '手機觸控純 2D 地面未能建立可停止的尋路：' + JSON.stringify(mobileTwoD.targets.slice(0, 8)));
+  await page.locator('#stop-movement').tap();
+  await page.locator('#stop-movement').waitFor({ state: 'hidden', timeout: 3000 });
+  await page.screenshot({ path: path.join(artifactDir, 'mobile-2d.png'), fullPage: true, animations: 'disabled' });
+  await mobileTwoDToggle.tap();
+  await page.waitForFunction(() => document.getElementById('ro-2d-stage')?.hidden === true
+    && getComputedStyle(Array.from(document.querySelectorAll('#stage > canvas'))
+      .find(canvas => canvas.id !== 'ro-2d-stage')).display !== 'none');
+  console.log('手機 Canvas 2D 原型通過：真實 GND 紋理、隱藏 WebGL、觸控點擊尋路、停止移動與返回原生 3D。');
+
   assert.deepEqual(pageErrors, [], '瀏覽器出現未處理的 JavaScript 錯誤：' + pageErrors.join(' | '));
   console.log('原生探索瀏覽器驗收通過：公開 tra_fild 3D 地圖、角色素材狀態、HP/SP、基礎／職業經驗、鋅幣、恢復／輔助操作面板、桌面與手機版面、小地圖移動／停止、視角跟隨、通行格切換。');
   console.log('桌面與手機截圖：' + artifactDir);
