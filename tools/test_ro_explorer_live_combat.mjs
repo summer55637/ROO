@@ -430,8 +430,20 @@ try {
 
   // 再從真正主遊戲按鈕開啟同源探索頁，改用手機觸控＋Canvas 2D 走完整 UI 戰鬥與重生。
   await mainPage.evaluate(({ mapId, defId }) => {
-    const map = MAPS.find(item => item.id === mapId);
-    if (!map) throw new Error('手機戰鬥測試找不到 tra_fild 資料。');
+    let map = MAPS.find(item => item.id === mapId);
+    if (!map) {
+      // 前面驗存檔時重新載入了主遊戲；重建僅供此次測試使用的場景別名。
+      const sourceField = MAPS.find(item => item.id === 'prt_fild08');
+      if (!sourceField || !MONSTERS.poring || !Array.isArray(MONSTERS.poring.drops)) {
+        throw new Error('手機戰鬥測試找不到正式波利資料，無法重建 tra_fild 測試佈置。');
+      }
+      map = {
+        id: 'tra_fild', imgId: sourceField.imgId,
+        name: '普隆德拉郊外訓練場（測試佈置）',
+        monsters: [{ id: 'poring', weight: 1000000000 }],
+      };
+      MAPS.push(map);
+    }
     for (const spawn of map.monsters || []) {
       const def = MONSTERS[spawn.id];
       if (def) def.hp = 5000;
