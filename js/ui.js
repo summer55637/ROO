@@ -2033,6 +2033,151 @@ function renderMapYieldBox(mapObj) {
   </div>`;
 }
 
+/* 探索頁進度 HUD：直接讀主引擎已有等級／經驗曲線，不另造公式。 */
+function buildRoExplorerProgressSnapshot(playerState) {
+  if (!playerState || typeof playerState !== 'object') return {};
+  const baseLevel = Math.max(1, Math.floor(Number(playerState.baseLevel) || 1));
+  const jobLevel = Math.max(1, Math.floor(Number(playerState.jobLevel) || 1));
+  const jobDef = typeof JOB_TREE !== 'undefined' ? JOB_TREE[playerState.jobId] : null;
+  const baseCap = typeof baseLevelCapOf === 'function' ? Number(baseLevelCapOf(playerState.jobId)) : 0;
+  const baseExpNeed = baseCap > 0 && baseLevel >= baseCap
+    ? 0
+    : (typeof expToNextBaseLevel === 'function'
+      ? Math.max(0, Math.floor(Number(expToNextBaseLevel(baseLevel)) || 0)) : 0);
+  const jobLevelMax = Number(jobDef && jobDef.jobLevelMax);
+  const jobExpNeed = jobDef && Number.isFinite(jobLevelMax) && jobLevel >= jobLevelMax
+    ? 0
+    : (jobDef && typeof expToNextJobLevel === 'function'
+      ? Math.max(0, Math.floor(Number(expToNextJobLevel(jobLevel, jobDef.tier)) || 0)) : 0);
+  return {
+    playerBaseLevel: baseLevel,
+    playerBaseExp: Math.max(0, Math.floor(Number(playerState.baseExp) || 0)),
+    playerBaseExpNeed: baseExpNeed,
+    playerJobLevel: jobLevel,
+    playerJobExp: Math.max(0, Math.floor(Number(playerState.jobExp) || 0)),
+    playerJobExpNeed: jobExpNeed,
+    playerZeny: Math.max(0, Math.floor(Number(playerState.gold) || 0)),
+  };
+}
+
+/* 探索頁透過同源 localStorage 呼叫主遊戲引擎，不新增後端或傷害公式。 */
+const RO_EXPLORER_COMBAT_COMMAND_KEY = 'roo_explorer_combat_command';
+function handleRoExplorerCombatStorage(event) {
+  if (!event || event.key !== RO_EXPLORER_COMBAT_COMMAND_KEY || !event.newValue) return;
+  let command;
+  try { command = JSON.parse(event.newValue); } catch (error) { return; }
+  if (!command || !['attack', 'skill', 'support_skill', 'status_tick', 'vitals'].includes(command.type)
+    || typeof command.sessionId !== 'string' || !/^[a-z0-9_-]{4,80}$/i.test(command.sessionId)
+    || typeof command.requestId !== 'string' || !/^[a-z0-9_-]{1,100}$/i.test(command.requestId)) return;
+  if (['skill', 'support_skill'].includes(command.type)
+    && (typeof command.skillId !== 'string' || !/^[a-z0-9_]{1,48}$/i.test(command.skillId))) return;
+  let result;
+  try {
+    if (command.type === 'vitals') {
+      result = state ? {
+        ok: true, accepted: true,
+        playerHp: state.hp, playerMaxHp: state.maxHp,
+        playerSp: state.sp, playerMaxSp: state.maxSp,
+        ...buildRoExplorerProgressSnapshot(state)
+      } : { ok: false, accepted: false, error: '目前沒有載入角色。' };
+    } else if (command.type === 'status_tick') {
+      result = typeof tickRoExplorerMonsterStatus === 'function'
+        ? tickRoExplorerMonsterStatus(command.sessionId, command.spawnKey, command.mapId, command.defId)
+        : { ok: false, accepted: false, error: '主遊戲狀態計時尚未載入。' };
+    } else if (command.type === 'support_skill') {
+      result = typeof castRoExplorerSupportSkill === 'function'
+        ? castRoExplorerSupportSkill(command.sessionId, command.mapId, command.skillId)
+        : { ok: false, accepted: false, error: '主遊戲輔助／恢復引擎尚未載入。' };
+    } else if (command.type === 'skill') {
+      result = typeof castRoExplorerSkill === 'function'
+        ? castRoExplorerSkill(command.sessionId, command.spawnKey, command.mapId, command.defId, command.skillId)
+        : { ok: false, accepted: false, error: '主遊戲技能引擎尚未載入。' };
+    } else {
+      result = typeof attackRoExplorerMonster === 'function'
+        ? attackRoExplorerMonster(command.sessionId, command.spawnKey, command.mapId, command.defId)
+        : { ok: false, accepted: false, error: '主遊戲戰鬥引擎尚未載入。' };
+    }
+  } catch (error) { result = { ok: false, accepted: false, error: '主遊戲無法完成戰鬥結算。' }; }
+  if (state && command.type !== 'vitals') {
+    result = Object.assign({}, result, buildRoExplorerProgressSnapshot(state));
+  }
+  try {
+    localStorage.setItem('roo_explorer_combat_result_' + command.sessionId,
+      JSON.stringify(Object.assign({
+        requestId: command.requestId, requestType: command.type, spawnKey: command.spawnKey
+      }, result)));
+  } catch (error) { /* 儲存被停用時，探索端會顯示逾時訊息。 */ }
+}
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', handleRoExplorerCombatStorage);
+}
+
+function openRoExplorer() {
+  if (!state) return;
+  const url = new URL('tools/ro_explorer.html', window.location.href);
+  const mapId = String(state.mapId || 'prontera');
+  const progression = buildRoExplorerProgressSnapshot(state);
+  url.searchParams.set('mode', 'native');
+  url.searchParams.set('map', mapId);
+  url.searchParams.set('sprite', getAnimKey());
+  for (const [key, value] of [
+    ['php', state.hp], ['pmaxhp', state.maxHp],
+    ['psp', state.sp], ['pmaxsp', state.maxSp],
+    ['pbaselevel', progression.playerBaseLevel], ['pbaseexp', progression.playerBaseExp],
+    ['pbaseexpneed', progression.playerBaseExpNeed],
+    ['pjoblevel', progression.playerJobLevel], ['pjobexp', progression.playerJobExp],
+    ['pjobexpneed', progression.playerJobExpNeed], ['pzeny', progression.playerZeny],
+  ]) {
+    if (value !== null && value !== undefined && Number.isFinite(Number(value))) {
+      url.searchParams.set(key, String(Number(value)));
+    }
+  }
+  // 直接沿用既有 MAPS／MONSTERS 資料。
+  const map = Array.isArray(MAPS) ? MAPS.find(item => item.id === mapId) : null;
+  const mobs = map && Array.isArray(map.monsters)
+    ? map.monsters.map(spawn => {
+      const monster = MONSTERS[spawn.id];
+      if (!monster || !Number.isInteger(monster.imgId)) return null;
+      return {
+        id: spawn.id, imageId: monster.imgId, name: monster.name, icon: monster.icon,
+        level: monster.level, hp: monster.hp, atk: monster.atk,
+        weight: Number.isFinite(Number(spawn.weight)) && Number(spawn.weight) > 0
+          ? Number(spawn.weight) : 1
+      };
+    }).filter(Boolean)
+    : [];
+  if (mobs.length) url.searchParams.set('mobs', JSON.stringify(mobs));
+  const selfBuffSkillTypes = new Set([
+    'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd', 'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+  ]);
+  const supportSkillTypes = new Set([
+  'heal', 'heal_over_time', 'field_heal', 'cure', 'buff_sprate', 'buff_def', 'buff_block',
+  'buff_reflect', 'buff_providence', 'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd',
+  'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+  'buff_blessing', 'buff_angelus', 'buff_shield', 'buff_lukflat',
+  'buff_holyweapon', 'buff_elearmor', 'buff_ailimmune',
+]);
+  const explorerSkillTypes = new Set([
+    'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc',
+    'heal', 'heal_over_time', 'field_heal', 'cure', 'buff_sprate', 'buff_def', 'buff_block',
+    'buff_reflect', 'buff_providence', 'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd',
+    'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+  ]);
+  const combatSkills = typeof usableSkillEntries === 'function'
+    ? usableSkillEntries()
+      .filter(entry => entry && entry.sk && entry.lv > 0 && explorerSkillTypes.has(entry.sk.type))
+      .slice(0, 30)
+      .map(entry => ({
+        id: entry.sk.id, name: entry.sk.name, level: entry.lv,
+        spCost: typeof skillSpCost === 'function' ? skillSpCost(entry.sk, entry.lv) : 0,
+        type: entry.sk.type, isSelfBuff: selfBuffSkillTypes.has(entry.sk.type),
+        isSupport: supportSkillTypes.has(entry.sk.type)
+      }))
+    : [];
+  if (combatSkills.length) url.searchParams.set('skills', JSON.stringify(combatSkills));
+  window.open(url.toString(), '_blank', 'noopener,noreferrer');
+}
+
 function renderMapTab() {
   const el = document.getElementById('tab-map');
   if (!selectedRegionId) {
@@ -2094,6 +2239,11 @@ function renderMapTab() {
       <select id="map-select-place" class="map-select" onchange="selectMap(this.value)">${mapOptions}</select>
     </div>
     <div class="region-subtitle-detail">${region.subtitle}</div>
+    <div class="map-preview-box">
+      <div class="map-preview-title">🧭 真實 RO 地圖探索</div>
+      <div class="map-preview-body">從目前地圖開啟原生 3D 探索預覽；地表、模型、光照與水面依地圖素材支援情況呈現。</div>
+      <button class="btn-small" type="button" onclick="openRoExplorer()">開啟原生 3D 地圖探索</button>
+    </div>
     <div class="map-preview-box">
       <div class="map-preview-title">${isCity ? '🏠 安全區' : '⚔️ 遇怪列表'}</div>
       <div class="map-preview-body">${monsterPreview}</div>

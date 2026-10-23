@@ -154,6 +154,9 @@ const anyMon = g => Object.keys(g.MONSTERS)[0];
   g.state.spirits = 7;
   g.state.songProcReadyAt = {};
   const m1 = H.mon(g, { defId: anyMon(g), hp: 9e9 });
+  // This block is testing Palm Strike's stun. Prevent the separate direct-Asura
+  // proc from winning the random branch and returning before Palm Strike executes.
+  g.state.extremityFist.directChance = 0;
   g.tryChampionProcs(m1, g.MONSTERS[m1.defId]);
   t.ok('爆氣中打得出來', m1.hp < 9e9);
   t.ok('目標被暈', g.ailActive(m1, 'stun'));

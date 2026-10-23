@@ -57,6 +57,26 @@ const SUITES = [
   'test_equipsets_144.js',// 說明欄有、實裝沒有的三組裝備套裝（#144）
   'test_images.js',      // 圖檔接線：別名指得到、圖鑑內不再長出缺圖（#141）
   'test_autosell_sync.js', // 自動販賣清單跨存檔同步（#140）
+  'test_latest_request_gate.mjs', // 非同步地圖載入只允許最新請求更新場景
+  'test_visibility_frame_loop.mjs', // 背景分頁暫停 3D 連續渲染
+  'test_ro_map_assets.mjs', // 原生 GND/GAT/RSW/RSM、光照與水面解析
+  'test_ro_explorer_bootstrap.mjs', // 探索頁直達模式與初始化
+  'test_ro_explorer_sprites.mjs', // 原生探索使用安全的 RO 職業影格素材
+  'test_ro_explorer_hud.mjs', // 原生探索 HP／SP 狀態條邊界與格式
+  'test_ro_explorer_camera.mjs', // 原生探索視角本機保存與還原
+  'test_ro_explorer_camera_follow.mjs', // 原生探索角色跟隨與自由視角
+  'test_ro_explorer_movement_controls.mjs', // 原生探索停止移動與接近
+  'test_ro_explorer_vitals_bridge.mjs', // 原生探索 HP／SP 即時同步橋接
+  'test_ro_explorer_feedback.mjs', // 原生探索戰鬥傷害跳字
+  'test_ro_explorer_minimap.mjs', // 原生探索小地圖地形與座標
+  'test_ro_explorer_2d.mjs', // 純 2D 等角投影與原始貼圖三角形映射
+  'test_ro_explorer_monsters.mjs', // 原生探索怪物生成與選取資料
+  'test_ro_explorer_lifecycle.mjs', // 原生探索怪物死亡與重生週期
+  'test_ro_explorer_skill_catalog.mjs', // 原生探索技能目錄跨檔接線
+  'test_ro_explorer_combat_ui.mjs', // 原生探索戰鬥 UI 目標隔離
+  'test_ro_explorer_combat.js', // 原生探索普攻、技能與持續狀態接回主引擎
+  'test_ro_explorer_kill_rewards.js', // 原生探索擊殺獎勵、升級與存檔一致
+  'test_ro_explorer_support.js', // 原生探索恢復／輔助技能沿用主引擎
   'test_saveio.js',      // 存檔匯出/匯入：序列化、遷移、覆寫與失敗還原
 ];
 

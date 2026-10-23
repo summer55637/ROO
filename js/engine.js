@@ -6535,6 +6535,396 @@ function playerAttack() {
   // playerAttack 有十幾個 return 點，包一層才不用逐一改成 return true
   return playerAttackInner() !== false;
 }
+const RO_EXPLORER_COMBAT_TARGETS = new Map();
+let roExplorerCombatSequence = 0;
+let roExplorerCombatTransactionDepth = 0;
+const RO_EXPLORER_SELF_BUFF_TYPES = new Set([
+  'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd', 'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+]);
+const RO_EXPLORER_SUPPORT_SKILL_TYPES = new Set([
+  'heal', 'heal_over_time', 'field_heal', 'cure', 'buff_sprate', 'buff_def', 'buff_block',
+  'buff_reflect', 'buff_providence', 'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd',
+  'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+  'buff_blessing', 'buff_angelus', 'buff_shield', 'buff_lukflat',
+  'buff_holyweapon', 'buff_elearmor', 'buff_ailimmune',
+]);
+const RO_EXPLORER_SUPPORTED_SKILL_TYPES = new Set([
+  'damage', 'magic', 'magic_aoe', 'damage_aoe', 'damage_multihit', 'damage_multi', 'poison_proc',
+  'buff_atk', 'buff_auraflat', 'buff_matk', 'buff_aspd', 'buff_sight', 'buff_assumptio', 'buff_basilica', 'buff_meltdown', 'buff_windwalk',
+]);
+function roExplorerTimedStatusState(target) {
+  const now = Date.now();
+  const labels = [];
+  if (target && target.poisonDotEnd > now) labels.push('中毒');
+  if (target && typeof ailActive === 'function') {
+    for (const [type, ailment] of Object.entries(MON_AILMENTS)) {
+      if (!ailActive(target, type) || labels.includes(ailment.name)) continue;
+      labels.push(ailment.name);
+    }
+  }
+  return { hasTimedStatus: labels.length > 0, statusLabels: labels };
+}
+
+function pruneRoExplorerCombatTargets(now = Date.now()) {
+  const expireBefore = now - 30 * 60 * 1000;
+  for (const [key, record] of RO_EXPLORER_COMBAT_TARGETS.entries()) {
+    if (!record || !Number.isFinite(record.updatedAt) || record.updatedAt < expireBefore) {
+      RO_EXPLORER_COMBAT_TARGETS.delete(key);
+    }
+  }
+  while (RO_EXPLORER_COMBAT_TARGETS.size >= 2048) {
+    const oldestKey = RO_EXPLORER_COMBAT_TARGETS.keys().next().value;
+    if (oldestKey === undefined) break;
+    RO_EXPLORER_COMBAT_TARGETS.delete(oldestKey);
+  }
+}
+
+/* 原生探索暫借引擎怪物陣列結算同一條戰鬥流程，完成後復原放置戰鬥場。 */
+function attackRoExplorerMonster(sessionId, spawnKey, mapId, defId) {
+  const reject = message => ({ ok: false, accepted: false, error: message });
+  if (typeof sessionId !== 'string' || !/^[a-z0-9_-]{4,80}$/i.test(sessionId)
+    || typeof spawnKey !== 'string' || !/^[a-z0-9_-]{1,32}$/i.test(spawnKey)) return reject('探索戰鬥識別碼無效。');
+  if (typeof mapId !== 'string' || !/^[a-z0-9_@-]{1,64}$/i.test(mapId)) return reject('地圖識別碼無效。');
+  if (!state || String(state.mapId || '') !== mapId) return reject('主遊戲目前不在這張地圖；請重新開啟探索。');
+  if (state.hp <= 0) return reject('角色已倒下，暫時無法攻擊。');
+  if (typeof playerImmobile === 'function' && playerImmobile()) return reject('角色目前無法行動。');
+
+  const map = Array.isArray(MAPS) ? MAPS.find(item => item.id === mapId) : null;
+  if (!map || !Array.isArray(map.monsters) || !map.monsters.some(item => item && item.id === defId)) {
+    return reject('這隻怪物不屬於目前地圖。');
+  }
+  const def = MONSTERS[defId];
+  if (!def || !Number.isFinite(def.hp) || def.hp < 1) return reject('怪物資料不存在。');
+
+  const key = sessionId + ':' + mapId + ':' + spawnKey;
+  let record = RO_EXPLORER_COMBAT_TARGETS.get(key);
+  if (record && record.defId !== defId) return reject('怪物位置資料已變更，請重新選取目標。');
+  if (!record) {
+    pruneRoExplorerCombatTargets();
+    const maxHp = Math.max(1, Math.round(def.hp * farmMult('hp')));
+    roExplorerCombatSequence = (roExplorerCombatSequence + 1) % 1000000000;
+    const monster = {
+      defId, hp: maxHp, maxHp, id: -2000000000 + roExplorerCombatSequence,
+      spawnedAt: Date.now(), lastAttackTime: Date.now(), farmMode: farmMode(),
+    };
+    record = { defId, monster, killed: false, lastAttackAt: 0, updatedAt: Date.now() };
+    RO_EXPLORER_COMBAT_TARGETS.set(key, record);
+  }
+
+  const target = record.monster;
+  record.updatedAt = Date.now();
+  const maxInterval = Math.max(100, Math.min(12000, Number(state.attackInterval) || 1000));
+  const attackIntervalMs = Math.ceil(maxInterval / Math.max(0.2, 1 + pDebuff('aspdPct') / 100));
+  if (record.killed || target.hp <= 0 || target._killed) {
+    record.killed = true;
+    return { ok: true, accepted: false, killed: true, hp: 0, maxHp: target.maxHp,
+      attackIntervalMs, playerHp: state.hp, playerMaxHp: state.maxHp };
+  }
+  const now = Date.now();
+  if (record.lastAttackAt && now - record.lastAttackAt < attackIntervalMs * 0.75) {
+    return { ok: true, accepted: false, rateLimited: true,
+      retryAfterMs: Math.max(50, Math.ceil(attackIntervalMs - (now - record.lastAttackAt))),
+      hp: target.hp, maxHp: target.maxHp, attackIntervalMs, playerHp: state.hp, playerMaxHp: state.maxHp };
+  }
+
+  const previousMonsters = state.monsters;
+  const previousMonster = state.monster;
+  const hpBefore = target.hp;
+  let accepted = false;
+  roExplorerCombatTransactionDepth++;
+  try {
+    state.monsters = [target];
+    state.monster = target;
+    accepted = playerAttack();
+    if (accepted && target.hp > 0 && !target._killed) {
+      record.lastAttackAt = now;
+      const monDef = MONSTERS[target.defId];
+      const interval = ((monDef && monDef.atkInterval) ? monDef.atkInterval * 1000 : 1000)
+        / (1 + monBuff(target, 'aspdPct') / 100) / monDebuffAspd(target);
+      if (!target.lastAttackTime) target.lastAttackTime = now;
+      if (now - target.lastAttackTime >= interval) {
+        target.lastAttackTime = now;
+        monsterAttackSingle(target);
+      }
+    } else if (accepted) {
+      record.lastAttackAt = now;
+    }
+  } catch (error) {
+    return reject('戰鬥結算失敗：' + (error && error.message ? error.message : '未知錯誤'));
+  } finally {
+    if (state.hp <= 0 && Array.isArray(previousMonsters)) {
+      previousMonsters.length = 0;
+      state.monsters = previousMonsters;
+      state.monster = null;
+    } else {
+      state.monsters = previousMonsters;
+      state.monster = previousMonster;
+    }
+    roExplorerCombatTransactionDepth = Math.max(0, roExplorerCombatTransactionDepth - 1);
+  }
+
+  record.killed = target.hp <= 0 || !!target._killed;
+  if (record.killed) saveGame();
+  else if (typeof saveGameThrottled === 'function') saveGameThrottled();
+  if (RO_EXPLORER_COMBAT_TARGETS.size > 128) {
+    const cutoff = Date.now() - 30 * 60 * 1000;
+    for (const [targetKey, targetRecord] of RO_EXPLORER_COMBAT_TARGETS) {
+      if (targetRecord.updatedAt < cutoff || RO_EXPLORER_COMBAT_TARGETS.size > 160) RO_EXPLORER_COMBAT_TARGETS.delete(targetKey);
+    }
+  }
+  return {
+    ok: true, accepted, killed: record.killed,
+    damageDealt: Math.max(0, hpBefore - Math.max(0, target.hp)),
+    hp: Math.max(0, target.hp), maxHp: target.maxHp, attackIntervalMs,
+    playerHp: state.hp, playerMaxHp: state.maxHp, playerSp: state.sp, playerMaxSp: state.maxSp,
+    ...roExplorerTimedStatusState(target),
+  };
+}
+
+
+/* 原生探索主動技能：沿用 castSkill() 的正式資源、冷卻、命中與傷害流程。 */
+function castRoExplorerSkill(sessionId, spawnKey, mapId, defId, skillId) {
+  const reject = message => ({ ok: false, accepted: false, error: message });
+  if (typeof sessionId !== 'string' || !/^[a-z0-9_-]{4,80}$/i.test(sessionId)
+    || typeof spawnKey !== 'string' || !/^[a-z0-9_-]{1,32}$/i.test(spawnKey)) {
+    return reject('探索戰鬥識別碼無效。');
+  }
+  if (typeof mapId !== 'string' || !/^[a-z0-9_@-]{1,64}$/i.test(mapId)) return reject('地圖識別碼無效。');
+  if (typeof skillId !== 'string' || !/^[a-z0-9_]{1,48}$/i.test(skillId)) return reject('技能識別碼無效。');
+  if (!state || String(state.mapId || '') !== mapId) return reject('主遊戲目前不在這張地圖；請重新開啟探索。');
+  if (state.hp <= 0) return reject('角色已倒下，暫時無法施放技能。');
+  if (typeof playerImmobile === 'function' && playerImmobile()) return reject('角色目前無法行動。');
+
+  const map = Array.isArray(MAPS) ? MAPS.find(item => item.id === mapId) : null;
+  if (!map || !Array.isArray(map.monsters) || !map.monsters.some(item => item && item.id === defId)) {
+    return reject('這隻怪物不屬於目前地圖。');
+  }
+  const def = MONSTERS[defId];
+  if (!def || !Number.isFinite(def.hp) || def.hp < 1) return reject('怪物資料不存在。');
+
+  const sk = findSkillForUse(skillId);
+  const lv = skillLv(skillId);
+  /* 攻擊技能沿用正式傷害流程；白名單內的自身增益也可直接套用到角色。 */
+  if (!sk || !lv || !RO_EXPLORER_SUPPORTED_SKILL_TYPES.has(sk.type)) {
+    return reject('這個技能類型尚未接通原生探索戰鬥。');
+  }
+  if (!skillReady(skillId)) {
+    return { ok: true, accepted: false, error: '技能冷卻中。', skillName: sk.name,
+      playerHp: state.hp, playerMaxHp: state.maxHp, playerSp: state.sp, playerMaxSp: state.maxSp };
+  }
+  if (state.sp < skillSpCost(sk, lv)) {
+    return { ok: true, accepted: false, error: 'SP 不足，無法施放「' + sk.name + '」。',
+      skillName: sk.name, playerHp: state.hp, playerMaxHp: state.maxHp,
+      playerSp: state.sp, playerMaxSp: state.maxSp };
+  }
+
+  const key = sessionId + ':' + mapId + ':' + spawnKey;
+  let record = RO_EXPLORER_COMBAT_TARGETS.get(key);
+  if (record && record.defId !== defId) return reject('怪物位置資料已變更，請重新選取目標。');
+  if (!record) {
+    pruneRoExplorerCombatTargets();
+    const maxHp = Math.max(1, Math.round(def.hp * farmMult('hp')));
+    roExplorerCombatSequence = (roExplorerCombatSequence + 1) % 1000000000;
+    const monster = {
+      defId, hp: maxHp, maxHp, id: -2000000000 + roExplorerCombatSequence,
+      spawnedAt: Date.now(), lastAttackTime: Date.now(), farmMode: farmMode(),
+    };
+    record = { defId, monster, killed: false, lastAttackAt: 0, updatedAt: Date.now() };
+    RO_EXPLORER_COMBAT_TARGETS.set(key, record);
+  }
+
+  const target = record.monster;
+  record.updatedAt = Date.now();
+  const attackIntervalMs = Math.ceil(
+    Math.max(100, Math.min(12000, Number(state.attackInterval) || 1000))
+      / Math.max(0.2, 1 + pDebuff('aspdPct') / 100)
+  );
+  if (record.killed || target.hp <= 0 || target._killed) {
+    record.killed = true;
+    return { ok: true, accepted: false, killed: true, hp: 0, maxHp: target.maxHp,
+      attackIntervalMs, skillName: sk.name, playerHp: state.hp,
+      playerMaxHp: state.maxHp, playerSp: state.sp, playerMaxSp: state.maxSp };
+  }
+
+  const previousMonsters = state.monsters;
+  const previousMonster = state.monster;
+  const hpBefore = target.hp;
+  const now = Date.now();
+  let accepted = false;
+  roExplorerCombatTransactionDepth++;
+  try {
+    state.monsters = [target];
+    state.monster = target;
+    accepted = castSkill(skillId);
+    if (accepted) {
+      record.lastAttackAt = now;
+      if (target.hp > 0 && !target._killed) {
+        const monDef = MONSTERS[target.defId];
+        const interval = ((monDef && monDef.atkInterval) ? monDef.atkInterval * 1000 : 1000)
+          / (1 + monBuff(target, 'aspdPct') / 100) / monDebuffAspd(target);
+        if (!target.lastAttackTime) target.lastAttackTime = now;
+        if (now - target.lastAttackTime >= interval) {
+          target.lastAttackTime = now;
+          monsterAttackSingle(target);
+        }
+      }
+    }
+  } catch (error) {
+    return reject('技能結算失敗：' + (error && error.message ? error.message : '未知錯誤'));
+  } finally {
+    if (state.hp <= 0 && Array.isArray(previousMonsters)) {
+      previousMonsters.length = 0;
+      state.monsters = previousMonsters;
+      state.monster = null;
+    } else {
+      state.monsters = previousMonsters;
+      state.monster = previousMonster;
+    }
+    roExplorerCombatTransactionDepth = Math.max(0, roExplorerCombatTransactionDepth - 1);
+  }
+
+  record.killed = target.hp <= 0 || !!target._killed;
+  if (accepted) saveGame();
+  if (RO_EXPLORER_COMBAT_TARGETS.size > 128) {
+    const cutoff = Date.now() - 30 * 60 * 1000;
+    for (const [targetKey, targetRecord] of RO_EXPLORER_COMBAT_TARGETS) {
+      if (targetRecord.updatedAt < cutoff || RO_EXPLORER_COMBAT_TARGETS.size > 160) {
+        RO_EXPLORER_COMBAT_TARGETS.delete(targetKey);
+      }
+    }
+  }
+  return {
+    ok: true, accepted, killed: record.killed, skillName: sk.name, skillLevel: lv,
+    skillType: sk.type, isSelfBuff: RO_EXPLORER_SELF_BUFF_TYPES.has(sk.type),
+    damageDealt: Math.max(0, hpBefore - Math.max(0, target.hp)),
+    hp: Math.max(0, target.hp), maxHp: target.maxHp, attackIntervalMs,
+    playerHp: state.hp, playerMaxHp: state.maxHp, playerSp: state.sp, playerMaxSp: state.maxSp,
+    ...roExplorerTimedStatusState(target),
+  };
+}
+
+
+
+/* 原生探索恢復／輔助：不用選怪物，仍由正式技能流程管理 SP、冷卻與狀態。 */
+function castRoExplorerSupportSkill(sessionId, mapId, skillId) {
+  const reject = message => ({ ok: false, accepted: false, error: message });
+  if (typeof sessionId !== 'string' || !/^[a-z0-9_-]{4,80}$/i.test(sessionId)) {
+    return reject('探索輔助識別碼無效。');
+  }
+  if (typeof mapId !== 'string' || !/^[a-z0-9_@-]{1,64}$/i.test(mapId)) return reject('地圖識別碼無效。');
+  if (typeof skillId !== 'string' || !/^[a-z0-9_]{1,48}$/i.test(skillId)) return reject('技能識別碼無效。');
+  if (!state || String(state.mapId || '') !== mapId) return reject('主遊戲目前不在這張地圖；請重新開啟探索。');
+  if (state.hp <= 0) return reject('角色已倒下，暫時無法施放技能。');
+  if (typeof playerImmobile === 'function' && playerImmobile()) return reject('角色目前無法行動。');
+  if (!Array.isArray(MAPS) || !MAPS.some(item => item && item.id === mapId)) return reject('地圖資料不存在。');
+
+  const sk = findSkillForUse(skillId);
+  const lv = skillLv(skillId);
+  if (!sk || !lv || !RO_EXPLORER_SUPPORT_SKILL_TYPES.has(sk.type)) {
+    return reject('這個技能尚未接通原生探索的恢復／輔助流程。');
+  }
+  const spCost = skillSpCost(sk, lv);
+  if (!skillReady(skillId)) {
+    return { ok: true, accepted: false, isSupportSkill: true, skillName: sk.name, skillType: sk.type,
+      error: '技能冷卻中。', playerHp: state.hp, playerMaxHp: state.maxHp,
+      playerSp: state.sp, playerMaxSp: state.maxSp };
+  }
+  if (state.sp < spCost) {
+    return { ok: true, accepted: false, isSupportSkill: true, skillName: sk.name, skillType: sk.type,
+      error: 'SP 不足，無法施放「' + sk.name + '」。', playerHp: state.hp, playerMaxHp: state.maxHp,
+      playerSp: state.sp, playerMaxSp: state.maxSp };
+  }
+
+  const hpBefore = Number(state.hp) || 0;
+  const spBefore = Number(state.sp) || 0;
+  const zenyBefore = Number(state.gold) || 0;
+  let accepted = false;
+  roExplorerCombatTransactionDepth++;
+  try {
+    accepted = castSkill(skillId);
+  } catch (error) {
+    return reject('輔助技能結算失敗：' + (error && error.message ? error.message : '未知錯誤'));
+  } finally {
+    roExplorerCombatTransactionDepth = Math.max(0, roExplorerCombatTransactionDepth - 1);
+  }
+  if (accepted) saveGame();
+  return {
+    ok: true, accepted, isSupportSkill: true, skillName: sk.name, skillLevel: lv, skillType: sk.type,
+    isSelfBuff: RO_EXPLORER_SELF_BUFF_TYPES.has(sk.type),
+    hpRestored: Math.max(0, (Number(state.hp) || 0) - hpBefore),
+    spRestored: Math.max(0, (Number(state.sp) || 0) - spBefore),
+    spCost: Math.max(0, spBefore - (Number(state.sp) || 0)),
+    zenySpent: Math.max(0, zenyBefore - (Number(state.gold) || 0)),
+    playerHp: state.hp, playerMaxHp: state.maxHp, playerSp: state.sp, playerMaxSp: state.maxSp,
+  };
+}
+
+/* 探索目標沿用引擎的中毒／出血 tick，不另造傷害公式。 */
+function tickRoExplorerMonsterStatus(sessionId, spawnKey, mapId, defId) {
+  const reject = message => ({ ok: false, accepted: false, error: message });
+  if (typeof sessionId !== 'string' || !/^[a-z0-9_-]{4,80}$/i.test(sessionId)
+    || typeof spawnKey !== 'string' || !/^[a-z0-9_-]{1,32}$/i.test(spawnKey)) {
+    return reject('探索戰鬥識別碼無效。');
+  }
+  if (typeof mapId !== 'string' || !/^[a-z0-9_@-]{1,64}$/i.test(mapId)) return reject('地圖識別碼無效。');
+  if (!state || String(state.mapId || '') !== mapId) return reject('主遊戲目前不在這張地圖。');
+  const map = Array.isArray(MAPS) ? MAPS.find(item => item.id === mapId) : null;
+  if (!map || !Array.isArray(map.monsters) || !map.monsters.some(item => item && item.id === defId)) {
+    return reject('這隻怪物不屬於目前地圖。');
+  }
+  const key = sessionId + ':' + mapId + ':' + spawnKey;
+  const record = RO_EXPLORER_COMBAT_TARGETS.get(key);
+  if (!record || record.defId !== defId) return reject('找不到探索戰鬥目標。');
+  const target = record.monster;
+  const now = Date.now();
+  record.updatedAt = now;
+  if (record.killed || target.hp <= 0 || target._killed) {
+    record.killed = true;
+    return { ok: true, accepted: false, killed: true, hp: 0, maxHp: target.maxHp,
+      damageDealt: 0, ...roExplorerTimedStatusState(target) };
+  }
+  const minimumTickMs = 850;
+  if (record.lastStatusTickAt && now - record.lastStatusTickAt < minimumTickMs) {
+    return { ok: true, accepted: false, rateLimited: true,
+      retryAfterMs: Math.max(50, minimumTickMs - (now - record.lastStatusTickAt)),
+      hp: target.hp, maxHp: target.maxHp, damageDealt: 0, ...roExplorerTimedStatusState(target) };
+  }
+  record.lastStatusTickAt = now;
+  const previousMonsters = state.monsters;
+  const previousMonster = state.monster;
+  const hpBefore = target.hp;
+  roExplorerCombatTransactionDepth++;
+  try {
+    state.monsters = [target];
+    state.monster = target;
+    tickPoisonDot();
+    tickBleed();
+  } catch (error) {
+    return reject('持續狀態結算失敗：' + (error && error.message ? error.message : '未知錯誤'));
+  } finally {
+    if (state.hp <= 0 && Array.isArray(previousMonsters)) {
+      previousMonsters.length = 0;
+      state.monsters = previousMonsters;
+      state.monster = null;
+    } else {
+      state.monsters = previousMonsters;
+      state.monster = previousMonster;
+    }
+    roExplorerCombatTransactionDepth = Math.max(0, roExplorerCombatTransactionDepth - 1);
+  }
+  record.killed = target.hp <= 0 || !!target._killed;
+  const damageDealt = Math.max(0, hpBefore - Math.max(0, target.hp));
+  if (damageDealt > 0) {
+    if (record.killed) saveGame();
+    else if (typeof saveGameThrottled === 'function') saveGameThrottled();
+  }
+  return {
+    ok: true, accepted: true, statusTick: true, killed: record.killed, damageDealt,
+    hp: Math.max(0, target.hp), maxHp: target.maxHp,
+    ...roExplorerTimedStatusState(target),
+  };
+}
+
 function playerAttackInner() {
   if (!state.monsters || state.monsters.length === 0) return false;
   // 弓沒箭就打不出去（先擋在最前面，音效動畫都不放）
@@ -9834,6 +10224,7 @@ function castSkillInner(skillId, opts) {
       const hitBonus = Array.isArray(sk.hitBonus) ? sk.hitBonus[lv - 1] : sk.hitBonus;
       state.buffs.push({ type: 'blessing', strBonus: statBonus, intBonus: statBonus, dexBonus: statBonus, msRemaining: dur * 1000, skillId: sk.id });
       state.buffs.push({ type: 'hit', mult: 1, flatBonus: hitBonus, msRemaining: dur * 1000 });
+      recomputeDerived(false);
       logMsg(`✨ 「${sk.name}」Lv${lv} 發動，STR/INT/DEX與HIT上升！`);
       break;
     }
@@ -9847,6 +10238,7 @@ function castSkillInner(skillId, opts) {
       const dur = Array.isArray(sk.duration) ? sk.duration[lv - 1] : sk.duration;
       const lukBonus = Array.isArray(sk.lukBonus) ? sk.lukBonus[lv - 1] : sk.lukBonus;
       state.buffs.push({ type: 'lukflat', mult: 1, flatBonus: lukBonus, msRemaining: dur * 1000, skillId: sk.id });
+      recomputeDerived(false);
       logMsg(`🍀 「${sk.name}」Lv${lv} 發動，LUK上升！`);
       break;
     }
@@ -9865,6 +10257,7 @@ function castSkillInner(skillId, opts) {
       const el = sk.element || 'holy';
       state.buffs = state.buffs.filter(b => b.type !== 'elearmor');
       state.buffs.push({ type: 'elearmor', element: el, mult: 1, msRemaining: dur * 1000, skillId: sk.id });
+      recomputeDerived(false);
       logMsg(`✨ 「${sk.name}」Lv${lv} 發動，防禦屬性變為${ELEMENT_NAMES[el] || el}屬性，持續 ${dur} 秒！`);
       break;
     }
@@ -9877,6 +10270,7 @@ function castSkillInner(skillId, opts) {
       const hf = Array.isArray(sk.maxHpFlat) ? sk.maxHpFlat[lv - 1] : sk.maxHpFlat;
       state.buffs.push({ type: 'def', mult: 1 + dp / 100, msRemaining: dur * 1000, skillId: sk.id });
       state.buffs.push({ type: 'maxhpflat', mult: 1, flatBonus: hf, msRemaining: dur * 1000, skillId: sk.id });
+      recomputeDerived(false);
       logMsg(`🛡️ 「${sk.name}」Lv${lv} 發動，防禦力 +${dp}%、最大HP +${hf}，持續 ${dur} 秒！`);
       break;
     }
@@ -9889,6 +10283,8 @@ function castSkillInner(skillId, opts) {
       state.buffs.push({ type: 'ailimmune', ailType: t, mult: 1, msRemaining: dur * 1000, skillId: sk.id });
       // 身上已經中著的那一份先解掉，不然「免疫」要等現有的毒跑完才看得出來
       if (state.playerAil && state.playerAil[t]) delete state.playerAil[t];
+      // 立刻刷新 state.ailResist，否則施放當下的新異常仍可能穿過免疫 buff。
+      recomputeDerived(false);
       logMsg(`💊 「${sk.name}」Lv${lv} 發動，免疫${(PLAYER_AILMENTS[t] || {}).name || t}，持續 ${dur} 秒！`);
       break;
     }
@@ -13420,7 +13816,7 @@ function saveGameThrottled() {
   if (Date.now() - lastSaveTs > 5000) saveGame();
 }
 function saveGame() {
-  if (!state) return;
+  if (!state || roExplorerCombatTransactionDepth > 0) return;
   /* 換身期間（withAlly）**絕對不能存**（#105）：那時候的 `state` 是隊友快照，
      存下去等於把玩家的存檔格整個換成隊友——名字、職業、等級、背包全部變成他的。
 

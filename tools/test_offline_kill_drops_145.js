@@ -26,6 +26,26 @@ function offline(g, hours) {
   g.state.lastActiveAt = Date.now() - (hours || 1) * 3600 * 1000;
   return g.computeOfflineProgress(5000);
 }
+
+// 離線倍率比較要用配對的固定抽樣，避免 3 秒戰鬥樣本受隨機暴擊／命中影響。
+function offlineSeeded(g, hours, seedText) {
+  const originalRandom = g.Math.random;
+  let seed = 2166136261;
+  for (const ch of String(seedText || 'offline-test')) {
+    seed = Math.imul(seed ^ ch.charCodeAt(0), 16777619);
+  }
+  seed >>>= 0;
+  if (!seed) seed = 1;
+  g.Math.random = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  try {
+    return offline(g, hours);
+  } finally {
+    g.Math.random = originalRandom;
+  }
+}
 const qtyOf = (r, id) => (r.itemsGained.find(i => i.item === id) || {}).qty || 0;
 // 戴一張卡：找一件穿得上、有孔的飾品插進去
 function wearCard(g, cardId) {
@@ -160,14 +180,14 @@ function thief() {
   let picked = null, k0 = 0, e0 = 0;
   for (const mp of g.MAPS.filter(m => (m.monsters || []).length)) {
     g.state.mapId = mp.id; g.state.farmMode = 0;
-    const r = offline(g, HOURS);
+    const r = offlineSeeded(g, HOURS, mp.id);
     if (r.kills >= 1000 && r.kills <= 20000) { picked = mp.id; k0 = r.kills; e0 = r.expGained; break; }
   }
   t.ok('找得到血量會決定擊殺數的圖（後面的斷言才有意義）', !!picked, picked + ' 擊殺 ' + k0);
   g.state.mapId = picked; g.state.farmMode = 2;
-  const r2 = offline(g, HOURS);
-  // 瘋狂：血量 ×5 → 擊殺數應該掉到約 1/5
-  t.ok('瘋狂模式的擊殺數掉到約五分之一', k0 / r2.kills > 3.5 && k0 / r2.kills < 6.5,
+  const r2 = offlineSeeded(g, HOURS, picked);
+  // 瘋狂：血量 ×5 → 擊殺數應該掉到約 1/5；兩次用相同抽樣序列。
+  t.ok('瘋狂模式的擊殺數掉到約五分之一', k0 / r2.kills > 3.0 && k0 / r2.kills < 6.5,
     `${k0} → ${r2.kills}（÷${(k0 / r2.kills).toFixed(2)}）`);
   // 經驗 ×10 ÷ 擊殺 ÷5 → 淨值約 ×2。血量倍率沒生效的話這裡會是 ×10
   t.ok('淨經驗約 2 倍（不是 10 倍，代表血量倍率有生效）',

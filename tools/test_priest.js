@@ -264,13 +264,21 @@ const PARTY_SKILLS = ['magnificat', 'gloria', 'kyrie', 'impositio_manus',
   const mon = H.mon(gg, { defId: 'poring', hp: 9e9 });
   const md = gg.MONSTERS.poring;
   let silenced = 0;
-  for (let i = 0; i < 200; i++) {
-    gg.state.attackSilenceReadyAt = 0;        // 內部冷卻歸零，單純量機率
-    mon.ail = {};
-    gg.tryPriestProcs(mon, md);
-    if (mon.ail && mon.ail.silence) silenced++;
+  const originalRandom = gg.Math.random;
+  let rollIndex = 0;
+  try {
+    // 100 個均勻分布的百分位重複兩輪，讓 20% 機率測試完全可重現。
+    gg.Math.random = () => ((rollIndex++ * 37) % 100) / 100;
+    for (let i = 0; i < 200; i++) {
+      gg.state.attackSilenceReadyAt = 0;    // 內部冷卻歸零，單純量機率
+      mon.ail = {};
+      gg.tryPriestProcs(mon, md);
+      if (mon.ail && mon.ail.silence) silenced++;
+    }
+  } finally {
+    gg.Math.random = originalRandom;
   }
-  t.near('200 次普攻約 20% 會沉默', silenced / 200 * 100, 20, 8);
+  t.eq('200 次均勻抽樣應觸發 40 次沉默', silenced, 40);
 
   // 內部冷卻：剛觸發過就不該再中
   gg.state.attackSilenceReadyAt = Date.now() + 10000;

@@ -16,6 +16,22 @@ const PATHS = {
   knight: ['swordsman', 'knight'], monk: ['acolyte', 'monk'],
   priest: ['acolyte', 'priest'], blacksmith: ['merchant', 'blacksmith'],
 };
+function withDeterministicRandom(seed, callback) {
+  const originalRandom = Math.random;
+  let state = seed >>> 0;
+  Math.random = () => {
+    state = (state + 0x6D2B79F5) | 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+  try {
+    return callback();
+  } finally {
+    Math.random = originalRandom;
+  }
+}
 function mk(job, opts) {
   job = job || 'wizard';
   H.mkChar(g, Object.assign({ job, path: PATHS[job], baseLevel: 99, jobLevel: 50 }, opts || {}));
@@ -183,36 +199,38 @@ function field(n) {
   mk('wizard', { stats: { str: 99, agi: 60, vit: 50, int: 99, dex: 99, luk: 1 } });
   wearN(MAGE, 5);
   const P = g.RELIC_PROC_MAGE;
-  const N = 3000;
-  let splashTurns = 0, mismatch = 0, blindHits = 0, blindTurns = 0;
-  for (let i = 0; i < N; i++) {
-    field(5);
-    const before = g.state.monsters.map(m => m.hp);
-    g.playerAttack();
-    const after = g.state.monsters.map(m => m.hp);
-    const mainDmg = before[0] - after[0];
-    const others = after.slice(1).map((h, j) => before[j + 1] - h).filter(d => d > 0);
-    if (others.length) {
-      splashTurns++;
-      if (others.some(d => d !== mainDmg)) mismatch++;
+  withDeterministicRandom(0x524f4f, () => {
+    const N = 3000;
+    let splashTurns = 0, mismatch = 0, blindHits = 0, blindTurns = 0;
+    for (let i = 0; i < N; i++) {
+      field(5);
+      const before = g.state.monsters.map(m => m.hp);
+      g.playerAttack();
+      const after = g.state.monsters.map(m => m.hp);
+      const mainDmg = before[0] - after[0];
+      const others = after.slice(1).map((h, j) => before[j + 1] - h).filter(d => d > 0);
+      if (others.length) {
+        splashTurns++;
+        if (others.some(d => d !== mainDmg)) mismatch++;
+      }
+      const nb = g.state.monsters.filter(m => m.ail && m.ail.blind > Date.now()).length;
+      if (nb > 0) { blindTurns++; blindHits += nb; }
     }
-    const nb = g.state.monsters.filter(m => m.ail && m.ail.blind > Date.now()).length;
-    if (nb > 0) { blindTurns++; blindHits += nb; }
-  }
-  t.near('濺射觸發率照資料', splashTurns / N * 100, P.splashChance, 3);
-  t.eq('濺射傷害跟主目標一模一樣（不重擲暴擊）', mismatch, 0);
-  t.near('黑暗觸發率照資料', blindTurns / N * 100, P.blindChance, 3);
-  t.near('觸發後每隻各擲一次', blindHits / blindTurns, 5 * P.blindPerMonster / 100, 0.3);
+    t.near('濺射觸發率照資料', splashTurns / N * 100, P.splashChance, 3);
+    t.eq('濺射傷害跟主目標一模一樣（不重擲暴擊）', mismatch, 0);
+    t.near('黑暗觸發率照資料', blindTurns / N * 100, P.blindChance, 3);
+    t.near('觸發後每隻各擲一次', blindHits / blindTurns, 5 * P.blindPerMonster / 100, 0.3);
 
-  // 場上只有一隻時濺射沒有對象，不能因此壞掉或重複打主目標
-  let solo = 0;
-  for (let i = 0; i < 500; i++) {
-    field(1);
-    const before = g.state.monsters[0].hp;
-    g.playerAttack();
-    if (before - g.state.monsters[0].hp > 0) solo++;
-  }
-  t.ok('單怪時照常打得到，不會因為濺射出錯', solo > 0);
+    // 場上只有一隻時濺射沒有對象，不能因此壞掉或重複打主目標
+    let solo = 0;
+    for (let i = 0; i < 500; i++) {
+      field(1);
+      const before = g.state.monsters[0].hp;
+      g.playerAttack();
+      if (before - g.state.monsters[0].hp > 0) solo++;
+    }
+    t.ok('單怪時照常打得到，不會因為濺射出錯', solo > 0);
+  });
 }
 
 /* ---------- 掉落閘門 ---------- */

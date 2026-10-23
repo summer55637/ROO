@@ -1,0 +1,58 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ui = fs.readFileSync(path.join(root, 'js/ui.js'), 'utf8');
+const explorer = fs.readFileSync(path.join(root, 'tools/ro_explorer.mjs'), 'utf8');
+
+assert.match(ui,
+  /!\['attack', 'skill', 'support_skill', 'status_tick', 'vitals'\]\.includes\(command\.type\)/,
+  '主遊戲允許原生探索讀取生命值快照及恢復／輔助命令');
+assert.match(ui,
+  /if \(command\.type === 'support_skill'\) \{\s*result = typeof castRoExplorerSupportSkill === 'function'/,
+  '恢復／輔助命令只會走專用主引擎橋接');
+assert.match(ui,
+  /if \(command\.type === 'vitals'\) \{\s*result = state \? \{\s*ok: true, accepted: true,\s*playerHp: state\.hp,\s*playerMaxHp: state\.maxHp,\s*playerSp: state\.sp,\s*playerMaxSp: state\.maxSp(?:,|\s*\})/,
+  '生命值快照必須讀取主遊戲當前 HP／SP');
+assert.match(ui,
+  /function buildRoExplorerProgressSnapshot\(playerState\)[\s\S]*?playerBaseLevel:[\s\S]*?playerBaseExpNeed:[\s\S]*?playerJobLevel:[\s\S]*?playerJobExpNeed:[\s\S]*?playerZeny:/,
+  '探索進度快照沿用主遊戲等級、經驗曲線與鋅幣');
+assert.match(ui,
+  /if \(state && command\.type !== 'vitals'\) \{\s*result = Object\.assign\(\{\}, result, buildRoExplorerProgressSnapshot\(state\)\);\s*\}/,
+  '普攻、技能與持續傷害回覆附上最新等級／經驗／鋅幣');
+assert.match(ui,
+  /\['pbaselevel', progression\.playerBaseLevel\][\s\S]*?\['pzeny', progression\.playerZeny\]/,
+  '開啟探索時會傳入角色初始進度');
+assert.match(explorer,
+  /function requestRoExplorerVitals\(\)[\s\S]*?type: 'vitals',[\s\S]*?localStorage\.setItem\(RO_EXPLORER_COMBAT_COMMAND_KEY, JSON\.stringify\(command\)\)/,
+  '探索頁定時向同源主遊戲請求新快照');
+assert.match(explorer,
+  /if \(result\.requestType === 'vitals'\) \{\s*if \(result\.requestId !== pendingVitalsRequestId\) return;\s*pendingVitalsRequestId = null;\s*if \(result\.ok && result\.accepted\) updatePlayerVitals\(/,
+  '探索頁只接受本次輪詢的回覆並更新狀態條');
+assert.match(explorer,
+  /if \(result\.ok && result\.accepted\) updatePlayerProgress\(result\)/,
+  '探索頁將主遊戲進度快照更新到 HUD');
+assert.match(explorer,
+  /vitalsPollTimer = window\.setInterval\(requestRoExplorerVitals, 1000\)/,
+  '生命值輪詢頻率限制為每秒一次');
+assert.match(explorer,
+  /window\.addEventListener\('pagehide',[\s\S]*?clearInterval\(vitalsPollTimer\)[\s\S]*?pendingVitalsRequestId = null/,
+  '離開頁面會停止輪詢並清除待回覆識別碼');
+assert.match(explorer,
+  /window\.addEventListener\('pageshow',[\s\S]*?setVitalsPollingMode\('native'\)/,
+  '從 BFCache 返回會恢復生命值同步');
+
+assert.match(explorer,
+  /function refreshVitalsPolling\(\) \{[\s\S]*?activeExplorerMode === 'native'[\s\S]*?!document\.hidden[\s\S]*?setInterval\(requestRoExplorerVitals, 1000\)/,
+  '背景分頁不進行 HP／SP 輪詢');
+assert.match(explorer,
+  /document\.addEventListener\('visibilitychange', refreshVitalsPolling\)/,
+  '切回前景時恢復 HP／SP 輪詢');
+assert.match(explorer,
+  /function requestRoExplorerVitals\(\) \{[\s\S]*?\|\| document\.hidden \|\| !explorerPageActive \|\| pendingVitalsRequestId/,
+  '隱藏或離開中的頁面不可發出新的生命值請求');
+
+
+console.log('原生探索 HP／SP 即時同步橋接測試通過。');

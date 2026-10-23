@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ROO 真實地圖探索原型</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, "Noto Sans TC", sans-serif; background: #090f18; color: #e4edf8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; height: 100vh; height: 100dvh; min-height: 0; display: flex; flex-direction: column; }
+    header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 16px; background: #111b2a; border-bottom: 1px solid #2b3a4f; }
+    .brand { min-width: 210px; margin-right: auto; }
+    .brand strong { display: block; font-size: 16px; }
+    .brand span, .hint, footer { color: #9eafc5; font-size: 12px; line-height: 1.5; }
+    .mode-buttons { display: flex; gap: 6px; }
+    label { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+    input[type="file"] { width: 170px; max-width: 32vw; font-size: 12px; }
+    input[type="number"] { width: 72px; }
+    input[type="text"], select { min-width: 130px; max-width: 42vw; padding: 6px; background: #0b1421; color: #e4edf8; border: 1px solid #405773; border-radius: 6px; }
+    input[type="range"] { width: 90px; }
+    input[type="checkbox"] { accent-color: #48d597; }
+    button, .link-button { display: inline-block; border: 1px solid #526985; border-radius: 7px; padding: 7px 10px; background: #1a2a3e; color: #e4edf8; cursor: pointer; font: inherit; font-size: 12px; text-decoration: none; }
+    button:hover, .link-button:hover { background: #263e59; }
+    /* Author button display rules must not override the HTML hidden state. */
+    button[hidden] { display: none !important; }
+    button[aria-pressed="true"] { border-color: #48d597; background: #193a37; }
+    main { flex: 1; min-height: 0; }
+    main[hidden] { display: none; }
+    #public-mode:not([hidden]) { display: flex; flex-direction: column; min-height: 0; }
+    #public-info { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 10px 16px; background: #101927; border-bottom: 1px solid #273549; }
+    #public-info p { margin: 0; flex: 1; min-width: 240px; color: #b9c8da; font-size: 12px; line-height: 1.5; }
+    #public-map { width: 100%; height: calc(100vh - 180px); min-height: 460px; border: 0; background: #090f18; }
+    #local-toolbar, #native-toolbar, #movement-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 16px; background: #101927; border-bottom: 1px solid #273549; }
+    #native-toolbar[hidden], #local-toolbar[hidden] { display: none; }
+    #local-mode:not([hidden]) { display: flex; flex-direction: column; min-height: 0; }
+    #stage { flex: 1 1 auto; height: auto; min-height: 420px; position: relative; overflow: hidden; touch-action: pan-y; }
+    #stage > canvas { display: block; width: 100%; height: 100%; }
+    #ro-2d-stage { position: absolute; inset: 0; z-index: 0; display: block; width: 100%; height: 100%; touch-action: manipulation; cursor: crosshair; background: #283e2d; image-rendering: auto; }
+    #ro-2d-stage[hidden] { display: none; }
+    #stage.roo-2d-active > canvas:not(#ro-2d-stage) { display: none !important; }
+    #stage > canvas[hidden] { display: none !important; }
+    #stage.roo-2d-active #gnd-debug-picker, #stage.roo-2d-active #gnd-surface-inspector { display: none; }
+    #status { position: absolute; top: 12px; left: 12px; z-index: 2; max-width: min(660px, calc(100% - 24px)); padding: 10px 12px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .9); color: #d9e7f8; font-size: 12px; line-height: 1.5; white-space: pre-line; pointer-events: none; }
+    #status.error { color: #fecaca; border-color: #9f4141; }
+    #gnd-debug-picker { position: absolute; top: 12px; right: 12px; z-index: 5; max-width: min(250px, calc(100% - 24px)); padding: 8px 10px; border: 1px solid #526985; border-radius: 8px; background: rgba(7, 13, 22, .92); color: #d9e7f8; }
+    #gnd-debug-picker select { min-width: 145px; max-width: min(180px, 44vw); }
+    #gnd-surface-inspector { position: absolute; top: 62px; right: 12px; z-index: 4; width: min(390px, calc(100% - 24px)); max-height: min(38vh, 320px); overflow: auto; overscroll-behavior: contain; touch-action: pan-y; padding: 9px 11px; border: 1px solid #526985; border-radius: 8px; background: rgba(7, 13, 22, .94); color: #d9e7f8; font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; pointer-events: auto; overflow-wrap: anywhere; }
+    #gnd-surface-inspector[hidden] { display: none; }
+    #gnd-surface-inspector pre { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+    @media (max-width: 640px) { #gnd-surface-inspector { top: 58px; width: min(270px, calc(100% - 24px)); max-height: 24vh; font-size: 10px; } }
+    #stats { position: absolute; right: 12px; bottom: 12px; z-index: 2; max-width: min(360px, calc(100% - 24px)); padding: 9px 11px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .9); color: #cbd8e8; font-size: 12px; line-height: 1.6; white-space: pre-line; pointer-events: none; }
+    .minimap-panel { position: absolute; left: 12px; bottom: 12px; z-index: 2; width: max-content; max-width: min(232px, calc(100% - 24px)); padding: 7px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .9); color: #cbd8e8; pointer-events: auto; }
+    .minimap-panel[hidden] { display: none; }
+    .minimap-heading { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 5px; font-size: 11px; line-height: 1.3; }
+    #minimap { display: block; max-width: min(196px, 34vw); max-height: min(196px, 27vh); width: auto; height: auto; border: 1px solid #516176; image-rendering: pixelated; cursor: crosshair; touch-action: manipulation; }
+    .minimap-legend { max-width: 210px; margin-top: 5px; color: #aebfd3; font-size: 10px; line-height: 1.4; }
+    .monster-panel { position: absolute; top: 12px; right: 12px; z-index: 3; width: min(270px, calc(100% - 24px)); padding: 10px 12px; border: 1px solid #8a5b52; border-radius: 8px; background: rgba(22, 13, 18, .94); color: #f1ded7; font-size: 12px; line-height: 1.5; pointer-events: auto; }
+    .monster-panel[hidden] { display: none; }
+    .monster-panel strong { display: block; margin-bottom: 5px; font-size: 13px; }
+    .monster-panel p { margin: 0 0 8px; white-space: pre-line; color: #dec8c2; }
+    .monster-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+    .monster-skill-picker { flex: 1 1 100%; min-width: 0; }
+    .monster-skill-picker select { flex: 1; width: 100%; min-width: 0; }
+    .monster-panel button { border-color: #8a5b52; background: #402a2b; padding: 5px 8px; font-size: 11px; }
+    .monster-panel button:disabled { opacity: .45; cursor: not-allowed; }
+    #stop-movement[hidden] { display: none; }
+    .vitals-panel { display: grid; flex: 0 1 300px; min-width: 260px; max-width: 100%; gap: 5px; padding: 8px 10px; border: 1px solid #364a63; border-radius: 8px; background: rgba(7, 13, 22, .92); color: #d7e3f2; }
+    .vitals-panel[hidden] { display: none; }
+    .support-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 6px; padding-top: 5px; border-top: 1px solid #273549; }
+    .support-actions label { display: flex; flex-direction: column; align-items: stretch; gap: 3px; font-size: 10px; }
+    #support-skill { width: 100%; min-width: 0; max-width: 100%; padding: 5px; font-size: 11px; }
+    #cast-support-skill { align-self: end; padding: 5px 8px; white-space: nowrap; }
+    .support-actions button:disabled { opacity: .45; cursor: not-allowed; }
+    .vitals-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
+    .vitals-row { display: grid; grid-template-columns: 24px minmax(70px, 1fr) minmax(74px, auto); align-items: center; gap: 7px; font-size: 11px; }
+    .vitals-gauge { height: 9px; overflow: hidden; border: 1px solid #526176; border-radius: 999px; background: #172233; }
+    .vitals-fill { display: block; width: 0; height: 100%; border-radius: inherit; transition: width .15s ease; }
+    .vitals-fill.hp-fill { background: #ec5e78; }
+    .vitals-fill.sp-fill { background: #5ca8f4; }
+    .vitals-fill.is-low { background: #ff3f4f; }
+    .vitals-value { color: #cbd8e8; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+    .progression-row { display: grid; grid-template-columns: 78px minmax(48px, 1fr) minmax(70px, auto); align-items: center; gap: 6px; font-size: 10px; }
+    .progression-row .vitals-gauge { height: 7px; }
+    .progression-fill--base { background: #e6c56a; }
+    .progression-fill--job { background: #a39cff; }
+    #player-zeny-value { color: #e8d79e; font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }
+    .monster-hp-row { margin: 0 0 8px; }
+    .monster-hp-row .vitals-gauge { height: 8px; }
+    #combat-feedback-layer { position: absolute; inset: 0; z-index: 4; overflow: hidden; pointer-events: none; }
+    .combat-feedback { position: absolute; display: block; transform: translate(-50%, -50%); font-size: 19px; font-weight: 900; font-variant-numeric: tabular-nums; line-height: 1; white-space: nowrap; text-shadow: 0 2px 2px #05080d, 0 0 6px rgba(0, 0, 0, .9); pointer-events: none; animation: ro-combat-feedback-rise 820ms ease-out forwards; will-change: transform, opacity; }
+    .combat-feedback--attack { color: #fff0a3; }
+    .combat-feedback--player-hit { color: #ff7777; font-size: 20px; }
+    .combat-feedback--skill { color: #9cecff; font-size: 22px; }
+    .combat-feedback--dot { color: #c5ff7d; font-size: 17px; }
+    .combat-feedback--miss { color: #d7e3f2; font-size: 14px; }
+    @keyframes ro-combat-feedback-rise {
+      0% { opacity: 0; transform: translate(-50%, -35%) scale(.72); }
+      14% { opacity: 1; transform: translate(-50%, -50%) scale(1.12); }
+      100% { opacity: 0; transform: translate(-50%, calc(-50% - 28px)) scale(.94); }
+    }
+    footer { padding: 8px 16px; border-top: 1px solid #273549; }
+    a { color: #8cc8ff; }
+    @media (max-width: 700px) {
+      header { align-items: flex-start; }
+      .brand { width: 100%; }
+      input[type="file"] { width: 145px; max-width: 44vw; }
+      #public-map { height: 68vh; min-height: 420px; }
+      #stage { flex: 1 1 auto; height: auto; min-height: 360px; }
+      .minimap-panel { position: fixed; left: 12px; bottom: max(12px, env(safe-area-inset-bottom)); width: calc(50% - 18px); max-width: calc(50% - 18px); padding: 5px; }
+      #minimap { max-width: 100%; max-height: 18vh; }
+      .minimap-heading { font-size: 10px; }
+      .minimap-legend { font-size: 9px; }
+      /* 手機上診斷文字會佔掉半個畫面，選取怪物時也容易遮住地圖。 */
+      #stats { display: none; }
+      #gnd-debug-picker { display: none; }
+      .monster-panel { top: 84px; width: calc(50% - 18px); padding: 5px; font-size: 9px; }
+      .monster-panel .vitals-row { grid-template-columns: 18px minmax(0, 1fr) 52px; gap: 4px; font-size: 9px; }
+      .monster-panel button { padding: 4px 5px; font-size: 9px; }
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <strong>🧭 ROO 真實地圖探索</strong>
+      <span>優先使用公開地圖來源；不需要你先準備地圖檔</span>
+    </div>
+    <div class="mode-buttons">
+      <button id="show-public" type="button" aria-pressed="true">公開地圖預覽</button>
+      <button id="show-native" type="button" aria-pressed="false">原生地圖（測試）</button>
+      <button id="show-local" type="button" aria-pressed="false">本機 GLB/GAT</button>
+    </div>
+  </header>
+
+  <main id="public-mode">
+    <div id="public-info">
+      <p><strong>公開地圖來源：</strong>此模式從已公開的 RO 地圖模擬器載入資源。進入後點選預覽區的「Caminhe com seu personagem…／探索地圖」按鈕即可載入預設訓練場 <code>tra_fild</code>。此預覽是外部網站，尚未與 ROO 戰鬥或存檔相連。</p>
+      <a class="link-button" href="https://visuais.latam-tools.com.br/#play" target="_blank" rel="noopener noreferrer">另開公開地圖來源 ↗</a>
+    </div>
+    <iframe id="public-map"
+      title="公開的 Ragnarok Online 3D 地圖模擬器"
+      src="https://visuais.latam-tools.com.br/#play"
+      loading="eager"
+      referrerpolicy="no-referrer"
+      allow="fullscreen; autoplay"></iframe>
+  </main>
+
+  <main id="local-mode" hidden>
+    <div id="native-toolbar" hidden>
+      <label>地圖 ID <input id="native-map" type="text" value="prontera" maxlength="64" autocapitalize="none" spellcheck="false"></label>
+      <button id="load-native-map" type="button">載入原生地圖</button>
+      <span class="hint">支援原生 GND/GAT/RSW 與部分 RSM/RSM2 模型、lightmap/AO、水面和動畫，仍待真實瀏覽器畫面校驗。角色優先使用 RO 八方向動畫，失敗時退回本機立繪。野外怪物可接回主遊戲普攻、直接攻擊技能與持續傷害；角色狀態面板也有獨立恢復／輔助選單，必須保持同源主遊戲分頁開啟。指定怪物、定位場域及完整技能特效仍未全部接通。</span>
+      <section id="player-vitals-panel" class="vitals-panel" hidden aria-label="角色 HP 與 SP">
+        <div class="vitals-heading"><strong>角色狀態</strong><span>主遊戲同步</span></div>
+        <div class="vitals-row">
+          <span>HP</span>
+          <div id="player-hp-gauge" class="vitals-gauge" role="progressbar" aria-label="角色 HP" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="player-hp-bar" class="vitals-fill hp-fill"></span></div>
+          <span id="player-hp-value" class="vitals-value">— / —</span>
+        </div>
+        <div class="vitals-row">
+          <span>SP</span>
+          <div id="player-sp-gauge" class="vitals-gauge" role="progressbar" aria-label="角色 SP" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="player-sp-bar" class="vitals-fill sp-fill"></span></div>
+          <span id="player-sp-value" class="vitals-value">— / —</span>
+        </div>
+        <div class="progression-row">
+          <span id="player-base-level">基礎 Lv. —</span>
+          <div id="player-base-exp-gauge" class="vitals-gauge" role="progressbar" aria-label="基礎經驗進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="無資料"><span id="player-base-exp-bar" class="vitals-fill progression-fill--base"></span></div>
+          <span id="player-base-exp-value" class="vitals-value">— / —</span>
+        </div>
+        <div class="progression-row">
+          <span id="player-job-level">職業 Lv. —</span>
+          <div id="player-job-exp-gauge" class="vitals-gauge" role="progressbar" aria-label="職業經驗進度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="無資料"><span id="player-job-exp-bar" class="vitals-fill progression-fill--job"></span></div>
+          <span id="player-job-exp-value" class="vitals-value">— / —</span>
+        </div>
+        <div id="player-zeny-value">鋅幣 —</div>
+        <div class="support-actions" aria-label="恢復與輔助技能">
+          <label for="support-skill">恢復／輔助
+            <select id="support-skill" name="support-skill" aria-label="選擇恢復或輔助技能" disabled>
+              <option value="">載入已學技能…</option>
+            </select>
+          </label>
+          <button id="cast-support-skill" type="button" disabled>施放</button>
+        </div>
+      </section>
+    </div>
+    <div id="local-toolbar">
+      <label>地圖 GLB <input id="model-file" type="file" accept=".glb,model/gltf-binary"></label>
+      <label>地圖 GAT <input id="gat-file" type="file" accept=".gat"></label>
+      <label>世界比例 <input id="world-scale" type="number" min="0.01" max="10" step="0.01" value="0.2" inputmode="decimal"></label>
+    </div>
+    <div id="movement-toolbar" aria-label="探索操作">
+      <label>速度 <input id="move-speed" type="range" min="1" max="8" value="4"><span id="speed-value">4</span></label>
+      <button id="stop-movement" type="button" hidden>停止移動／接近</button>
+      <button id="toggle-2d-view" type="button" aria-pressed="false" disabled>切換純 2D 原型</button>
+      <label><input id="show-cells" type="checkbox">顯示通行格</label>
+      <label><input id="show-minimap" type="checkbox" checked>小地圖</label>
+      <label><input id="follow-player" type="checkbox" checked>跟隨角色視角</label>
+      <button id="recenter" type="button">重置視角</button>
+    </div>
+    <div id="stage">
+      <canvas id="ro-2d-stage" hidden aria-label="RO 真實地表與角色的 Canvas 2D 探索畫面"></canvas>
+      <label id="gnd-debug-picker">地表診斷
+        <select id="gnd-debug-mode" aria-label="GND 地表材質診斷模式">
+          <option value="0">完整合成</option>
+          <option value="1">貼圖＋頂點色</option>
+          <option value="2">RGB 光照圖</option>
+          <option value="3">AO／陰影圖</option>
+          <option value="4">RSW 方向光</option>
+          <option value="5">貼圖×AO</option>
+          <option value="6">貼圖×方向光</option>
+          <option value="7">純 Diffuse 貼圖</option>
+          <option value="8">純頂點色 RGB</option>
+        </select>
+      </label>
+      <div id="status">選取同一張 RO 地圖的 GLB 與 GAT。建議使用 ragx 轉換：<br>
+ragx maps prontera --client "C:/Gravity/Ragnarok" --format glb --world-scale 0.2 --out ./tmp/roo-map<br>
+先選 GLB，再選相同地圖的原始 GAT。點擊 3D 地面或小地圖行走；預設跟隨角色視角，也可取消勾選自由查看；拖曳旋轉、滾輪縮放。</div>
+      <div id="stats">尚未載入地圖</div>
+      <aside id="gnd-surface-inspector" hidden aria-label="GND 地表逐面取樣診斷">
+        <strong>GND Surface 取樣診斷</strong>
+        <pre id="gnd-surface-inspector-content">切換純 Diffuse 或純頂點色，再把滑鼠移到地表。</pre>
+      </aside>
+      <div id="combat-feedback-layer" aria-hidden="true"></div>
+      <section id="monster-panel" class="monster-panel" hidden aria-live="polite" aria-label="選取的 RO 怪物">
+        <strong id="monster-title">目標怪物</strong>
+        <div class="vitals-row monster-hp-row">
+          <span>HP</span>
+          <div id="monster-hp-gauge" class="vitals-gauge" role="progressbar" aria-label="怪物 HP" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="monster-hp-bar" class="vitals-fill hp-fill"></span></div>
+          <span id="monster-hp-value" class="vitals-value">— / —</span>
+        </div>
+        <p id="monster-description"></p>
+        <div class="monster-actions">
+          <button id="attack-monster" type="button">靠近並自動普攻</button>
+          <button id="stop-monster-attack" type="button" hidden>停止普攻</button>
+          <label class="monster-skill-picker" for="monster-skill">主動技能
+            <select id="monster-skill" name="monster-skill" aria-label="選擇主動攻擊技能" disabled>
+              <option value="">載入已學技能…</option>
+            </select>
+          </label>
+          <button id="cast-monster-skill" type="button" disabled>施放技能</button>
+          <button id="clear-monster-target" type="button">解除選取</button>
+        </div>
+      </section>
+      <section id="minimap-panel" class="minimap-panel" hidden aria-label="地圖小地圖">
+        <div class="minimap-heading"><strong id="minimap-map-name">RO 地圖</strong><span>北 ↑</span></div>
+        <canvas id="minimap" width="1" height="1" role="img" aria-label="GAT 通行狀態小地圖"></canvas>
+        <div class="minimap-legend">綠：可走　藍：水域<br>橘：懸崖　紅：障礙<br>綠點：角色　黃線：路徑／目的地</div>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    公開模式使用第三方網站及其地圖資源主機，服務可能變動；ROO 沒有複製或重新散布該網站的程式碼／地圖二進位檔。
+    本機模式則使用你自行選取的檔案，且不會上傳。
+    <a href="https://github.com/adsonpleal/latamvisuais" target="_blank" rel="noopener noreferrer">地圖模擬器原始碼</a> ·
+    <a href="https://github.com/adsonpleal/ragassets" target="_blank" rel="noopener noreferrer">公開地圖資源管線</a> ·
+    <a href="https://github.com/joaopedrosgs/ragx" target="_blank" rel="noopener noreferrer">ragx 轉換工具</a>
+  </footer>
+
+  <script src="../js/map_pathfinding.js"></script>
+  <script src="./ro_explorer_bootstrap.js"></script>
+</body>
+</html>

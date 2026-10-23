@@ -1,0 +1,121 @@
+name: Regression tests
+
+concurrency:
+  group: regression-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - feature/exploration-movement-controls
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check changed JavaScript syntax
+        run: |
+          node --check js/data.js
+          node --check js/map_pathfinding.js
+          node --check tools/convert_gat.js
+          node --check tools/test_map_pathfinding.js
+          node --check tools/map_preview.mjs
+          node --check tools/ro_map_assets.mjs
+          node --check tools/test_ro_map_assets.mjs
+          node --check tools/test_ro_map_remote.mjs
+          node --check tools/ro_explorer.mjs
+          node --check tools/test_ro_explorer_browser.mjs
+          node --check tools/test_ro_explorer_multimap_gpu.mjs
+          node --check tools/test_ro_explorer_live_combat.mjs
+          node --check tools/ro_explorer_hud.mjs
+          node --check tools/test_ro_explorer_hud.mjs
+          node --check tools/ro_explorer_camera.mjs
+          node --check tools/test_ro_explorer_camera.mjs
+          node --check tools/ro_explorer_camera_follow.mjs
+          node --check tools/test_ro_explorer_camera_follow.mjs
+          node --check tools/test_ro_explorer_movement_controls.mjs
+          node --check tools/test_ro_explorer_vitals_bridge.mjs
+          node --check tools/ro_explorer_feedback.mjs
+          node --check tools/test_ro_explorer_feedback.mjs
+          node --check tools/latest_request_gate.mjs
+          node --check tools/test_latest_request_gate.mjs
+          node --check tools/ro_explorer_bootstrap.js
+          node --check tools/test_ro_explorer_bootstrap.mjs
+          node --check tools/ro_explorer_sprites.mjs
+          node --check tools/test_ro_explorer_sprites.mjs
+          node --check tools/ro_explorer_minimap.mjs
+          node --check tools/ro_explorer_2d.mjs
+          node --check tools/test_ro_explorer_2d.mjs
+          node --check tools/test_ro_explorer_minimap.mjs
+          node --check tools/ro_explorer_monsters.mjs
+          node --check tools/test_ro_explorer_monsters.mjs
+          node --check tools/test_ro_explorer_combat.js
+          node --check tools/test_ro_explorer_support.js
+          node --check js/engine.js
+          node --check tools/visibility_frame_loop.mjs
+          node --check tools/test_visibility_frame_loop.mjs
+          node --check js/ui.js
+      - name: Test GAT conversion and pathfinding
+        run: node tools/test_map_pathfinding.js
+      - name: Test native GND map pipeline
+        run: node tools/test_ro_map_assets.mjs
+      - name: Test map explorer direct-entry mode
+        run: node tools/test_ro_explorer_bootstrap.mjs
+      - name: Test native exploration minimap
+        run: node tools/test_ro_explorer_minimap.mjs
+      - name: Test Canvas 2D exploration projection
+        run: node tools/test_ro_explorer_2d.mjs
+      - name: Test native exploration monster spawns
+        run: node tools/test_ro_explorer_monsters.mjs
+      - name: Test native exploration support and recovery skills
+        run: |
+          node tools/test_ro_explorer_support.js
+          node tools/test_ro_explorer_skill_catalog.mjs
+          node tools/test_ro_explorer_combat_ui.mjs
+      - name: Test native exploration combat bridge
+        run: node tools/test_ro_explorer_combat.js
+      - name: Test native exploration combat feedback
+        run: node tools/test_ro_explorer_feedback.mjs
+      - name: Test native exploration camera persistence
+        run: node tools/test_ro_explorer_camera.mjs
+      - name: Test native exploration camera follow
+        run: node tools/test_ro_explorer_camera_follow.mjs
+      - name: Test native exploration movement controls
+        run: node tools/test_ro_explorer_movement_controls.mjs
+      - name: Install Chromium browser test dependencies
+        run: |
+          npm install --no-save --no-package-lock --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Run desktop and mobile exploration browser acceptance
+        run: node tools/test_ro_explorer_browser.mjs
+      - name: Run main game and exploration combat end-to-end
+        run: node tools/test_ro_explorer_live_combat.mjs
+      - name: Upload exploration screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: roo-explorer-browser-screenshots
+          path: |
+            artifacts/explorer-browser/*.png
+            artifacts/explorer-browser/*.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Run complete regression suite
+        run: node tools/test.js
+      - name: Run full-game smoke test
+        run: node tools/test_smoke.js
+      - name: Check primary data syntax
+        run: node tools/check_syntax.js
