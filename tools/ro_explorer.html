@@ -21,6 +21,8 @@
     input[type="checkbox"] { accent-color: #48d597; }
     button, .link-button { display: inline-block; border: 1px solid #526985; border-radius: 7px; padding: 7px 10px; background: #1a2a3e; color: #e4edf8; cursor: pointer; font: inherit; font-size: 12px; text-decoration: none; }
     button:hover, .link-button:hover { background: #263e59; }
+    /* Author button display rules must not override the HTML hidden state. */
+    button[hidden] { display: none !important; }
     button[aria-pressed="true"] { border-color: #48d597; background: #193a37; }
     main { flex: 1; min-height: 0; }
     main[hidden] { display: none; }
