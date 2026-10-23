@@ -356,7 +356,6 @@ try {
   assert.ok(lootAfterAttack >= lootSetup.lootQtyBefore + 1,
     '普攻擊殺沒有把真實怪物掉落寫進角色背包：' + JSON.stringify({
       item: setup.dropItemId, before: lootSetup.lootQtyBefore, after: lootAfterAttack,
-      drops: MONSTERS[setup.defId] && MONSTERS[setup.defId].drops,
     }));
   assert.deepEqual(afterAttack.monsters, [], '普攻結算後沒有還原主遊戲怪物陣列。');
   assert.equal(afterAttack.monster, null, '普攻結算後沒有還原主遊戲怪物指標。');
