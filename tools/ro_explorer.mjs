@@ -2550,6 +2550,9 @@ async function loadMapFile(file) {
     activeRsmAnimations = [];
     scene.add(mapRoot);
     mapRoot.updateMatrixWorld(true);
+    ro2dTerrainCenter = null;
+    ro2dTerrainDirty = true;
+    rebuildRoExplorer2DSceneIndex();
     mapBounds = new THREE.Box3().setFromObject(mapRoot);
     mapInfo = { name: file.name, mapId: mapIdFromName(file.name), size, native: false };
     gndInfo = null;
