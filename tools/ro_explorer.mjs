@@ -1070,7 +1070,14 @@ function setRoExplorer2DActive(active) {
   }
   ro2dActive = next;
   if (ro2dCanvas) ro2dCanvas.hidden = !next;
-  if (renderer && renderer.domElement) renderer.domElement.style.display = next ? 'none' : '';
+  if (renderer && renderer.domElement) {
+    renderer.domElement.hidden = next;
+    if (next) renderer.domElement.style.setProperty('display', 'none', 'important');
+    else {
+      renderer.domElement.style.removeProperty('display');
+      renderer.domElement.hidden = false;
+    }
+  }
   if (stage) stage.classList.toggle('roo-2d-active', next);
   if (toggle2DViewButton) {
     toggle2DViewButton.setAttribute('aria-pressed', String(next));
@@ -1117,7 +1124,17 @@ window.addEventListener('roo-explorer-mode', event => {
 });
 if (explorerParams.get('roo-2d-test') === '1') {
   window.__rooExplorer2DTest = {
-    getMetrics: () => ({ ...ro2dMetrics, active: ro2dActive, canvasHidden: !ro2dCanvas || ro2dCanvas.hidden }),
+    getMetrics: () => ({
+      ...ro2dMetrics,
+      active: ro2dActive,
+      canvasHidden: !ro2dCanvas || ro2dCanvas.hidden,
+      rendererCanvasHidden: !!renderer.domElement.hidden,
+      rendererCanvasInlineDisplay: renderer.domElement.style.display,
+      rendererCanvasComputedDisplay: getComputedStyle(renderer.domElement).display,
+      rendererCanvasIsDirectStageChild: renderer.domElement.parentElement === stage,
+      stageClassName: stage.className,
+      stageCanvasCount: stage.querySelectorAll('canvas').length,
+    }),
     getWalkableTargets: () => {
       if (!ro2dActive || !currentCell || !gatInfo || !ro2dFrameCenter) return [];
       const result = [];
