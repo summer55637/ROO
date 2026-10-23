@@ -1100,6 +1100,19 @@ async function run() {
       width: pronteraStage.width, height: pronteraStage.height },
     animations: 'disabled',
   });
+  // The previous step deliberately kept Canvas 2D active. GND channel diagnostics
+  // require the 3D debug selector, which is hidden while the pure 2D canvas is active.
+  const pronteraViewToggle = page.locator('#toggle-2d-view');
+  if (await pronteraViewToggle.getAttribute('aria-pressed') === 'true') {
+    await pronteraViewToggle.click();
+  }
+  await page.waitForFunction(() => {
+    const canvas2d = document.getElementById('ro-2d-stage');
+    const webgl = Array.from(document.querySelectorAll('#stage > canvas'))
+      .find(canvas => canvas.id !== 'ro-2d-stage');
+    return canvas2d?.hidden === true && webgl && getComputedStyle(webgl).display !== 'none';
+  }, null, { timeout: 10000 });
+  await page.locator('#gnd-debug-mode').waitFor({ state: 'visible', timeout: 10000 });
   await captureGndDebugViews(page, pronteraStage, 'prontera');
   await page.locator('#recenter').click();
 
