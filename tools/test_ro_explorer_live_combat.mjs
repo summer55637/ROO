@@ -119,7 +119,7 @@ try {
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--enable-webgl',
       '--use-gl=angle', '--use-angle=swiftshader', '--ignore-gpu-blocklist'],
   });
-  const context = await browser.newContext({ viewport: { width: 1365, height: 900 }, deviceScaleFactor: 1 });
+  const context = await browser.newContext({ viewport: { width: 1365, height: 900 }, deviceScaleFactor: 1, hasTouch: true });
   await context.addInitScript(() => {
     try { localStorage.setItem('ro_idle_legal_consent_v1', '1'); } catch (error) {}
   });
