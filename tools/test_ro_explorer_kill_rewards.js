@@ -210,6 +210,20 @@ g.state.hasBackslideDodge = false;
 g.state.hasAutoRevive1 = false;
 g.state.hasAutoRevive2 = false;
 const retaliationIdleMonsters = [{ defId: spawn.id, hp: 777, maxHp: 777, id: 7 }];
+/* 診斷封裝只記錄正式怪物攻擊函式有沒有執行及 HP 變化，不改它的計算結果。 */
+const retaliationDiagnostics = [];
+const originalMonsterAttackSingle = g.monsterAttackSingle;
+g.monsterAttackSingle = function (mon) {
+  const before = g.state.hp;
+  const result = originalMonsterAttackSingle.call(g, mon);
+  retaliationDiagnostics.push({
+    defId: mon && mon.defId,
+    hpBefore: before,
+    hpAfter: g.state.hp,
+    messages: (g.__log || []).slice(-4),
+  });
+  return result;
+};
 g.state.monsters = retaliationIdleMonsters;
 g.state.monster = retaliationIdleMonsters[0];
 const firstRetaliationProbe = g.attackRoExplorerMonster(
@@ -224,8 +238,11 @@ while (Date.now() < retaliationReadyAt) { /* 此段僅等待測試冷卻，不�
 const retaliationResult = g.attackRoExplorerMonster(
   'ex-retaliation', 'retaliation-target', map.id, spawn.id);
 t.eq('等待怪物攻擊間隔後普攻可再次結算', retaliationResult.accepted, true);
+t.ok('第二次普攻確實執行怪物攻擊函式', retaliationDiagnostics.length > 0,
+  '攻擊呼叫診斷 ' + JSON.stringify(retaliationDiagnostics));
 t.ok('怪物反擊確實讓玩家 HP 下降', retaliationResult.playerHp < playerHpBeforeRetaliation,
-  '反擊前 HP ' + playerHpBeforeRetaliation + '；反擊後 HP ' + retaliationResult.playerHp);
+  '反擊前 HP ' + playerHpBeforeRetaliation + '；反擊後 HP ' + retaliationResult.playerHp
+    + '；怪物攻擊診斷 ' + JSON.stringify(retaliationDiagnostics));
 t.eq('反擊回覆 HP 與即時角色狀態一致', retaliationResult.playerHp, g.state.hp);
 
 /* 還原測試對正式怪物資料與時鐘的所有臨時修改。 */
