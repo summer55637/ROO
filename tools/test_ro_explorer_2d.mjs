@@ -12,6 +12,7 @@ import {
   classifyRoExplorer2DProp,
   getRoExplorer2DPropStyle,
   getRoExplorer2DPropOrientation,
+  getRoExplorer2DPropVariant,
   getRoExplorer2DDepthKey,
   sortRoExplorer2DSceneItems,
 } from './ro_explorer_2d.mjs';
@@ -77,7 +78,8 @@ assert.equal(classifyRoExplorer2DProp('unmatched_asset.rsm'), 'unknown');
 // Real tra_fild paths use Korean names; the shared parent folder is not a type hint.
 assert.equal(classifyRoExplorer2DProp('나무잡초꽃/나무03.rsm'), 'tree');
 assert.equal(classifyRoExplorer2DProp('나무잡초꽃/나무06.rsm'), 'tree');
-assert.equal(classifyRoExplorer2DProp('나무잡초꽃/나무기둥01.rsm'), 'tree');
+assert.equal(classifyRoExplorer2DProp('나무잡초꽃/나무기둥01.rsm'), 'stump',
+  '真實 RO 的樹幹資源不可繪製成帶樹冠的完整樹木');
 assert.equal(classifyRoExplorer2DProp('나무잡초꽃/덤불01.rsm'), 'plant');
 assert.equal(classifyRoExplorer2DProp('나무잡초꽃/바위01.rsm'), 'rock');
 assert.equal(classifyRoExplorer2DProp('프론테라/성_성벽.rsm'), 'wall');
@@ -96,7 +98,20 @@ assert.equal(classifyRoExplorer2DProp('event/gr_s_01.rsm2'), 'unknown',
   '無法從檔名可靠判斷外觀的素材應保留 unknown');
 const treeStyle = getRoExplorer2DPropStyle('field_tree01.rsm', [2, 1.5, 2]);
 const rockStyle = getRoExplorer2DPropStyle('rock_04.rsm', [1, 1, 1]);
+const stumpStyle = getRoExplorer2DPropStyle('나무잡초꽃/나무기둥01.rsm', [1, 1, 1]);
 assert.equal(treeStyle.kind, 'tree');
+assert.equal(stumpStyle.kind, 'stump');
+assert.ok(stumpStyle.height < getRoExplorer2DPropStyle('나무잡초꽃/나무03.rsm').height,
+  '樹幹代理應明顯矮於帶樹冠的樹木');
+assert.equal(getRoExplorer2DPropVariant('나무잡초꽃/나무03.rsm'), 3);
+assert.equal(getRoExplorer2DPropVariant('나무잡초꽃/나무06.rsm'), 2,
+  '不同編號的實際 RO 樹木資源應得到不同輪廓');
+assert.equal(getRoExplorer2DPropVariant('나무잡초꽃/나무03.rsm'),
+  getRoExplorer2DPropVariant('나무잡초꽃/나무03.rsm'),
+  '相同 RSM 資源每次都必須使用相同輪廓');
+assert.equal(getRoExplorer2DPropVariant('NA무잡초꽃/나무03.rsm'),
+  getRoExplorer2DPropVariant('나무잡초꽃/나무03.rsm'),
+  '資源路徑大小寫不可改變穩定輪廓');
 assert.ok(treeStyle.orientationAware, '樹木代理也應保留 RSW 朝向資訊');
 assert.ok(treeStyle.height > rockStyle.height,
   '樹木代理應比石塊更高，不應所有物件共用同一比例');
