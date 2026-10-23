@@ -25,8 +25,11 @@ const originalMonster = {
 };
 
 function quantity(inventory, itemId) {
-  const row = (inventory || []).find(item => item.item === itemId && !item.instanceId);
-  return row ? row.qty : 0;
+  /* 一般材料以 qty 疊加；裝備可能每件有 instanceId，仍要算進背包數量。 */
+  return (inventory || []).reduce((total, row) => {
+    if (!row || row.item !== itemId) return total;
+    return total + (Number.isFinite(row.qty) ? row.qty : 1);
+  }, 0);
 }
 function prepareScenario(name) {
   g.createCharacter(name, { str: 1, agi: 1, vit: 1, int: 1, dex: 99, luk: 1 }, 'male');
