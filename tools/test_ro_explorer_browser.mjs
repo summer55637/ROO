@@ -864,11 +864,19 @@ async function run() {
     clip: { x: stageBox.x, y: stageBox.y, width: stageBox.width, height: stageBox.height },
     animations: 'disabled',
   });
-  const twoDReady = await page.evaluate(() => ({
-    metrics: window.__rooExplorer2DTest.getMetrics(),
-    webglHidden: getComputedStyle(document.querySelector('#stage canvas:not(#ro-2d-stage)')).display === 'none',
-    buttonPressed: document.getElementById('toggle-2d-view').getAttribute('aria-pressed'),
-  }));
+  const twoDReady = await page.evaluate(() => {
+    const metrics = window.__rooExplorer2DTest.getMetrics();
+    const canvas = document.querySelector('#stage canvas:not(#ro-2d-stage)');
+    return {
+      metrics,
+      selectedWebglComputedDisplay: canvas ? getComputedStyle(canvas).display : 'missing',
+      selectedWebglInlineDisplay: canvas ? canvas.style.display : 'missing',
+      webglHidden: metrics.rendererCanvasComputedDisplay === 'none'
+        && metrics.rendererCanvasHidden,
+      buttonPressed: document.getElementById('toggle-2d-view').getAttribute('aria-pressed'),
+    };
+  });
+  console.log('Canvas 2D 瀏覽器實際狀態：' + JSON.stringify(twoDReady));
   assert.ok(twoDReady.metrics.terrainTiles > 0 && twoDReady.metrics.texturedTiles > 0,
     '2D 畫面沒有繪製真實 GND 來源貼圖：' + JSON.stringify(twoDReady));
   assert.equal(twoDReady.metrics.active, true);
