@@ -607,6 +607,15 @@ try {
     '手機純 2D 戰鬥產生未處理的 JavaScript 錯誤：' + mobilePageErrors.join(' | '));
   console.log('手機純 2D 真實 UI 戰鬥通過：觸控選怪、GAT/A* 靠近、普攻扣怪物 HP、Bash 扣 HP/SP、擊殺、等待重生與 HP 復原。');
 
+  // tra_fild is a test-only alias in the in-memory MAPS table, not a production main-game map.
+  // Return the persisted character to its real field-map ID before reloading the main game.
+  await mainPage.evaluate(() => {
+    if (!MAPS.some(item => item.id === 'prt_fild08')) {
+      throw new Error('存檔重讀驗收缺少正式 prt_fild08 地圖。');
+    }
+    state.mapId = 'prt_fild08';
+    saveGame();
+  });
   // The mobile phase deliberately refills HP/SP after the earlier Bash snapshot.
   // Compare the save against the live final state, then compare the same bytes after reload.
   const liveBeforeReload = await readLiveState(mainPage);
