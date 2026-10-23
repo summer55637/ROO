@@ -219,7 +219,8 @@ try {
       originalDropChance: loot.chance,
       dropItemId: loot.item,
       dropItemName: ITEMS[loot.item].name,
-      dropQtyBefore: itemQty(state.inventory, loot.item),
+      dropQtyBefore: (state.inventory || []).filter(row => row && row.item === loot.item && !row.instanceId)
+        .reduce((sum, row) => sum + Math.max(0, Number(row.qty) || 0), 0),
       playerHp: state.hp,
       playerMaxHp: state.maxHp,
       playerSp: state.sp,
@@ -333,7 +334,11 @@ try {
     state.monster = null;
     Math.random = () => 0.5;
     saveGame();
-    return { lootQtyBefore: itemQty(state.inventory, dropItemId), hp: state.hp, sp: state.sp };
+    return {
+      lootQtyBefore: (state.inventory || []).filter(row => row && row.item === dropItemId && !row.instanceId)
+        .reduce((sum, row) => sum + Math.max(0, Number(row.qty) || 0), 0),
+      hp: state.hp, sp: state.sp,
+    };
   }, setup);
   const sessionId = 'e2e-live-combat-session';
   const attackResult = await attackUntilKilled(mainPage, explorerPage, {
