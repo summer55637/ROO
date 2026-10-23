@@ -74,6 +74,26 @@ assert.equal(classifyRoExplorer2DProp('field_bridge01.rsm'), 'bridge');
 assert.equal(classifyRoExplorer2DProp('rock_04.rsm'), 'rock');
 assert.equal(classifyRoExplorer2DProp('field_signpost.rsm'), 'fixture');
 assert.equal(classifyRoExplorer2DProp('unmatched_asset.rsm'), 'unknown');
+// Real tra_fild paths use Korean names; the shared parent folder is not a type hint.
+assert.equal(classifyRoExplorer2DProp('나무잡초꽃/나무03.rsm'), 'tree');
+assert.equal(classifyRoExplorer2DProp('나무잡초꽃/나무06.rsm'), 'tree');
+assert.equal(classifyRoExplorer2DProp('나무잡초꽃/나무기둥01.rsm'), 'tree');
+assert.equal(classifyRoExplorer2DProp('나무잡초꽃/덤불01.rsm'), 'plant');
+assert.equal(classifyRoExplorer2DProp('나무잡초꽃/바위01.rsm'), 'rock');
+assert.equal(classifyRoExplorer2DProp('프론테라/성_성벽.rsm'), 'wall');
+assert.equal(classifyRoExplorer2DProp('프론테라/프론테라성기둥.rsm'), 'fixture');
+assert.equal(classifyRoExplorer2DProp('프론테라/성_기둥.rsm'), 'fixture');
+assert.equal(classifyRoExplorer2DProp('prontera_re/barrel_j_04.rsm'), 'fixture');
+assert.equal(classifyRoExplorer2DProp('prontera_re/woodbox_s_01.rsm'), 'fixture');
+assert.equal(classifyRoExplorer2DProp('rockridge/bag_j_01.rsm'), 'fixture');
+assert.equal(classifyRoExplorer2DProp('프론테라/바닥블럭.rsm'), 'rock');
+assert.equal(classifyRoExplorer2DProp('외부소품/나무다리.rsm'), 'bridge');
+assert.equal(classifyRoExplorer2DProp('외부소품/나무다리중간.rsm'), 'bridge');
+assert.equal(classifyRoExplorer2DProp('외부소품/벤치01.rsm'), 'fixture');
+assert.equal(classifyRoExplorer2DProp('프론테라/입구초소.rsm'), 'building');
+assert.equal(classifyRoExplorer2DProp('프론테라/성_앞문.rsm'), 'building');
+assert.equal(classifyRoExplorer2DProp('event/gr_s_01.rsm2'), 'unknown',
+  '無法從檔名可靠判斷外觀的素材應保留 unknown');
 const treeStyle = getRoExplorer2DPropStyle('field_tree01.rsm', [2, 1.5, 2]);
 const rockStyle = getRoExplorer2DPropStyle('rock_04.rsm', [1, 1, 1]);
 assert.equal(treeStyle.kind, 'tree');

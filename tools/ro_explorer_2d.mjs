@@ -56,24 +56,27 @@ const RO_EXPLORER_2D_PROP_BASES = Object.freeze({
   unknown: { width: 21, height: 18, shadow: 0.85 },
 });
 
-/** Classify public RSW/RSM object names without assuming their model assets loaded. */
+/** Classify from the actual model filename; Korean RO resource paths are common in maps. */
 export function classifyRoExplorer2DProp(value) {
-  const name = String(value || '').toLowerCase().replace(/\\/g, '/');
-  if (/bridge|footbridge|wooden_bridge/.test(name)) return 'bridge';
-  if (/tree|palm|pinetree|fir_tree|coconut|banana_tree/.test(name)) return 'tree';
-  if (/house|building|tower|inn|castle|roof|gate|church|mansion|fort|temple|shop|hut/.test(name)) {
+  const name = String(value || '').toLowerCase().replace(/\\/g, '/').trim();
+  const leaf = (name.split('/').pop() || name).replace(/\.rsm2?\b/g, '');
+  // Check model leaves before directory names: "나무잡초꽃" holds trees, bushes and rocks.
+  if (/bridge|footbridge|wooden_bridge|나무다리|다리중간/.test(leaf)) return 'bridge';
+  if (/wall|fence|barrier|railing|guardrail|palisade|성_성벽|성벽/.test(leaf)) return 'wall';
+  if (/house|building|tower|inn|castle|roof|gate|church|mansion|fort|temple|shop|hut|성_앞문|입구초소/.test(leaf)) {
     return 'building';
   }
-  if (/wall|fence|barrier|railing|guardrail|palisade/.test(name)) return 'wall';
-  if (/flower|flowerbed|tulip|lily|rose|petal/.test(name)) return 'flower';
-  if (/grass|weed|reed|bamboo|vine/.test(name)) return 'grass';
-  if (/mushroom|shroom|fungus/.test(name)) return 'mushroom';
-  if (/plant|bush|shrub|leaf|leaves|fern|herb|sprout|banana/.test(name)) return 'plant';
-  if (/rock|stone|boulder|crystal|ore|cliff|stalagmite/.test(name)) return 'rock';
-  if (/water|pond|river|waterfall|fountain|well/.test(name)) return 'water';
-  if (/lamp|light|sign|pillar|post|statue|torch|lantern|gravestone|monument|cairn/.test(name)) {
+  if (/lamp|light|sign|pillar|post|statue|torch|lantern|gravestone|monument|cairn|bench|barrel|woodbox|crate|box|bag|chair|stool|프론테라성기둥|성_기둥|성기둥|벤치/.test(leaf)) {
     return 'fixture';
   }
+  if (/tree|palm|pinetree|fir_tree|coconut|banana_tree|나무(?:\d+|기둥)/.test(leaf)) return 'tree';
+  if (/flower|flowerbed|tulip|lily|rose|petal|꽃/.test(leaf)) return 'flower';
+  if (/grass|weed|reed|bamboo|vine|잡초/.test(leaf)) return 'grass';
+  if (/mushroom|shroom|fungus/.test(leaf)) return 'mushroom';
+  if (/plant|bush|shrub|leaf|leaves|fern|herb|sprout|banana|덤불/.test(leaf)) return 'plant';
+  if (/rock|stone|boulder|crystal|ore|cliff|stalagmite|바위|바닥블럭/.test(leaf)) return 'rock';
+  if (/water|pond|river|waterfall|fountain|well/.test(leaf)) return 'water';
+  // Keep resources without trustworthy visual semantics explicit rather than guessing.
   return 'unknown';
 }
 

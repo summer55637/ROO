@@ -952,6 +952,20 @@ async function run() {
     '純 2D 畫面沒有顯示任何 RSW 場景物件／代理圖形：' + JSON.stringify(twoDReady));
   assert.ok(twoDReady.metrics.propKinds && Object.keys(twoDReady.metrics.propKinds).length > 1,
     '2D 場景物件沒有形成多種類型分類：' + JSON.stringify(twoDReady.metrics.propKinds));
+  assert.ok(twoDReady.metrics.propKinds.tree >= 190,
+    '真實 tra_fild 的韓文樹木資源沒有被辨識：' + JSON.stringify(twoDReady.metrics.propKinds));
+  assert.ok(twoDReady.metrics.propKinds.plant >= 25,
+    '真實 tra_fild 的韓文灌木資源沒有被辨識：' + JSON.stringify(twoDReady.metrics.propKinds));
+  assert.ok(twoDReady.metrics.propKinds.wall >= 15,
+    '真實 tra_fild 的韓文城牆資源沒有被辨識：' + JSON.stringify(twoDReady.metrics.propKinds));
+  assert.ok(twoDReady.metrics.propKinds.bridge >= 2,
+    '真實 tra_fild 的木橋資源沒有被辨識：' + JSON.stringify(twoDReady.metrics.propKinds));
+  assert.ok(twoDReady.metrics.propKinds.rock >= 7,
+    '真實 tra_fild 的岩石／石塊資源沒有被辨識：' + JSON.stringify(twoDReady.metrics.propKinds));
+  assert.ok(twoDReady.metrics.propKinds.fixture >= 15,
+    '真實 tra_fild 的桶、木箱、長椅與柱子沒有被辨識：' + JSON.stringify(twoDReady.metrics.propKinds));
+  assert.ok((twoDReady.metrics.propKinds.unknown || 0) <= 10,
+    '多數真實 tra_fild RSW 資源仍被錯列為 unknown：' + JSON.stringify(twoDReady.metrics.propKinds));
   assert.equal(twoDReady.metrics.groundDepthMode, 'x-minus-z',
     '2D 遮擋排序應使用地面深度，不得把物件海拔當成前後順序：' + JSON.stringify(twoDReady.metrics));
   assert.ok(twoDReady.metrics.rotationDataProps
