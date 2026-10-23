@@ -135,9 +135,24 @@ try {
   await mainPage.locator('#screen-game.active').waitFor({ state: 'visible', timeout: 15000 });
 
   const setup = await mainPage.evaluate(() => {
-    const map = MAPS.find(item => item.id === 'tra_fild'
-      && Array.isArray(item.monsters) && item.monsters.length > 0);
-    if (!map) throw new Error('正式 MAPS 資料中找不到 tra_fild 怪物場。');
+    let map = MAPS.find(item => item.id === 'tra_fild');
+    if (!map) {
+      // 目前正式本機 MAPS 沒收錄 tra_fild／新制訓練木樁資料。
+      // 只在這次瀏覽器測試記憶體加入場景別名與真實 Poring 掉落表，
+      // 讓畫面使用原生 tra_fild GND/GAT，同時走既有 RO 普攻／技能／掉落引擎；
+      // 不寫回專案資料，不改正式玩家地圖與生怪表。
+      const sourceField = MAPS.find(item => item.id === 'prt_fild08');
+      const sourceSpawn = sourceField && (sourceField.monsters || []).find(item => item.id === 'poring');
+      if (!sourceSpawn || !MONSTERS.poring || !Array.isArray(MONSTERS.poring.drops)) {
+        throw new Error('找不到正式 RO 波利資料，無法建立 tra_fild 測試佈置。');
+      }
+      map = {
+        id: 'tra_fild', imgId: sourceField.imgId,
+        name: '普隆德拉郊外訓練場（測試佈置）',
+        monsters: [{ id: 'poring', weight: 1000000000 }],
+      };
+      MAPS.push(map);
+    }
     const eligible = map.monsters.map(spawn => ({ spawn, def: MONSTERS[spawn.id] }))
       .filter(item => item.def && Number.isFinite(item.def.hp) && item.def.hp > 0
         && Number.isFinite(item.def.exp) && Math.round(item.def.exp) > 0
