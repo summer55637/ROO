@@ -8,7 +8,7 @@ const scenario = g.MAPS.map(map => ({
   map,
   spawn: (map.monsters || []).find(item => {
     const def = item && g.MONSTERS[item.id];
-    return def && def.hp >= 10000 && def.element !== 'poison'
+    return def && def.hp >= 10000 && Number(def.atk) > 0 && def.element !== 'poison'
       && Number(def.atkInterval) > 0 && Array.isArray(def.drops)
       && def.drops.some(drop => drop && typeof drop.item === 'string' && g.ITEMS[drop.item]);
   }),
@@ -162,7 +162,14 @@ def.atkInterval = originalMonster.atkInterval;
 def.drops = JSON.parse(JSON.stringify(originalMonster.drops));
 g.state.hp = g.state.maxHp;
 g.state.attackInterval = 100;
+/* loadGame() 會重建角色衍生值；重生攻擊測試要自行固定命中條件，不能靠上一案例殘留。 */
+g.state.hit = 9999;
+g.state.critRate = 100;
 g.state.perfectDodge = 0;
+g.state.blockChance = 0;
+g.state.hasBackslideDodge = false;
+g.state.hasAutoRevive1 = false;
+g.state.hasAutoRevive2 = false;
 const respawnResult = g.attackRoExplorerMonster('ex-reward-respawn', 'reward-respawn-r1', map.id, spawn.id);
 t.eq('新重生識別碼可建立新的探索目標', respawnResult.ok, true);
 t.eq('新重生目標不會沿用死亡狀態', respawnResult.killed, false);
