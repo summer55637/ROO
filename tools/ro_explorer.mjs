@@ -5044,6 +5044,49 @@ function runGndTargetSurfaceGpuAudit() {
           0,
           frustumHeight / height * 0.5
         ));
+        // At a four-pixel footprint, the last texel of the low/high V edge can
+        // fall on a rasterizer's top-left fill boundary. Bias only the diagnostic
+        // camera by 0.08 px toward the edge, so the selected pixel center remains
+        // inside the same surface. The sampled UV is still measured from the
+        // actual GPU pixel and must stay within the existing 0.006 UV tolerance.
+        let coverageBiasPixels = 0;
+        if (spec.probeId.startsWith('streak-')) {
+          const minU = Math.min(...uvCorners.map(uv => uv[0]));
+          const maxU = Math.max(...uvCorners.map(uv => uv[0]));
+          const minV = Math.min(...uvCorners.map(uv => uv[1]));
+          const maxV = Math.max(...uvCorners.map(uv => uv[1]));
+          const lowVDistance = spec.uv[1] - minV;
+          const highVDistance = maxV - spec.uv[1];
+          if (lowVDistance >= -1e-6 && highVDistance >= -1e-6
+            && Math.min(lowVDistance, highVDistance) <= 0.01 && maxU > minU && maxV > minV) {
+            const uRatio = Math.max(0, Math.min(1, (spec.uv[0] - minU) / (maxU - minU)));
+            const edgeV = lowVDistance <= highVDistance ? minV : maxV;
+            const oppositeV = edgeV === minV ? maxV : minV;
+            const pointAtV = v => {
+              const edgeCorners = uvCorners.map((uv, index) => ({ uv, index }))
+                .filter(item => Math.abs(item.uv[1] - v) <= 1e-6)
+                .sort((a, b) => a.uv[0] - b.uv[0]);
+              if (edgeCorners.length < 2) return null;
+              return attrPoint(position, edgeCorners[0].index).lerp(
+                attrPoint(position, edgeCorners[1].index), uRatio
+              );
+            };
+            const edgePoint = pointAtV(edgeV);
+            const oppositePoint = pointAtV(oppositeV);
+            if (edgePoint && oppositePoint) {
+              const inward = oppositePoint.sub(edgePoint);
+              inward.y = 0;
+              const projectedInteriorPixels = Math.hypot(
+                inward.x * width / frustumWidth,
+                inward.z * height / frustumHeight
+              );
+              if (projectedInteriorPixels > 1e-6) {
+                cameraCenter.add(inward.multiplyScalar(0.08 / projectedInteriorPixels));
+                coverageBiasPixels = 0.08;
+              }
+            }
+          }
+        }
         auditCamera.position.set(
           cameraCenter.x,
           targetPoint.y + Math.max(100, frustumWidth * 20),
@@ -5124,6 +5167,7 @@ function runGndTargetSurfaceGpuAudit() {
           status: Number.isFinite(maxRgbDelta) && maxRgbDelta <= 12 ? 'passed' : 'failed',
           scale: scale.name,
           targetTilePixels: scale.tilePixels,
+          coverageBiasPixels: Number(coverageBiasPixels.toFixed(3)),
           projectedSurfacePixels: {
             width: Number(Math.max(projectedCorners[0].x, projectedCorners[1].x,
               projectedCorners[2].x, projectedCorners[3].x)
