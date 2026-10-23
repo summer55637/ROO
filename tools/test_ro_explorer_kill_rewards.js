@@ -198,6 +198,9 @@ g.state.mapId = map.id;
 g.state.farmMode = 0;
 g.state.learnedSkills.bash = 5;
 g.recomputeDerived(true);
+/* 怪物原始普攻可造成遠高於新手最大 HP 的傷害；測試目標是驗證承傷，不是測死亡重生。
+   提高測試角色 HP 並同步最大 HP，避免被擊倒後立即回滿，讓「前後 HP 相等」誤判為沒有承傷。 */
+g.state.maxHp = Math.max(g.state.maxHp, 100000);
 g.state.hp = g.state.maxHp;
 g.state.sp = g.state.maxSp;
 g.state.attackInterval = 100;
