@@ -241,7 +241,7 @@ try {
   // the same visible tab navigation as a player before opening the explorer.
   await mainPage.locator('.tab-btn[data-tab="map"]').click();
   await mainPage.locator('#tab-map.active').waitFor({ state: 'visible', timeout: 5000 });
-  await mainPage.locator('button[onclick="openRoExplorer('3d')"]').waitFor({ state: 'visible', timeout: 10000 });
+  await mainPage.locator('.map-preview-actions button[onclick^="openRoExplorer("]').nth(1).waitFor({ state: 'visible', timeout: 10000 });
   // The product intentionally opens with noopener/noreferrer. Capture the real URL
   // built by the main-game button, then open that URL as a second same-origin tab.
   await mainPage.evaluate(() => {
@@ -251,7 +251,7 @@ try {
       return null;
     };
   });
-  await mainPage.locator('button[onclick="openRoExplorer('3d')"]').click();
+  await mainPage.locator('.map-preview-actions button[onclick^="openRoExplorer("]').nth(1).click();
   await mainPage.waitForFunction(() => typeof window.__rooExplorerTestOpenedUrl === 'string'
     && window.__rooExplorerTestOpenedUrl.length > 0, null, { timeout: 5000 });
   const generatedExplorerUrl = await mainPage.evaluate(() => window.__rooExplorerTestOpenedUrl);
@@ -469,7 +469,7 @@ try {
       return null;
     };
   }, setup);
-  await mainPage.locator('button[onclick="openRoExplorer('3d')"]').click();
+  await mainPage.locator('.map-preview-actions button[onclick^="openRoExplorer("]').nth(1).click();
   await mainPage.waitForFunction(() => typeof window.__rooExplorerTestOpenedUrl === 'string'
     && window.__rooExplorerTestOpenedUrl.length > 0, null, { timeout: 5000 });
   const mobileUrl = new URL(await mainPage.evaluate(() => window.__rooExplorerTestOpenedUrl));
