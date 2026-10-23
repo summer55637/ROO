@@ -1078,7 +1078,6 @@ async function run() {
   const mobileTwoD = await page.evaluate(() => {
     const canvas = document.getElementById('ro-2d-stage');
     const stage = document.getElementById('stage');
-    const webgl = Array.from(stage.querySelectorAll('canvas')).find(item => item !== canvas);
     const rect = stage.getBoundingClientRect();
     const metrics = window.__rooExplorer2DTest.getMetrics();
     const targets = window.__rooExplorer2DTest.getWalkableTargets();
@@ -1093,8 +1092,10 @@ async function run() {
       targets: visibleTargets,
       canvasRect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
       canvasHidden: canvas.hidden,
-      webglDisplay: webgl ? getComputedStyle(webgl).display : 'missing',
+      webglDisplay: metrics.rendererCanvasComputedDisplay,
       webglHidden: metrics.rendererCanvasHidden,
+      webglCanvasIsDirectStageChild: metrics.rendererCanvasIsDirectStageChild,
+      stageClassName: metrics.stageClassName,
       buttonPressed: document.getElementById('toggle-2d-view').getAttribute('aria-pressed'),
     };
   });
