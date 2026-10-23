@@ -6,6 +6,8 @@ import {
   transformRoExplorer2DPoint,
   getRoExplorer2DViewportRadius,
   isRoExplorer2DPointVisible,
+  drawRoExplorer2DGroundShadow,
+  drawRoExplorer2DSelectionRing,
 } from './ro_explorer_2d.mjs';
 
 const center = { x: 13.5, y: -0.4, z: -22.25 };
@@ -39,3 +41,41 @@ assert.equal(isRoExplorer2DPointVisible({ x: 10, y: 20 }, 800, 480), true);
 assert.equal(isRoExplorer2DPointVisible({ x: -100, y: 20 }, 800, 480), false);
 assert.throws(() => projectRoExplorer2DPoint(point, center, 0, 480, 8), /有效的世界座標/);
 console.log('ROO 2D 等角投影、點擊反投影與來源貼圖三角形映射測試通過。');
+
+
+// Drawing helpers are exercised against a tiny recording canvas context so visual
+// geometry and Canvas state cleanup remain regression-tested without a browser.
+function recordingContext() {
+  const events = [];
+  return {
+    events, fillStyle: '', strokeStyle: '', lineWidth: 1, globalAlpha: 1,
+    save() { events.push({ type: 'save' }); },
+    restore() { events.push({ type: 'restore' }); },
+    beginPath() { events.push({ type: 'beginPath' }); },
+    ellipse(...args) { events.push({ type: 'ellipse', args }); },
+    fill() { events.push({ type: 'fill', style: this.fillStyle }); },
+    stroke() { events.push({ type: 'stroke', style: this.strokeStyle, width: this.lineWidth }); },
+  };
+}
+const shadowCanvas = recordingContext();
+assert.equal(drawRoExplorer2DGroundShadow(shadowCanvas, 100, 200, 40), true);
+assert.equal(shadowCanvas.events.filter(event => event.type === 'ellipse').length, 2,
+  '有 RO 動畫的角色／怪物也應繪製雙層接觸陰影');
+assert.deepEqual(shadowCanvas.events.filter(event => event.type === 'ellipse')[0].args,
+  [100, 199, 15.2, 4.8, 0, 0, Math.PI * 2]);
+assert.equal(shadowCanvas.events.filter(event => event.type === 'restore').length, 1,
+  '繪製陰影後必須還原 Canvas 狀態');
+assert.equal(drawRoExplorer2DGroundShadow(shadowCanvas, 100, 200, 0), false,
+  '無效尺寸不得繪製陰影');
+
+const ringCanvas = recordingContext();
+assert.equal(drawRoExplorer2DSelectionRing(ringCanvas, 100, 200, 40), true);
+const ringEllipses = ringCanvas.events.filter(event => event.type === 'ellipse');
+assert.equal(ringEllipses.length, 2, '目標圈應有深色描邊與亮色核心，避免被地表吞沒');
+assert.deepEqual(ringEllipses[0].args, [100, 201, 22.400000000000002, 6.4, 0, 0, Math.PI * 2]);
+assert.deepEqual(ringCanvas.events.filter(event => event.type === 'stroke').map(event => event.style),
+  ['rgba(5, 11, 8, 0.88)', 'rgba(255, 225, 138, 0.98)']);
+assert.equal(ringCanvas.events.filter(event => event.type === 'restore').length, 1,
+  '繪製目標圈後必須還原 Canvas 狀態');
+assert.equal(drawRoExplorer2DSelectionRing(ringCanvas, 100, 200, NaN), false,
+  '無效座標不得繪製目標圈');
