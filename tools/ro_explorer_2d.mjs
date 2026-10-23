@@ -105,3 +105,60 @@ export function isRoExplorer2DPointVisible(point, width, height, padding = 64) {
     && p.x >= -padding && p.y >= -padding
     && p.x <= width + padding && p.y <= height + padding;
 }
+
+
+/** Draw a compact contact shadow so textured RO sprites sit on the ground plane. */
+export function drawRoExplorer2DGroundShadow(context, x, y, width) {
+  if (!context || ![x, y, width].every(finite) || width <= 0
+    || typeof context.save !== 'function' || typeof context.restore !== 'function'
+    || typeof context.beginPath !== 'function' || typeof context.ellipse !== 'function'
+    || typeof context.fill !== 'function') return false;
+
+  const radiusX = Math.max(4, width * 0.38);
+  const radiusY = Math.max(2, Math.min(7, width * 0.12));
+  context.save();
+  try {
+    context.globalAlpha = 1;
+    context.fillStyle = 'rgba(4, 9, 7, 0.28)';
+    context.beginPath();
+    context.ellipse(x, y - 1, radiusX, radiusY, 0, 0, Math.PI * 2);
+    context.fill();
+
+    context.fillStyle = 'rgba(0, 0, 0, 0.12)';
+    context.beginPath();
+    context.ellipse(x, y - 1, radiusX * 0.66, radiusY * 0.55, 0, 0, Math.PI * 2);
+    context.fill();
+  } finally {
+    context.restore();
+  }
+  return true;
+}
+
+/** Keep the selected-target marker legible over both light and dark terrain. */
+export function drawRoExplorer2DSelectionRing(context, x, y, width) {
+  if (!context || ![x, y, width].every(finite) || width <= 0
+    || typeof context.save !== 'function' || typeof context.restore !== 'function'
+    || typeof context.beginPath !== 'function' || typeof context.ellipse !== 'function'
+    || typeof context.stroke !== 'function') return false;
+
+  const radiusX = Math.max(8, width * 0.56);
+  const radiusY = Math.max(4, Math.min(8, width * 0.16));
+  context.save();
+  try {
+    context.globalAlpha = 1;
+    context.strokeStyle = 'rgba(5, 11, 8, 0.88)';
+    context.lineWidth = Math.max(3, width * 0.08);
+    context.beginPath();
+    context.ellipse(x, y + 1, radiusX, radiusY, 0, 0, Math.PI * 2);
+    context.stroke();
+
+    context.strokeStyle = 'rgba(255, 225, 138, 0.98)';
+    context.lineWidth = Math.max(1.25, width * 0.045);
+    context.beginPath();
+    context.ellipse(x, y + 1, radiusX, radiusY, 0, 0, Math.PI * 2);
+    context.stroke();
+  } finally {
+    context.restore();
+  }
+  return true;
+}
