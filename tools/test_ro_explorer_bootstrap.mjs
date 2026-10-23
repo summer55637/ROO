@@ -82,8 +82,8 @@ assert.equal(invalidMode.scripts.length, 0);
 
 const uiSource = readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
 assert.match(uiSource, /進入純 2D 探索/);
-assert.match(uiSource, /openRoExplorer\\('2d'\\)/);
-assert.match(uiSource, /searchParams\\.set\\('view', '2d'\\)/);
+assert.match(uiSource, /openRoExplorer\('2d'\)/);
+assert.match(uiSource, /searchParams\.set\('view', '2d'\)/);
 const moduleSource = readFileSync(new URL('./ro_explorer.mjs', import.meta.url), 'utf8');
-assert.match(moduleSource, /explorerParams\\.get\\('view'\\) === '2d'[\\s\\S]*setRoExplorer2DActive\\(true\\)/);
+assert.match(moduleSource, /explorerParams\.get\('view'\) === '2d'[\s\S]*setRoExplorer2DActive\(true\)/);
 console.log('RO 地圖探索直接入口測試通過。');
