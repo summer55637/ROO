@@ -30,6 +30,9 @@ assert.deepEqual(spawns, buildRoExplorerMonsterSpawns(gat, catalog, playerCell, 
 assert.ok(spawns.every(s => gat.walkable[s.cell.y * width + s.cell.x]));
 assert.ok(spawns.every(s => !water[s.cell.y * width + s.cell.x]));
 assert.ok(spawns.every(s => Math.hypot(s.cell.x-playerCell.x, s.cell.y-playerCell.y) >= 8));
+assert.ok(spawns.every(s => Math.max(
+  Math.abs(s.cell.x - playerCell.x), Math.abs(s.cell.y - playerCell.y)
+) <= 12), '怪物應生成在玩家附近，避免大地圖上的怪物全落在鏡頭之外。');
 assert.ok(spawns.every((s,i) => spawns.slice(i+1).every(o => Math.hypot(s.cell.x-o.cell.x,s.cell.y-o.cell.y) >= 5)));
 assert.deepEqual(buildRoExplorerMonsterSpawns(gat, [], playerCell, 'prontera'), []);
 assert.deepEqual(buildRoExplorerMonsterSpawns({width:1,height:1,walkable:[1]},catalog,{x:0,y:0},'small'), []);
