@@ -1240,7 +1240,11 @@ async function run() {
   await page.locator('#monster-panel').evaluate(element => { element.hidden = true; });
   const mobileTwoDToggle = page.locator('#toggle-2d-view');
   assert.ok(await mobileTwoDToggle.isEnabled(), '手機版載入 tra_fild 後純 2D 原型按鈕不可用。');
-  await mobileTwoDToggle.tap();
+  // The page URL already requests view=2d, so map loading may have activated Canvas 2D
+  // before the manual mobile interaction block starts. Do not tap the toggle twice.
+  if (await mobileTwoDToggle.getAttribute('aria-pressed') !== 'true') {
+    await mobileTwoDToggle.tap();
+  }
   await page.waitForFunction(() => {
     const canvas = document.getElementById('ro-2d-stage');
     const metrics = window.__rooExplorer2DTest?.getMetrics();
