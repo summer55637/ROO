@@ -88,17 +88,17 @@ direct2DView.scripts[0].onload();
 assert.equal(direct2DView.events[0].detail, 'native',
   'view=2d 應以原生地圖資料啟動，載入完成後才能切 Canvas 2D');
 
-assert.match(explorerModuleSource,
-  /const requestedRoExplorer2D = explorerParams\\.get\\('view'\\) === '2d';/);
-assert.match(explorerModuleSource,
-  /if \\(requestedRoExplorer2D\\) setRoExplorer2DActive\\(true\\);/,
+assert.ok(explorerModuleSource.includes(
+  "const requestedRoExplorer2D = explorerParams.get('view') === '2d';"));
+assert.ok(explorerModuleSource.includes(
+  'if (requestedRoExplorer2D) setRoExplorer2DActive(true);'),
   'GND/GAT 地圖成功載入後應自動顯示 Canvas 2D');
-assert.match(gameUiSource, /function openRoExplorer\\(view = '3d'\\)/);
-assert.match(gameUiSource, /openRoExplorer\\('2d'\\)/,
+assert.ok(gameUiSource.includes("function openRoExplorer(view = '3d')"));
+assert.ok(gameUiSource.includes("openRoExplorer('2d')"),
   '主遊戲地圖分頁必須提供直接進入純 2D 的入口');
-assert.match(gameUiSource, /url\\.searchParams\\.set\\('view', '2d'\\)/,
+assert.ok(gameUiSource.includes("url.searchParams.set('view', '2d')"),
   '主遊戲 2D 入口必須帶入可重開的網址參數');
-assert.match(gameUiSource, /openRoExplorer\\('3d'\\)/,
+assert.ok(gameUiSource.includes("openRoExplorer('3d')"),
   '原生 3D／地圖診斷入口必須保留');
 
 console.log('RO 地圖探索直接入口（含純 2D 網址參數）測試通過。');
