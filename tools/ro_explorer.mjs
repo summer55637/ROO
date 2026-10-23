@@ -1289,7 +1289,7 @@ function getRoExplorer2DMonsterHitBounds(entry, center = ro2dFrameCenter) {
     bottom: point.y + 8,
     height,
     bodyTapX: point.x,
-    bodyTapY: point.y - height * 0.55,
+    bodyTapY: point.y - height * 0.84,
   };
 }
 

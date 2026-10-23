@@ -1233,6 +1233,7 @@ async function run() {
     return api.getMonsterTargets()
       .filter(target => !target.dead && target.distance >= 2
         && target.bodyTapX >= 12 && target.bodyTapY >= 12
+        && target.screenY - target.bodyTapY > 23
         && target.bodyTapX <= rect.width - 12 && target.bodyTapY <= rect.height - 12
         && document.elementFromPoint(rect.left + target.bodyTapX, rect.top + target.bodyTapY) === canvas)
       .map(target => ({
