@@ -1267,6 +1267,32 @@ function setRoExplorer2DActive(active) {
   } else setStatus('已返回原生 3D 地圖。');
 }
 
+function getRoExplorer2DMonsterHitBounds(entry, center = ro2dFrameCenter) {
+  if (!entry || !entry.cell || !center) return null;
+  const point = ro2dProject(cellWorldPosition(entry.cell), center);
+  const height = Math.max(18, tileSize() * ro2dPixelsPerWorldUnit() * 3.7);
+  const image = entry.texture && entry.texture.image
+    || entry.sprite && entry.sprite.material && entry.sprite.material.map && entry.sprite.material.map.image;
+  const imageWidth = image && (image.naturalWidth || image.videoWidth || image.width);
+  const imageHeight = image && (image.naturalHeight || image.videoHeight || image.height);
+  const spriteWidth = height * 0.92;
+  const drawnWidth = imageWidth > 0 && imageHeight > 0
+    ? Math.min(spriteWidth * 1.65, height * imageWidth / imageHeight)
+    : spriteWidth * 0.68;
+  const halfWidth = drawnWidth / 2 + 6;
+  return {
+    x: point.x,
+    y: point.y,
+    left: point.x - halfWidth,
+    right: point.x + halfWidth,
+    top: point.y - height - 8,
+    bottom: point.y + 8,
+    height,
+    bodyTapX: point.x,
+    bodyTapY: point.y - height * 0.55,
+  };
+}
+
 function handleRoExplorer2DCanvasClick(event) {
   if (!ro2dActive || !mapInfo || !gatInfo || !gndInfo || !currentCell) return;
   const rect = ro2dCanvas.getBoundingClientRect();
@@ -1274,14 +1300,18 @@ function handleRoExplorer2DCanvasClick(event) {
   const x = event.clientX - rect.left, y = event.clientY - rect.top;
   const center = ro2dFrameCenter || ro2dCameraCenter;
   if (!center) return;
-  let nearestMonster = null, nearestDistance = Infinity;
+  let nearestMonster = null, nearestScore = Infinity;
   for (const entry of monsterEntries) {
     if (!entry || entry.dead || !entry.cell) continue;
-    const point = ro2dProject(cellWorldPosition(entry.cell), center);
-    const distance = Math.hypot(point.x - x, point.y - y);
-    if (distance < nearestDistance) { nearestDistance = distance; nearestMonster = entry; }
+    const bounds = getRoExplorer2DMonsterHitBounds(entry, center);
+    if (!bounds || x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) continue;
+    const normalizedX = (x - bounds.x) / Math.max(1, (bounds.right - bounds.left) / 2);
+    const normalizedY = (y - (bounds.y - bounds.height * 0.5))
+      / Math.max(1, bounds.height * 0.5 + 8);
+    const score = normalizedX * normalizedX + normalizedY * normalizedY;
+    if (score < nearestScore) { nearestScore = score; nearestMonster = entry; }
   }
-  if (nearestMonster && nearestDistance <= 23) { selectRoExplorerMonster(nearestMonster); return; }
+  if (nearestMonster) { selectRoExplorerMonster(nearestMonster); return; }
   let guess = unprojectRoExplorer2DPoint(x, y, center, ro2dViewportWidth, ro2dViewportHeight,
     ro2dPixelsPerWorldUnit(), center.y);
   let target = roMapCellFromWorldPoint(gatInfo, guess.x, guess.z, worldScale);
@@ -1363,6 +1393,7 @@ if (explorerParams.get('roo-2d-test') === '1') {
       if (!ro2dActive || !currentCell || !gatInfo || !ro2dFrameCenter) return [];
       return monsterEntries.filter(entry => entry && entry.cell && entry.monster).map(entry => {
         const point = ro2dProject(cellWorldPosition(entry.cell), ro2dFrameCenter);
+        const hitBounds = getRoExplorer2DMonsterHitBounds(entry, ro2dFrameCenter);
         const maxHp = Number.isFinite(entry.maxHp) && entry.maxHp > 0
           ? entry.maxHp : Math.max(1, Number(entry.monster.hp) || 1);
         const currentHp = Number.isFinite(entry.currentHp)
@@ -1376,6 +1407,8 @@ if (explorerParams.get('roo-2d-test') === '1') {
           cell: { x: entry.cell.x, y: entry.cell.y },
           screenX: point.x,
           screenY: point.y,
+          bodyTapX: hitBounds ? hitBounds.bodyTapX : point.x,
+          bodyTapY: hitBounds ? hitBounds.bodyTapY : point.y,
           currentHp,
           maxHp,
           dead: !!entry.dead,

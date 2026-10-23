@@ -1232,9 +1232,9 @@ async function run() {
     const api = window.__rooExplorer2DTest;
     return api.getMonsterTargets()
       .filter(target => !target.dead && target.distance >= 2
-        && target.screenX >= 12 && target.screenY >= 12
-        && target.screenX <= rect.width - 12 && target.screenY <= rect.height - 12
-        && document.elementFromPoint(rect.left + target.screenX, rect.top + target.screenY) === canvas)
+        && target.bodyTapX >= 12 && target.bodyTapY >= 12
+        && target.bodyTapX <= rect.width - 12 && target.bodyTapY <= rect.height - 12
+        && document.elementFromPoint(rect.left + target.bodyTapX, rect.top + target.bodyTapY) === canvas)
       .map(target => ({
         ...target,
         approachPathLength: api.getMonsterApproachPathLength(target.spawnKey),
@@ -1250,8 +1250,8 @@ async function run() {
   let selectedMobileMonster = null;
   for (const target of mobileMonsterTargets) {
     await page.touchscreen.tap(
-      mobileTwoD.canvasRect.left + target.screenX,
-      mobileTwoD.canvasRect.top + target.screenY
+      mobileTwoD.canvasRect.left + target.bodyTapX,
+      mobileTwoD.canvasRect.top + target.bodyTapY
     );
     if (await page.locator('#monster-panel').isVisible()) {
       const title = await page.locator('#monster-title').innerText();
