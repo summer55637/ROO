@@ -607,16 +607,25 @@ try {
     '手機純 2D 戰鬥產生未處理的 JavaScript 錯誤：' + mobilePageErrors.join(' | '));
   console.log('手機純 2D 真實 UI 戰鬥通過：觸控選怪、GAT/A* 靠近、普攻扣怪物 HP、Bash 扣 HP/SP、擊殺、等待重生與 HP 復原。');
 
+  // The mobile phase deliberately refills HP/SP after the earlier Bash snapshot.
+  // Compare the save against the live final state, then compare the same bytes after reload.
+  const liveBeforeReload = await readLiveState(mainPage);
+  const saveBeforeReload = await mainPage.evaluate(
+    key => JSON.parse(localStorage.getItem(key)), setup.saveSlotKey
+  );
+  assert.ok(saveBeforeReload, '手機純 2D 戰鬥結束後找不到角色存檔。');
+  assertSaveMatches('手機 2D 戰鬥結束', saveBeforeReload, liveBeforeReload);
+  await mobilePage.close();
   await explorerPage.close();
   await mainPage.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
-  // Verify persisted bytes before continueGame can apply legitimate idle regeneration.
+  // Read persisted bytes before continueGame can apply legitimate idle regeneration.
   const persistedBeforeContinue = await mainPage.evaluate(
     key => JSON.parse(localStorage.getItem(key)), setup.saveSlotKey
   );
   assert.ok(persistedBeforeContinue, '重新整理後找不到角色存檔。');
-  assertSaveMatches('重新整理後讀取前', saveAfterSkill, persistedBeforeContinue);
+  assertSaveMatches('重新整理後讀取前', saveBeforeReload, persistedBeforeContinue);
   for (const key of ['hp', 'maxHp', 'sp', 'maxSp', 'baseLevel', 'baseExp', 'jobLevel', 'jobExp', 'gold']) {
-    assert.equal(persistedBeforeContinue[key], saveAfterSkill[key],
+    assert.equal(persistedBeforeContinue[key], saveBeforeReload[key],
       '重新整理後原始存檔欄位 ' + key + ' 不一致。');
   }
   await mainPage.locator('button[onclick="showSlotSelect()"]').click();
