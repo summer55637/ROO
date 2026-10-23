@@ -291,8 +291,20 @@ async function runGndGpuBoundaryAudit(targetPage, mapSlug, options = {}) {
 }
 
 async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {}) {
+  // GPU GND diagnostics use the 3D debug selector, which is intentionally hidden in Canvas 2D.
+  // Re-map loads can reactivate ?view=2d, so normalize the view at every diagnostic entry.
+  const viewToggle = targetPage.locator('#toggle-2d-view');
+  if (await viewToggle.getAttribute('aria-pressed') === 'true') {
+    await viewToggle.click();
+  }
+  await targetPage.waitForFunction(() => {
+    const canvas2d = document.getElementById('ro-2d-stage');
+    const webgl = Array.from(document.querySelectorAll('#stage > canvas'))
+      .find(canvas => canvas.id !== 'ro-2d-stage');
+    return canvas2d?.hidden === true && webgl && getComputedStyle(webgl).display !== 'none';
+  }, null, { timeout: 10000 });
   const selector = targetPage.locator('#gnd-debug-mode');
-  await selector.waitFor({ state: 'visible', timeout: 5000 });
+  await selector.waitFor({ state: 'visible', timeout: 10000 });
   const sampledPixels = {};
   const modes = options.requireNonzeroLightmap
     ? GND_DEBUG_SCREENSHOT_MODES.filter(mode => mode.value === '7' || mode.value === '2')
@@ -1100,19 +1112,6 @@ async function run() {
       width: pronteraStage.width, height: pronteraStage.height },
     animations: 'disabled',
   });
-  // The previous step deliberately kept Canvas 2D active. GND channel diagnostics
-  // require the 3D debug selector, which is hidden while the pure 2D canvas is active.
-  const pronteraViewToggle = page.locator('#toggle-2d-view');
-  if (await pronteraViewToggle.getAttribute('aria-pressed') === 'true') {
-    await pronteraViewToggle.click();
-  }
-  await page.waitForFunction(() => {
-    const canvas2d = document.getElementById('ro-2d-stage');
-    const webgl = Array.from(document.querySelectorAll('#stage > canvas'))
-      .find(canvas => canvas.id !== 'ro-2d-stage');
-    return canvas2d?.hidden === true && webgl && getComputedStyle(webgl).display !== 'none';
-  }, null, { timeout: 10000 });
-  await page.locator('#gnd-debug-mode').waitFor({ state: 'visible', timeout: 10000 });
   await captureGndDebugViews(page, pronteraStage, 'prontera');
   await page.locator('#recenter').click();
 
