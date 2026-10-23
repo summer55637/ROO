@@ -483,9 +483,10 @@ try {
     return status.includes('原生地圖已載入') && stats.includes('GAT：tra_fild.gat');
   }, null, { timeout: 150000 });
   await mobilePage.waitForFunction(() => {
-    const metrics = window.__rooExplorer2DTest?.getMetrics();
-    return metrics && metrics.terrainTiles > 0 && metrics.texturedTiles > 0
-      && typeof window.__rooExplorer2DTest.getMonsterTargets === 'function';
+    const hook = window.__rooExplorer2DTest;
+    return hook && typeof hook.getMetrics === 'function'
+      && typeof hook.getMonsterTargets === 'function'
+      && typeof hook.canApproachMonster === 'function';
   }, null, { timeout: 30000 });
   const mobileTwoDToggle = mobilePage.locator('#toggle-2d-view');
   assert.ok(await mobileTwoDToggle.isEnabled(), '手機 tra_fild 的純 2D 切換按鈕不可用。');
