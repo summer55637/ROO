@@ -44,6 +44,9 @@
   nativeButton.addEventListener('click', () => setMode('native'));
   localButton.addEventListener('click', () => setMode('local'));
 
-  const requestedMode = new URLSearchParams(window.location.search).get('mode');
-  if (requestedMode === 'native' || requestedMode === 'local') setMode(requestedMode);
+  const requestedParams = new URLSearchParams(window.location.search);
+  const requestedMode = requestedParams.get('mode');
+  const requestedView = requestedParams.get('view');
+  if (requestedView === '2d') setMode('native');
+  else if (requestedMode === 'native' || requestedMode === 'local') setMode(requestedMode);
 })();

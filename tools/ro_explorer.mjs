@@ -203,7 +203,8 @@ function loadGndDiffuseSourceTexture(url) {
   return gndDiffuseSourceTexturePromises.get(url);
 }
 const explorerParams = new URLSearchParams(window.location.search);
-activeExplorerMode = explorerParams.get('mode') === 'native'
+const requestedRoExplorer2D = explorerParams.get('view') === '2d';
+activeExplorerMode = (requestedRoExplorer2D || explorerParams.get('mode') === 'native')
   ? 'native' : (explorerParams.get('mode') === 'local' ? 'local' : 'public');
 function readVitalsParam(key) {
   const raw = explorerParams.get(key);
@@ -2801,6 +2802,7 @@ async function loadRagassetsMap(mapName) {
       + ' 個／' + parsedRsw.models.length + ' 個擺放位置；水域 ' + nextWaterStats.waterTileCount
       + ' 格、動畫影格 ' + nextWaterStats.waterFrameCount + ' 張。GND lightmap/AO 與頂點水波已啟用，實際畫面仍待校驗。');
     updateStats();
+    if (requestedRoExplorer2D) setRoExplorer2DActive(true);
   } catch (error) {
     if (stagedWaterStats) disposeNativeWaterAnimationTextures(stagedWaterStats.animations);
     if (stagedRoot) disposeObject(stagedRoot);
