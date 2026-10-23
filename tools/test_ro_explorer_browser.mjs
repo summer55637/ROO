@@ -3,8 +3,11 @@ import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { chromium } from 'playwright';
 
+const require = createRequire(import.meta.url);
+const browserGameData = require('./harness').boot();
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const artifactDir = process.env.ROO_BROWSER_ARTIFACT_DIR || path.join(root, 'artifacts', 'explorer-browser');
 const baseUrl = process.env.ROO_BROWSER_BASE_URL || 'http://127.0.0.1:8765';
@@ -800,6 +803,28 @@ async function run() {
     pjobexpneed: '5000',
     pzeny: '1234567',
   });
+  // Match the real game's openRoExplorer() handoff: send the actual tra_fild mob catalog.
+  const traFild = browserGameData.MAPS.find(item => item.id === 'tra_fild');
+  const mobileTestMobs = (traFild && Array.isArray(traFild.monsters) ? traFild.monsters : [])
+    .map(spawn => {
+      const monster = spawn && browserGameData.MONSTERS[spawn.id];
+      if (!monster || !Number.isInteger(monster.imgId)) return null;
+      return {
+        id: spawn.id,
+        imageId: monster.imgId,
+        name: monster.name,
+        icon: monster.icon,
+        level: monster.level,
+        hp: monster.hp,
+        atk: monster.atk,
+        weight: Number.isFinite(Number(spawn.weight)) && Number(spawn.weight) > 0
+          ? Number(spawn.weight) : 1,
+      };
+    })
+    .filter(Boolean);
+  assert.ok(mobileTestMobs.length > 0,
+    '瀏覽器測試無法從正式 MAPS／MONSTERS 產生 tra_fild 怪物目錄。');
+  params.set('mobs', JSON.stringify(mobileTestMobs));
   params.set('roo-gnd-gpu-audit', '1');
   // This suite audits actual GND shader channels; RSM placements and water animation
   // are verified in the separate asset pipeline and are intentionally skipped here.
