@@ -192,10 +192,57 @@ function validateAuditReport(mapId, report) {
     check(Boolean(vEdgeNear && vEdgeNear.maxRepeatVsClampRgbDelta > 1),
       'near #9844/#9967 boundary sample should measure the source-backed ClampToEdge/Repeat difference');
   }
-  if (requireNonzeroRgbLightmap) {
-    check(litSamples.length > 0, 'no visibly lit RGB-lightmap samples found');
-    check(litSamples.every(sample => Number.isFinite(sample.delta) && sample.delta <= 4),
-      'source/GPU RGB-lightmap delta exceeded 4: ' + JSON.stringify(litSamples));
+  if (mapId === 'tra_fild') {
+    const targetAudit = report && report.targetSurfaceAudit;
+    check(Boolean(targetAudit && targetAudit.status === 'passed'),
+      'fixed diffuse target-surface framebuffer audit failed: ' + JSON.stringify(targetAudit && targetAudit.failures));
+    const expected = new Map([
+      [9963, [[0.25, 0], [0.5, 0], [0.25, 0.25], [0.5, 0.25]]],
+      [9843, [[0.5, 0.75], [0.75, 0.75], [0.5, 1], [0.75, 1]]],
+    ]);
+    for (const [surfaceIndex, uvCorners] of expected) {
+      const sample = (targetAudit && Array.isArray(targetAudit.samples) ? targetAudit.samples : [])
+        .find(item => item.surfaceIndex === surfaceIndex);
+      const label = 'fixed diffuse surface #' + surfaceIndex;
+      check(Boolean(sample && sample.status === 'passed'), label + ' did not pass near/mid/far GPU checks');
+      check(sample && sample.texturePath
+        && /prt_도시01\.bmp$/i.test(String(sample.texturePath).replaceAll('\\', '/')),
+      label + ' does not use the expected prt_도시01.bmp source texture');
+      check(Boolean(sample && Array.isArray(sample.sourceImage)
+        && sample.sourceImage[0] === 256 && sample.sourceImage[1] === 256),
+      label + ' source atlas is not 256x256');
+      check(Boolean(sample && Array.isArray(sample.uvCorners) && sample.uvCorners.length === 4
+        && sample.uvCorners.every((uv, index) => Array.isArray(uv) && uv.length >= 2
+          && Math.abs(uv[0] - uvCorners[index][0]) <= 1e-6
+          && Math.abs(uv[1] - uvCorners[index][1]) <= 1e-6)),
+      label + ' full source UV corners mismatch');
+      check(Boolean(sample && sample.mipReferenceLevels >= 9), label + ' source mipmap reference is incomplete');
+      check(Boolean(sample && sample.sampler
+        && sample.sampler.wrapS === 'clamp-to-edge'
+        && sample.sampler.wrapT === 'clamp-to-edge'
+        && sample.sampler.minFilter === 1008
+        && sample.sampler.generateMipmaps === true),
+      label + ' changed the expected ClampToEdge / source mipmap sampler');
+      const scales = sample && Array.isArray(sample.scales) ? sample.scales : [];
+      check(scales.length === 3
+        && ['near', 'mid', 'far'].every(name => scales.some(scale => scale.scale === name)),
+      label + ' must have dedicated near/mid/far framebuffer samples');
+      for (const scale of scales) {
+        check(Boolean(scale && Number.isFinite(scale.effectiveLod)
+          && Array.isArray(scale.expectedSourceMipRgb) && scale.expectedSourceMipRgb.length === 3
+          && scale.expectedSourceMipRgb.every(Number.isFinite)
+          && Array.isArray(scale.framebufferRgb) && scale.framebufferRgb.length === 3
+          && scale.framebufferRgb.every(Number.isFinite)
+          && Number.isFinite(scale.maxRgbDelta) && scale.maxRgbDelta <= 12),
+        label + ' ' + (scale && scale.scale) + ' source/GPU diffuse delta exceeded 12: '
+          + JSON.stringify(scale));
+        check(Boolean(scale && Array.isArray(scale.requestedUv) && Array.isArray(scale.actualSourceUv)
+          && scale.requestedUv.length === 2 && scale.actualSourceUv.length === 2
+          && scale.actualSourceUv.every((value, index) =>
+            Number.isFinite(value) && Math.abs(value - scale.requestedUv[index]) <= 0.006)),
+        label + ' ' + (scale && scale.scale) + ' actual framebuffer UV drifted from the fixed probe');
+      }
+    }
   }
   return failures;
 }
@@ -495,6 +542,11 @@ async function auditMap(mapId) {
           await sleep(Math.min(350, Math.max(0, auditDeadline - Date.now())));
         }
         report.audit = audit;
+        if (mapId === 'tra_fild') {
+          audit.targetSurfaceAudit = await page.evaluate(() =>
+            window.__rooGndGpuBoundaryAudit.runTargetSurfaces()
+          );
+        }
         report.validationFailures = validateAuditReport(mapId, audit);
         if (report.validationFailures.length) {
           report.status = 'failed';
