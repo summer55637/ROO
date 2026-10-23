@@ -4941,12 +4941,19 @@ function runGndTargetSurfaceGpuAudit() {
         auditCamera.right = frustumWidth / 2;
         auditCamera.top = frustumHeight / 2;
         auditCamera.bottom = -frustumHeight / 2;
+        // Put the requested UV exactly under the pixel center, not on a pixel corner.
+        // This keeps the probed source UV stable even at far scale.
+        const cameraCenter = targetPoint.clone().add(new THREE.Vector3(
+          -frustumWidth / width * 0.5,
+          0,
+          frustumHeight / height * 0.5
+        ));
         auditCamera.position.set(
-          targetPoint.x,
+          cameraCenter.x,
           targetPoint.y + Math.max(100, frustumWidth * 20),
-          targetPoint.z
+          cameraCenter.z
         );
-        auditCamera.lookAt(targetPoint);
+        auditCamera.lookAt(cameraCenter);
         auditCamera.updateProjectionMatrix();
         auditCamera.updateMatrixWorld(true);
         const projected = targetPoint.clone().project(auditCamera);
