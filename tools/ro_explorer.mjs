@@ -6126,7 +6126,13 @@ if (requestedMap) {
 }
 loadNativeMapButton.addEventListener('click', () => loadRagassetsMap(nativeMapInput.value));
 window.addEventListener('roo-explorer-mode', event => {
-  if (event.detail === 'native') loadRagassetsMap(nativeMapInput.value);
+  if (event.detail === 'native') {
+    loadRagassetsMap(nativeMapInput.value).then(() => {
+      if (explorerParams.get('view') === '2d' && mapInfo && mapInfo.native && gndInfo && gatInfo) {
+        setRoExplorer2DActive(true);
+      }
+    });
+  }
 });
 
 function measureSpriteAlphaBounds(image) {
