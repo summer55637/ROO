@@ -1189,13 +1189,10 @@ async function run() {
     const targets = window.__rooExplorer2DTest?.getMonsterTargets() || [];
     return targets.some(target => target.spawnKey === spawnKey && !target.dead && target.distance <= 1);
   }, selectedMobileMonster.spawnKey, { timeout: 15000 });
-  await page.waitForFunction(() => {
-    const command = (() => {
-      try { return JSON.parse(localStorage.getItem('roo_explorer_combat_command') || 'null'); }
-      catch (error) { return null; }
-    })();
-    return command && command.type === 'attack';
-  }, null, { timeout: 10000 });
+  await bridgePage.waitForFunction(spawnKey => {
+    const requests = window.__rooCombatBridgeLog || [];
+    return requests.some(request => request.type === 'attack' && request.spawnKey === spawnKey);
+  }, selectedMobileMonster.spawnKey, { timeout: 10000 });
   await page.waitForFunction(previous => {
     const current = document.getElementById('monster-hp-value')?.textContent || '';
     return current && current !== previous;
