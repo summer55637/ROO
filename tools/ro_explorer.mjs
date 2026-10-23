@@ -1178,6 +1178,11 @@ if (explorerParams.get('roo-2d-test') === '1') {
         };
       });
     },
+    getMonsterApproachPathLength: spawnKey => {
+      const entry = monsterEntries.find(item => item && item.spawnKey === spawnKey && !item.dead);
+      const approach = entry && findMonsterAdjacentPath(entry);
+      return approach && Array.isArray(approach.path) ? approach.path.length : null;
+    },
     canApproachMonster: spawnKey => {
       const entry = monsterEntries.find(item => item && item.spawnKey === spawnKey && !item.dead);
       return !!entry && !!findMonsterAdjacentPath(entry);
@@ -2944,7 +2949,7 @@ function findMonsterAdjacentPath(entry) {
     const db = Math.hypot(b.cell.x - currentCell.x, b.cell.y - currentCell.y);
     return da - db;
   });
-  return cells.length ? cells[0].cell : null;
+  return cells.length ? cells[0] : null;
 }
 function startRoExplorerCombat() {
   const entry = selectedMonsterEntry;
@@ -2966,7 +2971,7 @@ function startRoExplorerCombat() {
       setStatus('找不到通往怪物附近的可走路徑。', true);
       return;
     }
-    requestWalkToCell(adjacent);
+    requestWalkToCell(adjacent.cell);
     setStatus('正接近 ' + entry.monster.name + '；抵達一格距離後會開始普攻。');
   } else {
     nextCombatAt = 0;
@@ -3054,7 +3059,7 @@ function requestRoExplorerSkill(entry, skill) {
       return;
     }
     queuedCombatSkill = { entry, skill };
-    requestWalkToCell(adjacent);
+    requestWalkToCell(adjacent.cell);
     setStatus('正接近 ' + entry.monster.name + '；抵達後會施放「' + skill.name + '」。');
     return;
   }
