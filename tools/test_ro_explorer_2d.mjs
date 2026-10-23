@@ -112,6 +112,10 @@ assert.equal(getRoExplorer2DPropVariant('나무잡초꽃/나무03.rsm'),
 assert.equal(getRoExplorer2DPropVariant('NA무잡초꽃/나무03.rsm'),
   getRoExplorer2DPropVariant('나무잡초꽃/나무03.rsm'),
   '資源路徑大小寫不可改變穩定輪廓');
+const fieldTree08Style = getRoExplorer2DPropStyle('field_tree08.rsm');
+assert.ok(Number.isInteger(fieldTree08Style.variant), 'variant 應為整數');
+assert.ok(fieldTree08Style.variant >= 0 && fieldTree08Style.variant < 4,
+  '樹木代理輪廓編號必須落在定義範圍內');
 assert.ok(treeStyle.orientationAware, '樹木代理也應保留 RSW 朝向資訊');
 assert.ok(treeStyle.height > rockStyle.height,
   '樹木代理應比石塊更高，不應所有物件共用同一比例');
