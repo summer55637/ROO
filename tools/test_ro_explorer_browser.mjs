@@ -35,7 +35,7 @@ async function assertNoHorizontalOverflow(targetPage, label) {
     toolbarClient: document.getElementById('native-toolbar').clientWidth,
     toolbarScroll: document.getElementById('native-toolbar').scrollWidth,
     stageClient: document.getElementById('stage').clientWidth,
-    canvasWidth: document.querySelector('#stage canvas')?.getBoundingClientRect().width || 0,
+    canvasWidth: document.querySelector('#stage canvas:not(#ro-2d-stage)')?.getBoundingClientRect().width || 0,
   }));
   assert.ok(sizes.page <= sizes.viewport + 1,
     label + ' 頁面出現水平溢出：' + JSON.stringify(sizes));
