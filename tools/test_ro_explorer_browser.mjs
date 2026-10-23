@@ -783,6 +783,7 @@ async function run() {
   // This suite audits actual GND shader channels; RSM placements and water animation
   // are verified in the separate asset pipeline and are intentionally skipped here.
   params.set('roo-gnd-gpu-audit-only', '1');
+  params.set('roo-2d-test', '1');
   await page.goto(baseUrl + '/tools/ro_explorer.html?' + params.toString(), {
     waitUntil: 'domcontentloaded',
     timeout: 30000,
@@ -842,6 +843,49 @@ async function run() {
   const stage = page.locator('#stage');
   const stageBox = await stage.boundingBox();
   assert.ok(stageBox && stageBox.width > 0 && stageBox.height > 0, '3D 地圖畫面沒有有效尺寸。');
+
+  // Exercise the real Canvas 2D map view against the loaded tra_fild GND/GAT and RO sprites.
+  const toggle2d = page.locator('#toggle-2d-view');
+  await toggle2d.waitFor({ state: 'visible', timeout: 5000 });
+  assert.ok(await toggle2d.isEnabled(), '載入原生 tra_fild 後純 2D 原型按鈕仍不可用。');
+  await toggle2d.click();
+  await page.waitForFunction(() => {
+    const canvas = document.getElementById('ro-2d-stage');
+    const metrics = window.__rooExplorer2DTest?.getMetrics();
+    return canvas && !canvas.hidden && metrics && metrics.active && metrics.terrainTiles > 0;
+  }, null, { timeout: 15000 });
+  await page.waitForFunction(() => {
+    const metrics = window.__rooExplorer2DTest?.getMetrics();
+    return metrics && metrics.texturedTiles > 0;
+  }, null, { timeout: 30000 });
+  await sleep(350);
+  await page.screenshot({
+    path: path.join(artifactDir, 'tra-fild-2d-prototype.png'),
+    clip: { x: stageBox.x, y: stageBox.y, width: stageBox.width, height: stageBox.height },
+    animations: 'disabled',
+  });
+  const twoDReady = await page.evaluate(() => ({
+    metrics: window.__rooExplorer2DTest.getMetrics(),
+    webglHidden: getComputedStyle(document.querySelector('#stage canvas:not(#ro-2d-stage)')).display === 'none',
+    buttonPressed: document.getElementById('toggle-2d-view').getAttribute('aria-pressed'),
+  }));
+  assert.ok(twoDReady.metrics.terrainTiles > 0 && twoDReady.metrics.texturedTiles > 0,
+    '2D 畫面沒有繪製真實 GND 來源貼圖：' + JSON.stringify(twoDReady));
+  assert.equal(twoDReady.metrics.active, true);
+  assert.equal(twoDReady.metrics.canvasHidden, false);
+  assert.equal(twoDReady.webglHidden, true, '純 2D 模式應隱藏 WebGL 畫布。');
+  assert.equal(twoDReady.buttonPressed, 'true');
+  const twoDTargets = await page.evaluate(() => window.__rooExplorer2DTest.getWalkableTargets());
+  assert.ok(twoDTargets.length > 0, '2D 視窗內找不到可點擊的 GAT 可走目的地。');
+  const movementTarget = twoDTargets[Math.floor(twoDTargets.length / 2)];
+  await page.mouse.click(stageBox.x + movementTarget.screenX, stageBox.y + movementTarget.screenY);
+  await page.locator('#stop-movement').waitFor({ state: 'visible', timeout: 7000 });
+  await page.locator('#stop-movement').click();
+  await page.locator('#stop-movement').waitFor({ state: 'hidden', timeout: 3000 });
+  await toggle2d.click();
+  await page.waitForFunction(() => document.getElementById('ro-2d-stage')?.hidden === true
+    && getComputedStyle(document.querySelector('#stage canvas:not(#ro-2d-stage)')).display !== 'none');
+  console.log('Canvas 2D 原型通過：真實 GND 紋理、RO 角色／怪物精靈、GAT 目的地點擊、既有尋路與返回 3D。');
   await page.mouse.move(stageBox.x + stageBox.width / 2, stageBox.y + stageBox.height / 2);
   for (let zoomStep = 0; zoomStep < 14; zoomStep++) {
     await page.mouse.wheel(0, -100);
