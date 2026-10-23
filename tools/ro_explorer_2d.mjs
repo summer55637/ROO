@@ -43,6 +43,7 @@ export function buildRoExplorer2DFallbackProps(rswModels, renderedPositions = []
 
 const RO_EXPLORER_2D_PROP_BASES = Object.freeze({
   tree: { width: 30, height: 45, shadow: 0.92 },
+  stump: { width: 17, height: 22, shadow: 0.86 },
   building: { width: 34, height: 42, shadow: 1.18 },
   wall: { width: 38, height: 18, shadow: 1.1 },
   bridge: { width: 42, height: 17, shadow: 1.12 },
@@ -55,6 +56,27 @@ const RO_EXPLORER_2D_PROP_BASES = Object.freeze({
   water: { width: 31, height: 12, shadow: 0.9 },
   unknown: { width: 21, height: 18, shadow: 0.85 },
 });
+
+/**
+ * Stable per-resource variation for flat 2D proxies.
+ * RSW placements of the same RSM resource share one silhouette; numbered RO assets
+ * keep deterministic variants, while other names use a stable hash.
+ */
+export function getRoExplorer2DPropVariant(value) {
+  const name = String(value || '').toLowerCase().replace(/\\/g, '/').trim();
+  const leaf = (name.split('/').pop() || name).replace(/\.rsm2?\b/g, '');
+  const kind = classifyRoExplorer2DProp(value);
+  const counts = { tree: 4, rock: 3, plant: 3, grass: 3, flower: 3, fixture: 3, building: 2, bridge: 2, wall: 2, unknown: 3 };
+  const count = counts[kind] || 1;
+  const numbered = leaf.match(/(\d+)$/);
+  if (numbered) return Number(numbered[1]) % count;
+  let hash = 2166136261;
+  for (let i = 0; i < leaf.length; i++) {
+    hash ^= leaf.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % count;
+}
 
 /** Classify from the actual model filename; Korean RO resource paths are common in maps. */
 export function classifyRoExplorer2DProp(value) {
@@ -69,7 +91,8 @@ export function classifyRoExplorer2DProp(value) {
   if (/lamp|light|sign|pillar|post|statue|torch|lantern|gravestone|monument|cairn|bench|barrel|woodbox|crate|box|bag|chair|stool|프론테라성기둥|성_기둥|성기둥|벤치/.test(leaf)) {
     return 'fixture';
   }
-  if (/tree|palm|pinetree|fir_tree|coconut|banana_tree|나무(?:\d+|기둥)/.test(leaf)) return 'tree';
+  if (/stump|tree_trunk|cut_tree|나무기둥/.test(leaf)) return 'stump';
+  if (/tree|palm|pinetree|fir_tree|coconut|banana_tree|나무\d+/.test(leaf)) return 'tree';
   if (/flower|flowerbed|tulip|lily|rose|petal|꽃/.test(leaf)) return 'flower';
   if (/grass|weed|reed|bamboo|vine|잡초/.test(leaf)) return 'grass';
   if (/mushroom|shroom|fungus/.test(leaf)) return 'mushroom';
@@ -126,6 +149,7 @@ export function getRoExplorer2DPropStyle(name, modelScale = [1, 1, 1], modelRota
   const orientationAware = RO_EXPLORER_2D_ROTATABLE_KINDS.has(kind);
   return {
     kind,
+    variant: getRoExplorer2DPropVariant(name),
     width: base.width * horizontalScale,
     height: base.height * verticalScale,
     shadowWidth: base.width * base.shadow * horizontalScale,
