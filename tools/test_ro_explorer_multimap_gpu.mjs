@@ -192,6 +192,11 @@ function validateAuditReport(mapId, report) {
     check(Boolean(vEdgeNear && vEdgeNear.maxRepeatVsClampRgbDelta > 1),
       'near #9844/#9967 boundary sample should measure the source-backed ClampToEdge/Repeat difference');
   }
+  if (requireNonzeroRgbLightmap) {
+    check(litSamples.length > 0, 'no visibly lit RGB-lightmap samples found');
+    check(litSamples.every(sample => Number.isFinite(sample.delta) && sample.delta <= 4),
+      'source/GPU RGB-lightmap delta exceeded 4: ' + JSON.stringify(litSamples));
+  }
   if (mapId === 'tra_fild') {
     const targetAudit = report && report.targetSurfaceAudit;
     check(Boolean(targetAudit && targetAudit.status === 'passed'),
