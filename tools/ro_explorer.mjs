@@ -4799,10 +4799,106 @@ function runSingleGndSharedUvGpuBoundaryAudit(pair) {
 
 
 
+
+function frameGndWhiteStreakProfileView() {
+  if (!mapRoot || !gndInfo || !Array.isArray(gndInfo.surfaces)) {
+    return { status: 'pending', reason: '原生 GND 尚未載入。' };
+  }
+  mapRoot.updateMatrixWorld(true);
+  const targetIds = [9965, 9967, 9969, 9844];
+  const entries = new Map();
+  mapRoot.traverse(object => {
+    const indices = object.userData && object.userData.rooGndSurfaceIndices;
+    if (!object.userData.rooTerrainSurface || !Array.isArray(indices)) return;
+    indices.forEach((surfaceIndex, quadIndex) => {
+      if (!targetIds.includes(surfaceIndex)) return;
+      if (!entries.has(surfaceIndex)) entries.set(surfaceIndex, { object, quadIndex, surfaceIndex });
+    });
+  });
+  const found = targetIds.map(id => entries.get(id)).filter(Boolean);
+  if (found.length !== targetIds.length) {
+    return { status: 'unavailable', missingSurfaces: targetIds.filter(id => !entries.has(id)) };
+  }
+  const getQuadWorldPositions = entry => {
+    const attr = entry.object.geometry.getAttribute('position');
+    return [0, 1, 2, 3].map(corner => entry.object.localToWorld(new THREE.Vector3(
+      attr.getX(entry.quadIndex * 4 + corner),
+      attr.getY(entry.quadIndex * 4 + corner),
+      attr.getZ(entry.quadIndex * 4 + corner)
+    )));
+  };
+  const quads = found.map(entry => ({
+    surfaceIndex: entry.surfaceIndex,
+    positions: getQuadWorldPositions(entry),
+  }));
+  const allPoints = quads.flatMap(quad => quad.positions);
+  const bounds = {
+    minX: Math.min(...allPoints.map(point => point.x)),
+    maxX: Math.max(...allPoints.map(point => point.x)),
+    minY: Math.min(...allPoints.map(point => point.y)),
+    maxY: Math.max(...allPoints.map(point => point.y)),
+    minZ: Math.min(...allPoints.map(point => point.z)),
+    maxZ: Math.max(...allPoints.map(point => point.z)),
+  };
+  const center = new THREE.Vector3(
+    (bounds.minX + bounds.maxX) / 2,
+    (bounds.minY + bounds.maxY) / 2,
+    (bounds.minZ + bounds.maxZ) / 2
+  );
+  const referenceQuad = quads.find(quad => quad.surfaceIndex === 9967);
+  const tileSpan = Math.max(
+    referenceQuad.positions[0].distanceTo(referenceQuad.positions[1]),
+    referenceQuad.positions[0].distanceTo(referenceQuad.positions[2]),
+    1
+  );
+  const distance = tileSpan * 5.5;
+  controls.target.copy(center);
+  camera.position.set(center.x + distance * 0.9, center.y + distance * 0.85, center.z + distance * 0.9);
+  camera.lookAt(center);
+  controls.update();
+  camera.lookAt(center);
+  GND_DEBUG_MODE_UNIFORM.value = 7;
+  const modeSelect = document.getElementById('gnd-debug-mode');
+  if (modeSelect) modeSelect.value = '7';
+  renderer.render(scene, camera);
+  const rect = renderer.domElement.getBoundingClientRect();
+  const projectedCenters = quads.map(quad => {
+    const point = quad.positions.reduce((sum, current) => sum.add(current), new THREE.Vector3())
+      .multiplyScalar(1 / quad.positions.length);
+    const ndc = point.project(camera);
+    return {
+      surfaceIndex: quad.surfaceIndex,
+      x: Number((rect.left + (ndc.x + 1) * rect.width / 2).toFixed(2)),
+      y: Number((rect.top + (1 - ndc.y) * rect.height / 2).toFixed(2)),
+    };
+  });
+  return {
+    status: 'framed',
+    mode: 'diffuse-only',
+    referenceSurface: 9967,
+    tileSpan,
+    targetWorld: center.toArray().map(value => Number(value.toFixed(4))),
+    cameraPosition: camera.position.toArray().map(value => Number(value.toFixed(4))),
+    canvasRect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+    projectedCenters,
+    uvProfile: [
+      { surfaceIndex: 9965, uv: [0.6710, 0.0012] },
+      { surfaceIndex: 9967, uv: [0.9210, 0.0012] },
+      { surfaceIndex: 9969, uv: [0.1710, 0.0012] },
+      { surfaceIndex: 9844, uv: [0.9210, 0.9988] },
+    ],
+  };
+}
+
 function runGndTargetSurfaceGpuAudit() {
   const targetSpecs = [
-    { surfaceIndex: 9963, uv: [0.4306, 0.2271] },
-    { surfaceIndex: 9843, uv: [0.5641, 0.9895] },
+    { probeId: 'control-9963', surfaceIndex: 9963, uv: [0.4306, 0.2271] },
+    { probeId: 'control-9843', surfaceIndex: 9843, uv: [0.5641, 0.9895] },
+    // Follow the pale streak from the inspected #9967 point along adjacent tiles and across its V edge.
+    { probeId: 'streak-west', surfaceIndex: 9965, uv: [0.6710, 0.0012] },
+    { probeId: 'streak-center', surfaceIndex: 9967, uv: [0.9210, 0.0012] },
+    { probeId: 'streak-east', surfaceIndex: 9969, uv: [0.1710, 0.0012] },
+    { probeId: 'streak-opposite-v-edge', surfaceIndex: 9844, uv: [0.9210, 0.9988] },
   ];
   if (!mapRoot || !gndInfo || !Array.isArray(gndInfo.surfaces)) {
     return { status: 'pending', reason: '原生 GND 尚未載入。', samples: [] };
@@ -4883,7 +4979,7 @@ function runGndTargetSurfaceGpuAudit() {
       });
       if (!surface || !entry) {
         samples.push({
-          status: 'unavailable', surfaceIndex: spec.surfaceIndex, requestedUv: spec.uv,
+          status: 'unavailable', probeId: spec.probeId, surfaceIndex: spec.surfaceIndex, requestedUv: spec.uv,
           reason: '找不到帶真實 diffuse 紋理的目標 surface mesh。',
         });
         continue;
@@ -4906,7 +5002,7 @@ function runGndTargetSurfaceGpuAudit() {
         && candidate.weights.every(weight => weight >= -1e-4 && weight <= 1.0001));
       if (!triangleCandidates.length) {
         samples.push({
-          status: 'failed', surfaceIndex: spec.surfaceIndex, requestedUv: spec.uv,
+          status: 'failed', probeId: spec.probeId, surfaceIndex: spec.surfaceIndex, requestedUv: spec.uv,
           uvCorners, reason: '固定 UV 不在該 surface 的兩個三角形內。',
         });
         continue;
@@ -5052,12 +5148,20 @@ function runGndTargetSurfaceGpuAudit() {
       }
       const texturePath = Array.isArray(gndInfo.textures)
         ? gndInfo.textures[surface.textureIndex] : null;
+      const actualCanvasRect = renderer.domElement.getBoundingClientRect();
+      const actualViewNdc = targetPoint.clone().project(camera);
+      const actualViewScreenPoint = {
+        x: Number((actualCanvasRect.left + (actualViewNdc.x + 1) * actualCanvasRect.width / 2).toFixed(2)),
+        y: Number((actualCanvasRect.top + (1 - actualViewNdc.y) * actualCanvasRect.height / 2).toFixed(2)),
+      };
       const allScalesPassed = scaleReports.length === 3
         && scaleReports.every(scale => scale.status === 'passed');
       samples.push({
         status: allScalesPassed ? 'passed'
           : (scaleReports.some(scale => scale.status === 'failed') ? 'failed' : 'unavailable'),
+        probeId: spec.probeId,
         surfaceIndex: spec.surfaceIndex,
+        actualViewScreenPoint,
         quadIndex: entry.quadIndex,
         cubeUseSites: gndInfo.cubes
           .map((cube, index) => cube.topSurface === spec.surfaceIndex
@@ -5092,6 +5196,7 @@ function runGndTargetSurfaceGpuAudit() {
       limits: { diffuseMaxRgbDelta: 12 },
       samples,
       failures: failures.map(sample => ({
+        probeId: sample.probeId || null,
         surfaceIndex: sample.surfaceIndex, status: sample.status, reason: sample.reason || null,
       })),
     };
@@ -5156,6 +5261,7 @@ if (explorerParams.get('roo-gnd-gpu-audit') === '1') {
   window.__rooGndGpuBoundaryAudit = {
   run: runGndSharedUvGpuBoundaryAudit,
   runTargetSurfaces: runGndTargetSurfaceGpuAudit,
+  frameWhiteStreakProfileView: frameGndWhiteStreakProfileView,
 };
 }
 
