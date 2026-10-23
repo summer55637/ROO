@@ -2113,8 +2113,8 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
 }
 
 // These internal tutorial maps are game-only scenes and do not have public RO GND/GAT assets.
- // Keep the logical game map in ?map for combat/state validation, while loading a real RO map
- // separately as the visual ground source through ?nativeMap.
+// Keep the logical game map in ?map for combat/state validation, while loading a real RO map
+// separately as the visual ground source through ?nativeMap.
 const RO_EXPLORER_NATIVE_MAP_FALLBACKS = Object.freeze({
   novice_safe: 'prontera',
   novice_ground: 'prt_fild08',
