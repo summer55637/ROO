@@ -276,7 +276,8 @@ function validateAuditReport(mapId, report) {
       check(Boolean(sample && sample.texturePath
         && /prt_도시01\.bmp$/i.test(String(sample.texturePath).replaceAll('\\', '/'))),
       label + ' is not using the inspected source texture');
-      check(Boolean(sample && Array.isArray(sample.actualViewScreenPoint)
+      check(Boolean(sample && sample.actualViewScreenPoint
+        && !Array.isArray(sample.actualViewScreenPoint)
         && Number.isFinite(sample.actualViewScreenPoint.x)
         && Number.isFinite(sample.actualViewScreenPoint.y)),
       label + ' is missing its projected screen location in the white-streak view');
@@ -303,6 +304,9 @@ function validateAuditReport(mapId, report) {
             Number.isFinite(value) && Math.abs(value - expectedProbe.uv[index]) <= 0.006)),
         label + ' ' + (scale && scale.scale) + ' actual sampled UV differs from screenshot probe');
       }
+      const farScale = scales.find(scale => scale.scale === 'far');
+      check(Boolean(farScale && farScale.coverageBiasPixels === 0.08),
+        label + ' far edge sample is missing the documented sub-pixel raster-coverage bias');
     }
   }
   return failures;
