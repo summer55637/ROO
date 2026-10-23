@@ -78,6 +78,8 @@ import {
   drawRoExplorer2DTexturedTriangle,
   getRoExplorer2DViewportRadius,
   isRoExplorer2DPointVisible,
+  drawRoExplorer2DGroundShadow,
+  drawRoExplorer2DSelectionRing,
 } from './ro_explorer_2d.mjs';
 
 const stage = document.getElementById('stage');
@@ -943,18 +945,15 @@ function ro2dDrawableImage(image) {
 
 function drawRoExplorer2DSprite(context, image, point, width, height, fallbackColor, selected = false) {
   const x = point.x, y = point.y;
-  if (selected) {
-    context.strokeStyle = '#ffe18a'; context.lineWidth = 2.5;
-    context.beginPath(); context.ellipse(x, y + 1, width * 0.56, 6, 0, 0, Math.PI * 2); context.stroke();
-  }
+  // Keep animated RO sprites grounded as well as fallback silhouettes.
+  drawRoExplorer2DGroundShadow(context, x, y, width);
+  if (selected) drawRoExplorer2DSelectionRing(context, x, y, width);
   if (ro2dDrawableImage(image)) {
     const iw = image.naturalWidth || image.videoWidth || image.width;
     const ih = image.naturalHeight || image.videoHeight || image.height;
     const drawWidth = Math.min(width * 1.65, height * iw / ih);
     try { context.drawImage(image, x - drawWidth / 2, y - height, drawWidth, height); return; } catch (error) {}
   }
-  context.fillStyle = 'rgba(0,0,0,0.24)';
-  context.beginPath(); context.ellipse(x, y, width * 0.42, 4, 0, 0, Math.PI * 2); context.fill();
   context.fillStyle = fallbackColor;
   context.beginPath(); context.ellipse(x, y - height * 0.72, width * 0.34, height * 0.27, 0, 0, Math.PI * 2); context.fill();
   context.fillRect(x - width * 0.16, y - height * 0.56, width * 0.32, height * 0.42);
