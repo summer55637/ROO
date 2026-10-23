@@ -803,9 +803,14 @@ async function run() {
     pjobexpneed: '5000',
     pzeny: '1234567',
   });
-  // Match the real game's openRoExplorer() handoff: send the actual tra_fild mob catalog.
+  // tra_fild 是原生探索素材地圖；若正式 MAPS 尚無該地圖，沿用正式 prt_fild08 生怪資料。
+  // 與主遊戲戰鬥端到端測試一致：地圖素材載入 tra_fild，怪物定義仍取正式 MAPS／MONSTERS。
   const traFild = browserGameData.MAPS.find(item => item.id === 'tra_fild');
-  const mobileTestMobs = (traFild && Array.isArray(traFild.monsters) ? traFild.monsters : [])
+  const fieldMap = browserGameData.MAPS.find(item => item.id === 'prt_fild08');
+  const monsterSourceMap = traFild && Array.isArray(traFild.monsters) && traFild.monsters.length
+    ? traFild : fieldMap;
+  const mobileTestMobs = (monsterSourceMap && Array.isArray(monsterSourceMap.monsters)
+    ? monsterSourceMap.monsters : [])
     .map(spawn => {
       const monster = spawn && browserGameData.MONSTERS[spawn.id];
       if (!monster || !Number.isInteger(monster.imgId)) return null;
@@ -823,7 +828,7 @@ async function run() {
     })
     .filter(Boolean);
   assert.ok(mobileTestMobs.length > 0,
-    '瀏覽器測試無法從正式 MAPS／MONSTERS 產生 tra_fild 怪物目錄。');
+    '瀏覽器測試無法從正式 tra_fild／prt_fild08 的 MAPS／MONSTERS 產生怪物目錄。');
   params.set('mobs', JSON.stringify(mobileTestMobs));
   params.set('roo-gnd-gpu-audit', '1');
   // This suite audits actual GND shader channels; RSM placements and water animation
