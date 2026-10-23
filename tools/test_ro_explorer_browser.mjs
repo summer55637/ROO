@@ -862,10 +862,14 @@ async function run() {
   await page.locator('#cast-support-skill').waitFor({ state: 'visible', timeout: 30000 });
   await page.waitForFunction(() => {
     const text = document.getElementById('status')?.textContent || '';
-    return text.includes('原生地圖已載入') || text.includes('公開原生地圖載入失敗');
+    return text.includes('原生地圖已載入')
+      || text.includes('公開原生地圖載入失敗')
+      // The direct view=2d entry replaces the native-load status once Canvas 2D starts.
+      || text.includes('純 2D 原型已開啟');
   }, null, { timeout: 150000 });
   const mapStatus = await page.locator('#status').innerText();
-  assert.ok(mapStatus.includes('原生地圖已載入'), '原生地圖沒有成功顯示：' + mapStatus);
+  assert.ok(mapStatus.includes('原生地圖已載入') || mapStatus.includes('純 2D 原型已開啟'),
+    '原生地圖沒有成功顯示：' + mapStatus);
   await page.waitForFunction(() => {
     const canvas = document.getElementById('ro-2d-stage');
     const metrics = window.__rooExplorer2DTest?.getMetrics();
