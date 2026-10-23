@@ -6,6 +6,7 @@ import {
   transformRoExplorer2DPoint,
   getRoExplorer2DViewportRadius,
   isRoExplorer2DPointVisible,
+  collectRoExplorer2DModelTriangles,
   drawRoExplorer2DGroundShadow,
   drawRoExplorer2DSelectionRing,
   buildRoExplorer2DFallbackProps,
@@ -41,6 +42,97 @@ assert.equal(createRoExplorer2DAffineTransform(
   [{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 2 }],
   target
 ), null, '退化的來源三角形應拒絕 UV 映射');
+
+// Loaded, static RSM geometry should be available to the Canvas 2D renderer as source-textured triangles.
+const testImage = { width: 64, height: 32 };
+const testAttribute = (array, itemSize) => ({ array, itemSize, count: array.length / itemSize });
+const matrixWorld = { elements: [
+  1, 0, 0, 0,
+  0, 1, 0, 0,
+  0, 0, 1, 0,
+  10, 2, -4, 1,
+] };
+const testMesh = {
+  isMesh: true,
+  visible: true,
+  children: [],
+  matrixWorld,
+  geometry: {
+    attributes: {
+      position: testAttribute([0, 0, 0, 1, 0, 0, 0, 0, 1], 3),
+      uv: testAttribute([0, 0, 1, 0, 0, 1], 2),
+    },
+    index: { array: [0, 1, 2], itemSize: 1, count: 3 },
+    groups: [],
+    drawRange: { start: 0, count: Infinity },
+  },
+  material: { map: { image: testImage }, opacity: 0.8, color: { r: 1, g: 0, b: 0 } },
+};
+const testModel = {
+  visible: true,
+  children: [testMesh],
+  updateMatrixWorld() {},
+};
+const modelTriangles = collectRoExplorer2DModelTriangles(
+  testModel,
+  world => ({ x: world.x * 2, y: world.z * 3 - world.y }),
+  { x: 20, y: 0 }
+);
+assert.equal(modelTriangles.length, 1, '已載入的 RSM 三角面應能轉成 2D 貼圖面');
+assert.deepEqual(modelTriangles[0].sourcePoints, [
+  { x: 0, y: 32 }, { x: 64, y: 32 }, { x: 0, y: 0 },
+], 'RSM UV 應對應原始材質圖並翻轉 Canvas 的 V 座標');
+assert.deepEqual(modelTriangles[0].points, [
+  { x: 0, y: -6 }, { x: 2, y: -6 }, { x: 0, y: -3 },
+], '模型頂點應經世界矩陣及畫面投影轉成以模型錨點為中心的座標');
+assert.equal(modelTriangles[0].depth, 14);
+assert.equal(modelTriangles[0].opacity, 0.8);
+assert.equal(modelTriangles[0].image, testImage);
+
+const untexturedMesh = {
+  ...testMesh,
+  geometry: {
+    attributes: { position: testAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3) },
+    index: null, groups: [], drawRange: { start: 0, count: Infinity },
+  },
+  material: { color: { r: 0, g: 1, b: 0 }, opacity: 1 },
+};
+const untexturedTriangles = collectRoExplorer2DModelTriangles(
+  { visible: true, children: [untexturedMesh], updateMatrixWorld() {} },
+  world => ({ x: world.x, y: world.y }),
+  { x: 0, y: 0 }
+);
+assert.equal(untexturedTriangles.length, 1);
+assert.equal(untexturedTriangles[0].image, null);
+assert.equal(untexturedTriangles[0].color, 'rgb(0,255,0)',
+  '未帶貼圖的材質仍可用實際網格與材質色填面');
+
+const twoFaceMesh = {
+  ...testMesh,
+  geometry: {
+    attributes: {
+      position: testAttribute([0, 0, 0, 1, 0, 0, 0, 0, 1, 2, 0, 0, 3, 0, 0, 2, 0, 1], 3),
+      uv: testAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], 2),
+    },
+    index: { array: [0, 1, 2, 3, 4, 5], itemSize: 1, count: 6 },
+    groups: [], drawRange: { start: 0, count: Infinity },
+  },
+};
+assert.equal(collectRoExplorer2DModelTriangles(
+  { visible: true, children: [twoFaceMesh], updateMatrixWorld() {} },
+  world => ({ x: world.x, y: world.y }),
+  { x: 0, y: 0 }, 1
+), null, '超過三角面預算的模型應安全退回代理，而不是只畫一半');
+
+const unloadedTextureMesh = {
+  ...testMesh,
+  material: { map: { image: { width: 0, height: 0 } }, opacity: 1 },
+};
+assert.equal(collectRoExplorer2DModelTriangles(
+  { visible: true, children: [unloadedTextureMesh], updateMatrixWorld() {} },
+  world => ({ x: world.x, y: world.y }),
+  { x: 0, y: 0 }
+), null, '未載入完成的貼圖不得寫入永久快取');
 
 const radius = getRoExplorer2DViewportRadius(800, 480);
 assert.deepEqual(radius, { x: 29, z: 34 });
