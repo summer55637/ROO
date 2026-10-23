@@ -862,10 +862,18 @@ async function run() {
   await page.locator('#cast-support-skill').waitFor({ state: 'visible', timeout: 30000 });
   await page.waitForFunction(() => {
     const text = document.getElementById('status')?.textContent || '';
-    return text.includes('原生地圖已載入') || text.includes('公開原生地圖載入失敗');
+    const metrics = window.__rooExplorer2DTest?.getMetrics();
+    // Enabling 2D replaces the transient "native map loaded" status text.
+    // Wait for the durable render signal instead of requiring that text to remain visible.
+    return text.includes('公開原生地圖載入失敗')
+      || Boolean(metrics && metrics.active && metrics.terrainTiles > 0);
   }, null, { timeout: 150000 });
   const mapStatus = await page.locator('#status').innerText();
-  assert.ok(mapStatus.includes('原生地圖已載入'), '原生地圖沒有成功顯示：' + mapStatus);
+  const mapMetrics = await page.evaluate(() => window.__rooExplorer2DTest?.getMetrics());
+  assert.ok(
+    !mapStatus.includes('公開原生地圖載入失敗') && mapMetrics?.active && mapMetrics.terrainTiles > 0,
+    '原生 2D 地圖沒有成功顯示：' + mapStatus + '; metrics=' + JSON.stringify(mapMetrics),
+  );
   await page.waitForFunction(() => {
     const canvas = document.getElementById('ro-2d-stage');
     const metrics = window.__rooExplorer2DTest?.getMetrics();
