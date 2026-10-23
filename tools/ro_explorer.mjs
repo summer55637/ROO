@@ -5050,7 +5050,7 @@ function runGndTargetSurfaceGpuAudit() {
         // inside the same surface. The sampled UV is still measured from the
         // actual GPU pixel and must stay within the existing 0.006 UV tolerance.
         let coverageBiasPixels = 0;
-        if (spec.probeId.startsWith('streak-')) {
+        if (scale.name === 'far' && spec.probeId.startsWith('streak-')) {
           const minU = Math.min(...uvCorners.map(uv => uv[0]));
           const maxU = Math.max(...uvCorners.map(uv => uv[0]));
           const minV = Math.min(...uvCorners.map(uv => uv[1]));
