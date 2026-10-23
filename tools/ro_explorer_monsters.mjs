@@ -58,7 +58,10 @@ export function buildRoExplorerMonsterSpawns(gat, catalog, playerCell, mapId, op
   const radiusValue = Number(options.searchRadius);
   const searchRadius = Number.isFinite(radiusValue)
     ? Math.max(Math.ceil(minDistance), Math.min(64, Math.floor(radiusValue)))
-    : Math.min(30, Math.max(12, Math.round(minDimension * 0.15)));
+    // Real 200×200 RO maps show only a limited number of GAT cells on a phone.
+    // Keep the default spawn cluster close enough to stay discoverable in Canvas 2D;
+    // callers may still pass an explicit wider searchRadius for other scenarios.
+    : 12;
   const centerX = playerCell && Number.isInteger(playerCell.x)
     ? Math.max(0, Math.min(gat.width - 1, playerCell.x)) : Math.floor(gat.width / 2);
   const centerY = playerCell && Number.isInteger(playerCell.y)

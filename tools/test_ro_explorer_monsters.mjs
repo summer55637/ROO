@@ -34,6 +34,24 @@ assert.ok(spawns.every(s => Math.max(
   Math.abs(s.cell.x - playerCell.x), Math.abs(s.cell.y - playerCell.y)
 ) <= 12), '怪物應生成在玩家附近，避免大地圖上的怪物全落在鏡頭之外。');
 assert.ok(spawns.every((s,i) => spawns.slice(i+1).every(o => Math.hypot(s.cell.x-o.cell.x,s.cell.y-o.cell.y) >= 5)));
+
+// Reproduce the real 200×200 GAT map size: default spawn radius must not grow
+// with the world, otherwise mobile Canvas 2D can load with every monster off-screen.
+const largeWidth = 200, largeHeight = 200;
+const largeGat = {
+  width: largeWidth,
+  height: largeHeight,
+  walkable: new Uint8Array(largeWidth * largeHeight).fill(1),
+  water: new Uint8Array(largeWidth * largeHeight),
+};
+const largePlayerCell = { x: 100, y: 100 };
+const largeMapSpawns = buildRoExplorerMonsterSpawns(
+  largeGat, catalog, largePlayerCell, 'tra_fild', { maxCount: 8, attemptsPerSpawn: 300 }
+);
+assert.equal(largeMapSpawns.length, 8);
+assert.ok(largeMapSpawns.every(spawn => Math.max(
+  Math.abs(spawn.cell.x - largePlayerCell.x), Math.abs(spawn.cell.y - largePlayerCell.y)
+) <= 12), '200×200 真實地圖的預設怪物應位於角色附近，避免手機純 2D 開場沒有可點目標。');
 assert.deepEqual(buildRoExplorerMonsterSpawns(gat, [], playerCell, 'prontera'), []);
 assert.deepEqual(buildRoExplorerMonsterSpawns({width:1,height:1,walkable:[1]},catalog,{x:0,y:0},'small'), []);
 console.log('原生探索怪物測試通過：資料驗證、權重、可走格、避開玩家與穩定重現。');

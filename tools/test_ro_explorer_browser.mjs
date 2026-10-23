@@ -845,7 +845,12 @@ async function run() {
   // are verified in the separate asset pipeline and are intentionally skipped here.
   params.set('roo-gnd-gpu-audit-only', '1');
   params.set('roo-2d-test', '1');
-  await page.goto(baseUrl + '/tools/ro_explorer.html?' + params.toString(), {
+  // Exercise the actual shareable entry URL: view=2d must select native GND/GAT
+  // without requiring a separate mode=native parameter.
+  params.delete('mode');
+  params.set('view', '2d');
+  const directTwoDUrl = baseUrl + '/tools/ro_explorer.html?' + params.toString();
+  await page.goto(directTwoDUrl, {
     waitUntil: 'domcontentloaded',
     timeout: 30000,
   });
@@ -861,6 +866,42 @@ async function run() {
   }, null, { timeout: 150000 });
   const mapStatus = await page.locator('#status').innerText();
   assert.ok(mapStatus.includes('原生地圖已載入'), '原生地圖沒有成功顯示：' + mapStatus);
+  await page.waitForFunction(() => {
+    const canvas = document.getElementById('ro-2d-stage');
+    const metrics = window.__rooExplorer2DTest?.getMetrics();
+    return canvas && !canvas.hidden && metrics && metrics.active && metrics.terrainTiles > 0;
+  }, null, { timeout: 15000 });
+  const directDesktopReady = await page.evaluate(() => {
+    const canvas = document.getElementById('ro-2d-stage');
+    const webgl = Array.from(document.querySelectorAll('#stage > canvas'))
+      .find(item => item.id !== 'ro-2d-stage');
+    const metrics = window.__rooExplorer2DTest.getMetrics();
+    const query = new URLSearchParams(location.search);
+    return {
+      view: query.get('view'),
+      mode: query.get('mode'),
+      active: metrics.active,
+      canvasHidden: canvas.hidden,
+      webglDisplay: webgl ? getComputedStyle(webgl).display : 'missing',
+      width: innerWidth,
+      texturedTiles: metrics.texturedTiles,
+    };
+  });
+  assert.equal(directDesktopReady.view, '2d',
+    '桌面版必須使用 view=2d 直接入口：' + JSON.stringify(directDesktopReady));
+  assert.equal(directDesktopReady.mode, null,
+    '純 2D 入口不可依賴額外的 mode=native 參數：' + JSON.stringify(directDesktopReady));
+  assert.equal(directDesktopReady.active, true,
+    '桌面直接開啟網址後未自動啟動 Canvas 2D：' + JSON.stringify(directDesktopReady));
+  assert.equal(directDesktopReady.canvasHidden, false);
+  assert.equal(directDesktopReady.webglDisplay, 'none',
+    '桌面直接純 2D 網址仍顯示 WebGL 畫布：' + JSON.stringify(directDesktopReady));
+  console.log('桌面 view=2d 直接入口通過：' + JSON.stringify(directDesktopReady));
+  await page.locator('#toggle-2d-view').click();
+  await page.waitForFunction(() => document.getElementById('ro-2d-stage')?.hidden === true
+    && getComputedStyle(Array.from(document.querySelectorAll('#stage > canvas'))
+      .find(canvas => canvas.id !== 'ro-2d-stage')).display !== 'none',
+  null, { timeout: 5000 });
   await sleep(500);
   const sceneReadiness = await page.evaluate(() => ({
     status: document.getElementById('status')?.textContent || '',
@@ -1293,6 +1334,73 @@ async function run() {
     && getComputedStyle(Array.from(document.querySelectorAll('#stage > canvas'))
       .find(canvas => canvas.id !== 'ro-2d-stage')).display !== 'none');
   console.log('手機純 2D 戰鬥 UI 通過：真實 GND 紋理、觸控地面尋路、點選活怪、靠近至一格、送出普攻橋接、HP 更新及停止普攻。');
+
+  // Reload the same 2D-only URL on the touch viewport to cover mobile direct entry,
+  // not just the in-page manual toggle used for the combat interactions above.
+  await page.goto(directTwoDUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.locator('#native-toolbar').waitFor({ state: 'visible', timeout: 30000 });
+  await page.waitForFunction(() => {
+    const text = document.getElementById('status')?.textContent || '';
+    return text.includes('原生地圖已載入') || text.includes('公開原生地圖載入失敗');
+  }, null, { timeout: 150000 });
+  const directMobileStatus = await page.locator('#status').innerText();
+  assert.ok(directMobileStatus.includes('原生地圖已載入'),
+    '手機 view=2d 直接網址沒有載入原生地圖：' + directMobileStatus);
+  await page.waitForFunction(() => {
+    const canvas = document.getElementById('ro-2d-stage');
+    const metrics = window.__rooExplorer2DTest?.getMetrics();
+    return canvas && !canvas.hidden && metrics && metrics.active && metrics.terrainTiles > 0;
+  }, null, { timeout: 15000 });
+  await page.waitForFunction(() => {
+    const metrics = window.__rooExplorer2DTest?.getMetrics();
+    return metrics && metrics.texturedTiles > 0;
+  }, null, { timeout: 30000 });
+  const directMobileReady = await page.evaluate(() => {
+    const canvas = document.getElementById('ro-2d-stage');
+    const rect = canvas.getBoundingClientRect();
+    const webgl = Array.from(document.querySelectorAll('#stage > canvas'))
+      .find(item => item.id !== 'ro-2d-stage');
+    const metrics = window.__rooExplorer2DTest.getMetrics();
+    const query = new URLSearchParams(location.search);
+    const visibleTargets = window.__rooExplorer2DTest.getWalkableTargets().filter(target => {
+      const x = rect.left + target.screenX, y = rect.top + target.screenY;
+      return x >= 0 && y >= 0 && x < innerWidth && y < innerHeight
+        && document.elementFromPoint(x, y) === canvas;
+    });
+    return {
+      view: query.get('view'),
+      mode: query.get('mode'),
+      active: metrics.active,
+      canvasHidden: canvas.hidden,
+      webglDisplay: webgl ? getComputedStyle(webgl).display : 'missing',
+      viewport: { width: innerWidth, height: innerHeight },
+      documentWidth: document.documentElement.scrollWidth,
+      canvasWidth: rect.width,
+      canvasHeight: rect.height,
+      terrainTiles: metrics.terrainTiles,
+      texturedTiles: metrics.texturedTiles,
+      visibleWalkableTargets: visibleTargets.length,
+    };
+  });
+  assert.equal(directMobileReady.view, '2d',
+    '手機版必須使用 view=2d 直接入口：' + JSON.stringify(directMobileReady));
+  assert.equal(directMobileReady.mode, null,
+    '手機純 2D 入口不可依賴額外 mode=native 參數：' + JSON.stringify(directMobileReady));
+  assert.equal(directMobileReady.active, true);
+  assert.equal(directMobileReady.canvasHidden, false);
+  assert.equal(directMobileReady.webglDisplay, 'none');
+  assert.ok(directMobileReady.documentWidth <= directMobileReady.viewport.width + 1,
+    '手機直接純 2D 網址發生水平溢出：' + JSON.stringify(directMobileReady));
+  assert.ok(directMobileReady.canvasWidth > 0 && directMobileReady.texturedTiles > 0,
+    '手機直接純 2D 網址沒有實際地表貼圖：' + JSON.stringify(directMobileReady));
+  assert.ok(directMobileReady.visibleWalkableTargets > 0,
+    '手機直接純 2D 網址沒有可觸控的 GAT 可走格：' + JSON.stringify(directMobileReady));
+  console.log('手機 view=2d 直接入口通過：' + JSON.stringify(directMobileReady));
+  await page.screenshot({
+    path: path.join(artifactDir, 'mobile-direct-2d.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
 
   assert.deepEqual(pageErrors, [], '瀏覽器出現未處理的 JavaScript 錯誤：' + pageErrors.join(' | '));
   console.log('原生探索瀏覽器驗收通過：公開 tra_fild 3D 地圖、角色素材狀態、HP/SP、基礎／職業經驗、鋅幣、恢復／輔助操作面板、桌面與手機版面、小地圖移動／停止、視角跟隨、通行格切換。');
