@@ -49,7 +49,7 @@ assert.throws(() => projectRoExplorer2DPoint(point, center, 0, 480, 8), /有效�
 
 const fallbackProps = buildRoExplorer2DFallbackProps([
   { name: 'named instance', modelName: 'field_tree01.rsm', position: [10, 2, -20], rotation: [0, 35, 0] },
-  { name: 'house instance', modelName: 'field_house01.rsm', position: [30, 4, 50] },
+  { name: 'house instance', modelName: 'field_house01.rsm', position: [30, 4, 50], rotation: [0, 35, 0] },
   { name: 'invalid placement', modelName: 'broken.rsm', position: [NaN, 0, 0] },
 ], [{ x: 2, y: -0.4, z: 4.0000001 }], 0.2);
 assert.equal(fallbackProps.length, 1,
