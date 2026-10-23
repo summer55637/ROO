@@ -291,8 +291,20 @@ async function runGndGpuBoundaryAudit(targetPage, mapSlug, options = {}) {
 }
 
 async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {}) {
+  // GPU GND diagnostics use the 3D debug selector, which is intentionally hidden in Canvas 2D.
+  // Re-map loads can reactivate ?view=2d, so normalize the view at every diagnostic entry.
+  const viewToggle = targetPage.locator('#toggle-2d-view');
+  if (await viewToggle.getAttribute('aria-pressed') === 'true') {
+    await viewToggle.click();
+  }
+  await targetPage.waitForFunction(() => {
+    const canvas2d = document.getElementById('ro-2d-stage');
+    const webgl = Array.from(document.querySelectorAll('#stage > canvas'))
+      .find(canvas => canvas.id !== 'ro-2d-stage');
+    return canvas2d?.hidden === true && webgl && getComputedStyle(webgl).display !== 'none';
+  }, null, { timeout: 10000 });
   const selector = targetPage.locator('#gnd-debug-mode');
-  await selector.waitFor({ state: 'visible', timeout: 5000 });
+  await selector.waitFor({ state: 'visible', timeout: 10000 });
   const sampledPixels = {};
   const modes = options.requireNonzeroLightmap
     ? GND_DEBUG_SCREENSHOT_MODES.filter(mode => mode.value === '7' || mode.value === '2')
@@ -862,10 +874,18 @@ async function run() {
   await page.locator('#cast-support-skill').waitFor({ state: 'visible', timeout: 30000 });
   await page.waitForFunction(() => {
     const text = document.getElementById('status')?.textContent || '';
-    return text.includes('原生地圖已載入') || text.includes('公開原生地圖載入失敗');
+    const metrics = window.__rooExplorer2DTest?.getMetrics();
+    // Enabling 2D replaces the transient "native map loaded" status text.
+    // Wait for the durable render signal instead of requiring that text to remain visible.
+    return text.includes('公開原生地圖載入失敗')
+      || Boolean(metrics && metrics.active && metrics.terrainTiles > 0);
   }, null, { timeout: 150000 });
   const mapStatus = await page.locator('#status').innerText();
-  assert.ok(mapStatus.includes('原生地圖已載入'), '原生地圖沒有成功顯示：' + mapStatus);
+  const mapMetrics = await page.evaluate(() => window.__rooExplorer2DTest?.getMetrics());
+  assert.ok(
+    !mapStatus.includes('公開原生地圖載入失敗') && mapMetrics?.active && mapMetrics.terrainTiles > 0,
+    '原生 2D 地圖沒有成功顯示：' + mapStatus + '; metrics=' + JSON.stringify(mapMetrics),
+  );
   await page.waitForFunction(() => {
     const canvas = document.getElementById('ro-2d-stage');
     const metrics = window.__rooExplorer2DTest?.getMetrics();
@@ -1062,8 +1082,13 @@ async function run() {
   await page.waitForFunction(() => {
     const status = document.getElementById('status')?.textContent || '';
     const stats = document.getElementById('stats')?.textContent || '';
-    return status.includes('原生地圖已載入') && stats.includes('GAT：prontera.gat');
+    return status.includes('公開原生地圖載入失敗') || /GAT[：:]\s*prontera\.gat/.test(stats);
   }, null, { timeout: 150000 });
+  assert.ok(
+    !(await page.locator('#status').innerText()).includes('公開原生地圖載入失敗')
+      && /GAT[：:]\s*prontera\.gat/.test(await page.locator('#stats').innerText()),
+    '普隆德拉原生地圖載入失敗：' + await page.locator('#status').innerText(),
+  );
   await page.waitForFunction(() => {
     const stats = document.getElementById('stats')?.textContent || '';
     const match = stats.match(/GND 地表貼圖：已解析 (\d+)\/(\d+)；載入成功 (\d+)；失敗 (\d+)；缺少匹配 (\d+)/);
@@ -1103,8 +1128,13 @@ async function run() {
   await page.waitForFunction(() => {
     const status = document.getElementById('status')?.textContent || '';
     const stats = document.getElementById('stats')?.textContent || '';
-    return status.includes('原生地圖已載入') && stats.includes('GAT：icecastle.gat');
+    return status.includes('公開原生地圖載入失敗') || /GAT[：:]\s*icecastle\.gat/.test(stats);
   }, null, { timeout: 150000 });
+  assert.ok(
+    !(await page.locator('#status').innerText()).includes('公開原生地圖載入失敗')
+      && /GAT[：:]\s*icecastle\.gat/.test(await page.locator('#stats').innerText()),
+    '冰城原生地圖載入失敗：' + await page.locator('#status').innerText(),
+  );
   await page.waitForFunction(() => {
     const stats = document.getElementById('stats')?.textContent || '';
     const match = stats.match(/GND 地表貼圖：已解析 (\d+)\/(\d+)；載入成功 (\d+)；失敗 (\d+)；缺少匹配 (\d+)/);
@@ -1149,8 +1179,13 @@ async function run() {
   await page.waitForFunction(() => {
     const status = document.getElementById('status')?.textContent || '';
     const stats = document.getElementById('stats')?.textContent || '';
-    return status.includes('原生地圖已載入') && stats.includes('GAT：tra_fild.gat');
+    return status.includes('公開原生地圖載入失敗') || /GAT[：:]\s*tra_fild\.gat/.test(stats);
   }, null, { timeout: 150000 });
+  assert.ok(
+    !(await page.locator('#status').innerText()).includes('公開原生地圖載入失敗')
+      && /GAT[：:]\s*tra_fild\.gat/.test(await page.locator('#stats').innerText()),
+    '草原原生地圖載入失敗：' + await page.locator('#status').innerText(),
+  );
   await page.waitForFunction(() => {
     const stats = document.getElementById('stats')?.textContent || '';
     const match = stats.match(/GND 地表貼圖：已解析 (\d+)\/(\d+)；載入成功 (\d+)；失敗 (\d+)；缺少匹配 (\d+)/);
@@ -1205,7 +1240,11 @@ async function run() {
   await page.locator('#monster-panel').evaluate(element => { element.hidden = true; });
   const mobileTwoDToggle = page.locator('#toggle-2d-view');
   assert.ok(await mobileTwoDToggle.isEnabled(), '手機版載入 tra_fild 後純 2D 原型按鈕不可用。');
-  await mobileTwoDToggle.tap();
+  // The page URL already requests view=2d, so map loading may have activated Canvas 2D
+  // before the manual mobile interaction block starts. Do not tap the toggle twice.
+  if (await mobileTwoDToggle.getAttribute('aria-pressed') !== 'true') {
+    await mobileTwoDToggle.tap();
+  }
   await page.waitForFunction(() => {
     const canvas = document.getElementById('ro-2d-stage');
     const metrics = window.__rooExplorer2DTest?.getMetrics();
@@ -1341,11 +1380,19 @@ async function run() {
   await page.locator('#native-toolbar').waitFor({ state: 'visible', timeout: 30000 });
   await page.waitForFunction(() => {
     const text = document.getElementById('status')?.textContent || '';
-    return text.includes('原生地圖已載入') || text.includes('公開原生地圖載入失敗');
+    const metrics = window.__rooExplorer2DTest?.getMetrics();
+    // Direct 2D entry replaces the one-time native-load message with the 2D mode status.
+    return text.includes('公開原生地圖載入失敗')
+      || Boolean(metrics && metrics.active && metrics.terrainTiles > 0);
   }, null, { timeout: 150000 });
   const directMobileStatus = await page.locator('#status').innerText();
-  assert.ok(directMobileStatus.includes('原生地圖已載入'),
-    '手機 view=2d 直接網址沒有載入原生地圖：' + directMobileStatus);
+  const directMobileMetrics = await page.evaluate(() => window.__rooExplorer2DTest?.getMetrics());
+  assert.ok(
+    !directMobileStatus.includes('公開原生地圖載入失敗')
+      && directMobileMetrics?.active && directMobileMetrics.terrainTiles > 0,
+    '手機 view=2d 直接網址沒有載入原生地圖：' + directMobileStatus
+      + '; metrics=' + JSON.stringify(directMobileMetrics),
+  );
   await page.waitForFunction(() => {
     const canvas = document.getElementById('ro-2d-stage');
     const metrics = window.__rooExplorer2DTest?.getMetrics();
