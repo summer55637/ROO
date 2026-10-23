@@ -2112,12 +2112,13 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
   window.addEventListener('storage', handleRoExplorerCombatStorage);
 }
 
-function openRoExplorer() {
+function openRoExplorer(view = 'native') {
   if (!state) return;
   const url = new URL('tools/ro_explorer.html', window.location.href);
   const mapId = String(state.mapId || 'prontera');
   const progression = buildRoExplorerProgressSnapshot(state);
   url.searchParams.set('mode', 'native');
+  if (view === '2d') url.searchParams.set('view', '2d');
   url.searchParams.set('map', mapId);
   url.searchParams.set('sprite', getAnimKey());
   for (const [key, value] of [
@@ -2241,8 +2242,11 @@ function renderMapTab() {
     <div class="region-subtitle-detail">${region.subtitle}</div>
     <div class="map-preview-box">
       <div class="map-preview-title">🧭 真實 RO 地圖探索</div>
-      <div class="map-preview-body">從目前地圖開啟原生 3D 探索預覽；地表、模型、光照與水面依地圖素材支援情況呈現。</div>
-      <button class="btn-small" type="button" onclick="openRoExplorer()">開啟原生 3D 地圖探索</button>
+      <div class="map-preview-body">從目前地圖進入探索。純 2D 使用 Canvas 與真實 RO 地表貼圖，適合手機；原生 3D 保留作地圖診斷。</div>
+      <div class="map-preview-actions">
+        <button class="btn-small" type="button" onclick="openRoExplorer('2d')">進入純 2D 探索</button>
+        <button class="btn-small" type="button" onclick="openRoExplorer()">開啟原生 3D 診斷</button>
+      </div>
     </div>
     <div class="map-preview-box">
       <div class="map-preview-title">${isCity ? '🏠 安全區' : '⚔️ 遇怪列表'}</div>
