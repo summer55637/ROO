@@ -55,13 +55,28 @@ export function buildRoExplorerMonsterSpawns(gat, catalog, playerCell, mapId, op
   const minDimension = Math.min(gat.width, gat.height);
   const minDistance = Math.min(8, Math.max(1, minDimension * 0.2));
   const minSpacing = Math.min(6, Math.max(1, minDimension * 0.12));
+  const radiusValue = Number(options.searchRadius);
+  const searchRadius = Number.isFinite(radiusValue)
+    ? Math.max(Math.ceil(minDistance), Math.min(64, Math.floor(radiusValue)))
+    : Math.min(30, Math.max(12, Math.round(minDimension * 0.15)));
+  const centerX = playerCell && Number.isInteger(playerCell.x)
+    ? Math.max(0, Math.min(gat.width - 1, playerCell.x)) : Math.floor(gat.width / 2);
+  const centerY = playerCell && Number.isInteger(playerCell.y)
+    ? Math.max(0, Math.min(gat.height - 1, playerCell.y)) : Math.floor(gat.height / 2);
+  // The small exploration cap is meant to show nearby threats, not scatter all eight
+  // monsters across a large map where the player cannot see or click any of them.
+  const minX = Math.max(0, centerX - searchRadius);
+  const maxX = Math.min(gat.width - 1, centerX + searchRadius);
+  const minY = Math.max(0, centerY - searchRadius);
+  const maxY = Math.min(gat.height - 1, centerY + searchRadius);
   const perSpawnValue = Number(options.attemptsPerSpawn);
   const perSpawn = Number.isFinite(perSpawnValue) ? Math.max(1, Math.min(500, Math.floor(perSpawnValue))) : 300;
   const random = seededRandom(String(mapId || 'ro-map') + ':' + gat.width + 'x' + gat.height);
   const spawns = [];
   const attempts = Math.min(5000, maxCount * perSpawn);
   for (let attempt = 0; attempt < attempts && spawns.length < maxCount; attempt++) {
-    const x = Math.floor(random() * gat.width), y = Math.floor(random() * gat.height);
+    const x = minX + Math.floor(random() * (maxX - minX + 1));
+    const y = minY + Math.floor(random() * (maxY - minY + 1));
     const index = y * gat.width + x;
     if (!gat.walkable[index] || (gat.water && gat.water[index])) continue;
     if (playerCell && Number.isInteger(playerCell.x) && Number.isInteger(playerCell.y)
