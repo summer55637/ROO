@@ -237,6 +237,10 @@ try {
   assert.ok(setup.monsterHp < 1000,
     'tra_fild 測試怪物 HP 太高，無法穩定驗證擊殺：' + JSON.stringify(setup));
   assert.equal(await mainPage.locator('#screen-game').evaluate(el => el.classList.contains('active')), true);
+  // renderAll() sets the internal tab state, but the browser acceptance must exercise
+  // the same visible tab navigation as a player before opening the explorer.
+  await mainPage.locator('.tab-btn[data-tab="map"]').click();
+  await mainPage.locator('#tab-map.active').waitFor({ state: 'visible', timeout: 5000 });
   await mainPage.locator('button[onclick="openRoExplorer()"]').waitFor({ state: 'visible', timeout: 10000 });
   // The product intentionally opens with noopener/noreferrer. Capture the real URL
   // built by the main-game button, then open that URL as a second same-origin tab.
