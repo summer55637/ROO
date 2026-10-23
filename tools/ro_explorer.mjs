@@ -1154,6 +1154,35 @@ if (explorerParams.get('roo-2d-test') === '1') {
       }
       return result;
     },
+    getPlayerCell: () => currentCell ? { x: currentCell.x, y: currentCell.y } : null,
+    getMonsterTargets: () => {
+      if (!ro2dActive || !currentCell || !gatInfo || !ro2dFrameCenter) return [];
+      return monsterEntries.filter(entry => entry && entry.cell && entry.monster).map(entry => {
+        const point = ro2dProject(cellWorldPosition(entry.cell), ro2dFrameCenter);
+        const maxHp = Number.isFinite(entry.maxHp) && entry.maxHp > 0
+          ? entry.maxHp : Math.max(1, Number(entry.monster.hp) || 1);
+        const currentHp = Number.isFinite(entry.currentHp)
+          ? Math.max(0, entry.currentHp) : maxHp;
+        return {
+          spawnKey: entry.spawnKey,
+          spawnBaseKey: entry.spawnBaseKey,
+          respawnCount: entry.respawnCount || 0,
+          monsterId: String(entry.monster.id),
+          name: entry.monster.name,
+          cell: { x: entry.cell.x, y: entry.cell.y },
+          screenX: point.x,
+          screenY: point.y,
+          currentHp,
+          maxHp,
+          dead: !!entry.dead,
+          distance: Math.max(Math.abs(currentCell.x - entry.cell.x), Math.abs(currentCell.y - entry.cell.y)),
+        };
+      });
+    },
+    canApproachMonster: spawnKey => {
+      const entry = monsterEntries.find(item => item && item.spawnKey === spawnKey && !item.dead);
+      return !!entry && !!findMonsterAdjacentPath(entry);
+    },
   };
 }
 
