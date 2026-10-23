@@ -105,7 +105,7 @@ const aliasStart = gameUiSource.indexOf('const RO_EXPLORER_NATIVE_MAP_FALLBACKS 
 const aliasEnd = gameUiSource.indexOf('function openRoExplorer(view = \'3d\')', aliasStart);
 assert.ok(aliasStart >= 0 && aliasEnd > aliasStart, '主遊戲必須提供可測試的原生地圖素材對應表。');
 const aliasResolver = vm.runInNewContext(
-  gameUiSource.slice(aliasStart, aliasEnd) + '\\nresolveRoExplorerNativeMapId;',
+  gameUiSource.slice(aliasStart, aliasEnd) + String.fromCharCode(10) + 'resolveRoExplorerNativeMapId;',
   {},
 );
 assert.equal(aliasResolver('novice_safe'), 'prontera');
