@@ -422,9 +422,12 @@ const RO_EXPLORER_2D_PIXELS_PER_WORLD_UNIT = 1.6;
 const RO_EXPLORER_2D_MODEL_TRIANGLE_LIMIT = 12000;
 const RO_EXPLORER_2D_MODEL_SPRITE_EDGE_LIMIT = 640;
 const RO_EXPLORER_2D_MODEL_SPRITE_PIXEL_LIMIT = 400000;
-const RO_EXPLORER_2D_MODEL_SPRITE_CACHE_LIMIT = 32;
+const RO_EXPLORER_2D_MODEL_SPRITE_CACHE_LIMIT = 96;
+const RO_EXPLORER_2D_MODEL_SPRITE_CACHE_PIXEL_LIMIT = 12000000;
 const ro2dModelSpriteCache = new Map();
 const ro2dModelProjectionRetryAt = new Map();
+const ro2dModelProjectionSkipKeys = new Set();
+let ro2dModelSpriteCachePixels = 0;
 
 let minimapGatInfo = null;
 let minimapBaseImage = null;
@@ -736,7 +739,9 @@ function ro2dRefreshSourceImages() {
 
 function rebuildRoExplorer2DSceneIndex() {
   ro2dModelSpriteCache.clear();
+  ro2dModelSpriteCachePixels = 0;
   ro2dModelProjectionRetryAt.clear();
+  ro2dModelProjectionSkipKeys.clear();
   ro2dSourceImages = new Map();
   ro2dDecorations = [];
   const renderedPositions = [];
@@ -976,24 +981,37 @@ function getRoExplorer2DModelSprite(prop, anchorPoint) {
   if (!modelRoot || !modelRoot.userData || typeof modelRoot.traverse !== 'function') return null;
   if (modelRoot.userData.roo2dProjectionSkip) return null;
 
-  const cached = ro2dModelSpriteCache.get(modelRoot);
-  if (cached && cached.worldScale === worldScale) {
-    ro2dModelSpriteCache.delete(modelRoot);
-    ro2dModelSpriteCache.set(modelRoot, cached);
+  // Placement translation is removed by projecting relative to the anchor, so matching
+  // resource + scale + yaw can safely share a single sprite across repeated map props.
+  const modelKey = JSON.stringify([
+    String(prop.modelName || prop.name || ''),
+    Array.isArray(prop.modelScale) ? prop.modelScale : [1, 1, 1],
+    Array.isArray(prop.modelRotation) ? prop.modelRotation : [0, 0, 0],
+    worldScale,
+    String(modelRoot.userData.rooModelVersion || ''),
+  ]);
+  if (ro2dModelProjectionSkipKeys.has(modelKey)) return null;
+
+  const cached = ro2dModelSpriteCache.get(modelKey);
+  if (cached) {
+    ro2dModelSpriteCache.delete(modelKey);
+    ro2dModelSpriteCache.set(modelKey, cached);
     return cached;
   }
-  if (cached) ro2dModelSpriteCache.delete(modelRoot);
 
   const now = performance.now();
-  if ((ro2dModelProjectionRetryAt.get(modelRoot) || 0) > now) return null;
-  let hasAnimation = false;
-  modelRoot.traverse(node => {
-    const data = node && node.userData;
-    if (data && (data.rooRsmAnimation || data.rooRsmTextureAnimation)) hasAnimation = true;
-  });
-  if (hasAnimation) {
-    modelRoot.userData.roo2dProjectionSkip = true;
-    return null;
+  if ((ro2dModelProjectionRetryAt.get(modelKey) || 0) > now) return null;
+  if (!modelRoot.userData.roo2dAnimationChecked) {
+    let hasAnimation = false;
+    modelRoot.traverse(node => {
+      const data = node && node.userData;
+      if (data && (data.rooRsmAnimation || data.rooRsmTextureAnimation)) hasAnimation = true;
+    });
+    modelRoot.userData.roo2dAnimationChecked = true;
+    if (hasAnimation) {
+      modelRoot.userData.roo2dProjectionSkip = true;
+      return null;
+    }
   }
 
   modelRoot.updateMatrixWorld(true);
@@ -1005,7 +1023,7 @@ function getRoExplorer2DModelSprite(prop, anchorPoint) {
   );
   if (!triangles) {
     // A texture may still be loading; retry after a short pause instead of doing work every frame.
-    ro2dModelProjectionRetryAt.set(modelRoot, now + 650);
+    ro2dModelProjectionRetryAt.set(modelKey, now + 650);
     return null;
   }
 
@@ -1019,13 +1037,16 @@ function getRoExplorer2DModelSprite(prop, anchorPoint) {
   const padding = 2;
   const width = Math.ceil(maxX - minX) + padding * 2;
   const height = Math.ceil(maxY - minY) + padding * 2;
-  if (![minX, minY, maxX, maxY, width, height].every(Number.isFinite)
+  const pixelCount = width * height;
+  if (![minX, minY, maxX, maxY, width, height, pixelCount].every(Number.isFinite)
     || width < 1 || height < 1
     || width > RO_EXPLORER_2D_MODEL_SPRITE_EDGE_LIMIT
     || height > RO_EXPLORER_2D_MODEL_SPRITE_EDGE_LIMIT
-    || width * height > RO_EXPLORER_2D_MODEL_SPRITE_PIXEL_LIMIT) {
+    || pixelCount > RO_EXPLORER_2D_MODEL_SPRITE_PIXEL_LIMIT / 30) {
+    // Same resource and placement transform will produce the same unsafe bounds next time.
+    ro2dModelProjectionSkipKeys.add(modelKey);
     modelRoot.userData.roo2dProjectionSkip = true;
-    ro2dModelProjectionRetryAt.delete(modelRoot);
+    ro2dModelProjectionRetryAt.delete(modelKey);
     return null;
   }
 
@@ -1033,7 +1054,7 @@ function getRoExplorer2DModelSprite(prop, anchorPoint) {
   canvas.width = width; canvas.height = height;
   const context = canvas.getContext('2d');
   if (!context) {
-    ro2dModelProjectionRetryAt.set(modelRoot, now + 1000);
+    ro2dModelProjectionRetryAt.set(modelKey, now + 1000);
     return null;
   }
   for (const triangle of triangles) {
@@ -1061,13 +1082,20 @@ function getRoExplorer2DModelSprite(prop, anchorPoint) {
     offsetX: minX - padding,
     offsetY: minY - padding,
     worldScale,
+    pixels: pixelCount,
   };
-  ro2dModelProjectionRetryAt.delete(modelRoot);
-  ro2dModelSpriteCache.delete(modelRoot);
-  ro2dModelSpriteCache.set(modelRoot, sprite);
-  while (ro2dModelSpriteCache.size > RO_EXPLORER_2D_MODEL_SPRITE_CACHE_LIMIT) {
+  ro2dModelProjectionRetryAt.delete(modelKey);
+  const previous = ro2dModelSpriteCache.get(modelKey);
+  if (previous) ro2dModelSpriteCachePixels -= previous.pixels;
+  ro2dModelSpriteCache.delete(modelKey);
+  ro2dModelSpriteCache.set(modelKey, sprite);
+  ro2dModelSpriteCachePixels += pixelCount;
+  while (ro2dModelSpriteCache.size > RO_EXPLORER_2D_MODEL_SPRITE_CACHE_LIMIT
+    || ro2dModelSpriteCachePixels > RO_EXPLORER_2D_MODEL_SPRITE_CACHE_PIXEL_LIMIT) {
     const oldest = ro2dModelSpriteCache.keys().next().value;
+    const evicted = ro2dModelSpriteCache.get(oldest);
     ro2dModelSpriteCache.delete(oldest);
+    ro2dModelSpriteCachePixels = Math.max(0, ro2dModelSpriteCachePixels - (evicted?.pixels || 0));
   }
   return sprite;
 }
