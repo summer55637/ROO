@@ -9,6 +9,9 @@ import {
   drawRoExplorer2DGroundShadow,
   drawRoExplorer2DSelectionRing,
   buildRoExplorer2DFallbackProps,
+  classifyRoExplorer2DProp,
+  getRoExplorer2DPropStyle,
+  sortRoExplorer2DSceneItems,
 } from './ro_explorer_2d.mjs';
 
 const center = { x: 13.5, y: -0.4, z: -22.25 };
@@ -59,6 +62,39 @@ assert.equal(buildRoExplorer2DFallbackProps([
 assert.equal(buildRoExplorer2DFallbackProps([
   { modelName: 'tree.rsm', position: [1, 2, 3] },
 ], [], 1, 1).length, 1, '代理物件數不得超過指定擺放上限');
+
+assert.equal(classifyRoExplorer2DProp('field_tree01.rsm'), 'tree');
+assert.equal(classifyRoExplorer2DProp('prt_house02.rsm'), 'building');
+assert.equal(classifyRoExplorer2DProp('field_fence01.rsm'), 'wall');
+assert.equal(classifyRoExplorer2DProp('field_bridge01.rsm'), 'bridge');
+assert.equal(classifyRoExplorer2DProp('rock_04.rsm'), 'rock');
+assert.equal(classifyRoExplorer2DProp('field_signpost.rsm'), 'fixture');
+assert.equal(classifyRoExplorer2DProp('unmatched_asset.rsm'), 'unknown');
+const treeStyle = getRoExplorer2DPropStyle('field_tree01.rsm', [2, 1.5, 2]);
+const rockStyle = getRoExplorer2DPropStyle('rock_04.rsm', [1, 1, 1]);
+assert.equal(treeStyle.kind, 'tree');
+assert.ok(treeStyle.height > rockStyle.height,
+  '樹木代理應比石塊更高，不應所有物件共用同一比例');
+assert.ok(treeStyle.width <= 30 * 1.9 && treeStyle.height <= 45 * 1.9,
+  '極端 RSW 縮放不得讓代理圖形無上限放大');
+assert.deepEqual(
+  getRoExplorer2DPropStyle('field_tree01.rsm', [NaN, 0, Infinity]),
+  getRoExplorer2DPropStyle('field_tree01.rsm', [1, 1, 1]),
+  '缺失或無效模型縮放應回到安全比例'
+);
+const unsortedSceneItems = [
+  { kind: 'player', depth: 20, id: 'player' },
+  { kind: 'monster', depth: 10, id: 'monster-back' },
+  { kind: 'prop', depth: 20, id: 'tree-front' },
+  { kind: 'prop', depth: 5, id: 'tree-back' },
+  { kind: 'monster', depth: 20, id: 'monster-front' },
+];
+const sortedSceneItems = sortRoExplorer2DSceneItems(unsortedSceneItems);
+assert.deepEqual(sortedSceneItems.map(item => item.id), [
+  'tree-back', 'monster-back', 'tree-front', 'monster-front', 'player',
+], '2D 按地面錨點由遠到近繪製；同深度時場景、怪物、玩家依序置頂');
+assert.equal(unsortedSceneItems[0].id, 'player', '深度排序不得改寫原始清單');
+
 
 
 

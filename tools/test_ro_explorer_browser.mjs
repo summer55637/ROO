@@ -944,6 +944,8 @@ async function run() {
     '真實 tra_fild RSW 場景模型擺放資料未載入：' + JSON.stringify(twoDReady));
   assert.ok(twoDReady.metrics.visibleProps > 0,
     '純 2D 畫面沒有顯示任何 RSW 場景物件／代理圖形：' + JSON.stringify(twoDReady));
+  assert.ok(twoDReady.metrics.propKinds && Object.keys(twoDReady.metrics.propKinds).length > 1,
+    '2D 場景物件沒有形成多種類型分類：' + JSON.stringify(twoDReady.metrics.propKinds));
   assert.equal(twoDReady.metrics.loadedModelProps + twoDReady.metrics.fallbackProps
     >= Math.min(450, twoDReady.metrics.modelPlacements), true,
     '每個 RSW 模型位置都應由載入物件或 2D 代理圖形呈現：' + JSON.stringify(twoDReady));

@@ -81,6 +81,8 @@ import {
   drawRoExplorer2DGroundShadow,
   drawRoExplorer2DSelectionRing,
   buildRoExplorer2DFallbackProps,
+  getRoExplorer2DPropStyle,
+  sortRoExplorer2DSceneItems,
 } from './ro_explorer_2d.mjs';
 
 const stage = document.getElementById('stage');
@@ -408,7 +410,7 @@ let ro2dViewportHeight = 1;
 let ro2dPixelRatio = 1;
 let ro2dMetrics = {
   terrainTiles: 0, texturedTiles: 0, visibleProps: 0, visibleMonsters: 0,
-  modelPlacements: 0, loadedModelProps: 0, fallbackProps: 0,
+  modelPlacements: 0, loadedModelProps: 0, fallbackProps: 0, propKinds: {},
 };
 const RO_EXPLORER_2D_PIXELS_PER_WORLD_UNIT = 1.6;
 let minimapGatInfo = null;
@@ -736,9 +738,15 @@ function rebuildRoExplorer2DSceneIndex() {
         const world = object.getWorldPosition(new THREE.Vector3());
         const position = { x: world.x, y: world.y, z: world.z };
         renderedPositions.push(position);
+        const modelName = String(object.userData.rooModelName || object.name || 'RO 場景物件');
+        const modelScale = Array.isArray(object.userData.rooModelScale)
+          ? object.userData.rooModelScale.slice(0, 3) : [object.scale.x, object.scale.y, object.scale.z];
         ro2dDecorations.push({
           object,
-          name: String(object.name || object.userData.rooModelName || 'RO 場景物件'),
+          name: String(object.name || modelName),
+          modelName,
+          modelScale,
+          kind: getRoExplorer2DPropStyle(modelName, modelScale).kind,
           position,
           fallback: false,
         });
@@ -753,6 +761,12 @@ function rebuildRoExplorer2DSceneIndex() {
   ro2dMetrics.modelPlacements = rswInfo && Array.isArray(rswInfo.models) ? rswInfo.models.length : 0;
   ro2dMetrics.loadedModelProps = ro2dDecorations.filter(prop => prop.object && !prop.fallback).length;
   ro2dMetrics.fallbackProps = ro2dDecorations.filter(prop => prop.fallback).length;
+  ro2dMetrics.propKinds = ro2dDecorations.reduce((counts, prop) => {
+    const style = getRoExplorer2DPropStyle(prop.modelName || prop.name, prop.modelScale);
+    prop.kind = style.kind;
+    counts[style.kind] = (counts[style.kind] || 0) + 1;
+    return counts;
+  }, {});
   ro2dTerrainCenter = null;
   ro2dTerrainDirty = true;
   ro2dLastTerrainRenderAt = 0;
@@ -925,32 +939,145 @@ function drawRoExplorer2DPath(context, center) {
 }
 
 function drawRoExplorer2DProp(context, prop, point) {
-  const name = String(prop.name || '').toLowerCase();
-  const scale = Math.max(0.75, Math.min(1.65, ro2dPixelsPerWorldUnit() / 8));
-  if (/tree|palm|plant|bush|leaf|flower|grass|shrub|banana|mushroom/.test(name)) {
-    context.fillStyle = 'rgba(0,0,0,0.24)';
-    context.beginPath(); context.ellipse(point.x, point.y - 1, 13 * scale, 4 * scale, 0, 0, Math.PI * 2); context.fill();
-    context.fillStyle = '#6b4a2d'; context.fillRect(point.x - 2.5 * scale, point.y - 22 * scale, 5 * scale, 23 * scale);
-    context.fillStyle = '#214b35'; context.beginPath(); context.arc(point.x, point.y - 29 * scale, 15 * scale, 0, Math.PI * 2); context.fill();
-    context.fillStyle = '#34764a';
-    context.beginPath(); context.arc(point.x - 8 * scale, point.y - 34 * scale, 10 * scale, 0, Math.PI * 2); context.fill();
-    context.beginPath(); context.arc(point.x + 8 * scale, point.y - 32 * scale, 11 * scale, 0, Math.PI * 2); context.fill();
-    return;
+  const style = getRoExplorer2DPropStyle(prop.modelName || prop.name, prop.modelScale);
+  const unit = Math.max(0.75, Math.min(1.65, ro2dPixelsPerWorldUnit() / 8));
+  const x = point.x, y = point.y;
+  const width = style.width * unit, height = style.height * unit;
+  drawRoExplorer2DGroundShadow(context, x, y, style.shadowWidth * unit);
+  context.save();
+  try {
+    if (style.kind === 'tree') {
+      const trunkTop = y - height * 0.38;
+      context.fillStyle = '#4b3424';
+      context.beginPath();
+      context.moveTo(x - width * 0.15, y); context.lineTo(x - width * 0.09, trunkTop);
+      context.lineTo(x + width * 0.12, trunkTop); context.lineTo(x + width * 0.17, y);
+      context.closePath(); context.fill();
+      context.strokeStyle = '#a37b47'; context.lineWidth = Math.max(1, width * 0.055);
+      context.beginPath(); context.moveTo(x - width * 0.015, y - height * 0.08);
+      context.lineTo(x + width * 0.025, trunkTop + height * 0.06); context.stroke();
+      context.fillStyle = '#183b2a';
+      context.beginPath(); context.ellipse(x, y - height * 0.68, width * 0.48, height * 0.3, 0, 0, Math.PI * 2); context.fill();
+      context.fillStyle = '#28613b';
+      context.beginPath(); context.ellipse(x - width * 0.19, y - height * 0.72, width * 0.3, height * 0.25, -0.15, 0, Math.PI * 2); context.fill();
+      context.beginPath(); context.ellipse(x + width * 0.2, y - height * 0.76, width * 0.31, height * 0.27, 0.12, 0, Math.PI * 2); context.fill();
+      context.fillStyle = '#43844b';
+      context.beginPath(); context.ellipse(x - width * 0.07, y - height * 0.83, width * 0.23, height * 0.18, -0.2, 0, Math.PI * 2); context.fill();
+      return;
+    }
+    if (style.kind === 'building') {
+      const left = x - width * 0.39, right = x + width * 0.34, roofY = y - height * 0.79;
+      context.fillStyle = '#665146';
+      context.beginPath(); context.moveTo(right, roofY + height * 0.22);
+      context.lineTo(right + width * 0.13, roofY + height * 0.31);
+      context.lineTo(right + width * 0.13, y); context.lineTo(right, y); context.closePath(); context.fill();
+      context.fillStyle = '#8a6a50';
+      context.fillRect(left, roofY + height * 0.22, right - left, height * 0.78);
+      context.fillStyle = '#743f38';
+      context.beginPath(); context.moveTo(left - width * 0.12, roofY + height * 0.25);
+      context.lineTo(x, roofY); context.lineTo(right + width * 0.2, roofY + height * 0.25);
+      context.lineTo(right + width * 0.06, roofY + height * 0.34);
+      context.lineTo(x, roofY + height * 0.12); context.lineTo(left - width * 0.02, roofY + height * 0.34);
+      context.closePath(); context.fill();
+      context.strokeStyle = 'rgba(250,219,164,0.75)'; context.lineWidth = Math.max(1, unit); context.stroke();
+      context.fillStyle = '#342b28'; context.fillRect(x - width * 0.1, y - height * 0.34, width * 0.21, height * 0.34);
+      context.fillStyle = '#b4c6b5';
+      context.fillRect(x - width * 0.28, y - height * 0.55, width * 0.12, height * 0.12);
+      context.fillRect(x + width * 0.14, y - height * 0.55, width * 0.12, height * 0.12);
+      return;
+    }
+    if (style.kind === 'wall') {
+      context.fillStyle = '#5a5550'; context.fillRect(x - width * 0.5, y - height * 0.68, width, height * 0.68);
+      context.fillStyle = '#81786b'; context.fillRect(x - width * 0.5, y - height * 0.72, width, height * 0.17);
+      context.strokeStyle = 'rgba(37,38,34,0.76)'; context.lineWidth = Math.max(1, unit * 0.8);
+      for (let i = 1; i < 4; i++) {
+        const lineX = x - width * 0.5 + width * i / 4;
+        context.beginPath(); context.moveTo(lineX, y - height * 0.53); context.lineTo(lineX, y); context.stroke();
+      }
+      context.beginPath(); context.moveTo(x - width * 0.5, y - height * 0.36);
+      context.lineTo(x + width * 0.5, y - height * 0.36); context.stroke();
+      return;
+    }
+    if (style.kind === 'bridge') {
+      context.fillStyle = '#4d3424'; context.fillRect(x - width * 0.5, y - height * 0.72, width, height * 0.62);
+      context.fillStyle = '#b08550';
+      context.fillRect(x - width * 0.5, y - height * 0.82, width, height * 0.15);
+      context.fillRect(x - width * 0.5, y - height * 0.16, width, height * 0.13);
+      context.strokeStyle = '#5f422d'; context.lineWidth = Math.max(1, unit * 0.8);
+      for (let i = 1; i < 6; i++) {
+        const plankX = x - width * 0.5 + width * i / 6;
+        context.beginPath(); context.moveTo(plankX, y - height * 0.69);
+        context.lineTo(plankX, y - height * 0.13); context.stroke();
+      }
+      return;
+    }
+    if (style.kind === 'plant' || style.kind === 'grass' || style.kind === 'flower') {
+      context.strokeStyle = '#2c7041'; context.lineWidth = Math.max(1, unit * 1.2);
+      for (let i = -2; i <= 2; i++) {
+        const leafX = x + i * width * 0.13;
+        context.beginPath(); context.moveTo(leafX, y - 1);
+        context.quadraticCurveTo(leafX - width * 0.12, y - height * (style.kind === 'grass' ? 0.9 : 0.64),
+          leafX + width * 0.04, y - height * 0.44); context.stroke();
+        context.fillStyle = i % 2 ? '#347d45' : '#4b9b52';
+        context.beginPath(); context.ellipse(leafX, y - height * (0.46 + Math.abs(i % 2) * 0.08),
+          width * 0.14, height * 0.27, i * 0.16, 0, Math.PI * 2); context.fill();
+      }
+      if (style.kind === 'flower') {
+        for (let i = -1; i <= 1; i++) {
+          const flowerX = x + i * width * 0.2;
+          context.fillStyle = '#e7a8c0';
+          context.beginPath(); context.arc(flowerX, y - height * 0.82, Math.max(2, unit * 2.3), 0, Math.PI * 2); context.fill();
+          context.fillStyle = '#f0d47a';
+          context.beginPath(); context.arc(flowerX, y - height * 0.82, Math.max(1, unit), 0, Math.PI * 2); context.fill();
+        }
+      }
+      return;
+    }
+    if (style.kind === 'mushroom') {
+      context.fillStyle = '#d3c39a'; context.fillRect(x - width * 0.09, y - height * 0.55, width * 0.18, height * 0.55);
+      context.fillStyle = '#a5483c';
+      context.beginPath(); context.ellipse(x, y - height * 0.56, width * 0.48, height * 0.34, 0, Math.PI, Math.PI * 2); context.fill();
+      context.fillStyle = '#f2e6c7';
+      context.beginPath(); context.arc(x - width * 0.14, y - height * 0.65, Math.max(1.5, unit * 1.5), 0, Math.PI * 2); context.fill();
+      return;
+    }
+    if (style.kind === 'rock' || style.kind === 'unknown') {
+      context.fillStyle = style.kind === 'rock' ? '#4e554f' : '#665d50';
+      context.beginPath();
+      context.moveTo(x - width * 0.48, y);
+      context.lineTo(x - width * 0.43, y - height * 0.48);
+      context.lineTo(x - width * 0.12, y - height * 0.9);
+      context.lineTo(x + width * 0.25, y - height * 0.8);
+      context.lineTo(x + width * 0.49, y - height * 0.28);
+      context.lineTo(x + width * 0.39, y);
+      context.closePath(); context.fill();
+      context.fillStyle = style.kind === 'rock' ? '#858b7f' : '#9a8c77';
+      context.beginPath(); context.moveTo(x - width * 0.12, y - height * 0.9);
+      context.lineTo(x + width * 0.25, y - height * 0.8);
+      context.lineTo(x + width * 0.07, y - height * 0.38);
+      context.lineTo(x - width * 0.27, y - height * 0.5);
+      context.closePath(); context.fill();
+      context.strokeStyle = 'rgba(226,230,212,0.55)'; context.stroke();
+      return;
+    }
+    if (style.kind === 'fixture') {
+      context.fillStyle = '#554333'; context.fillRect(x - width * 0.07, y - height * 0.78, width * 0.14, height * 0.78);
+      context.fillStyle = '#a58a59'; context.fillRect(x - width * 0.31, y - height * 0.82, width * 0.62, height * 0.1);
+      context.fillStyle = '#e8d18a';
+      context.beginPath(); context.arc(x, y - height * 0.82, Math.max(2.4, unit * 2.6), 0, Math.PI * 2); context.fill();
+      context.fillStyle = '#403128'; context.fillRect(x - width * 0.18, y - height * 0.69, width * 0.36, height * 0.1);
+      return;
+    }
+    if (style.kind === 'water') {
+      context.fillStyle = 'rgba(40,122,164,0.55)';
+      context.beginPath(); context.ellipse(x, y - height * 0.3, width * 0.5, height * 0.28, 0, 0, Math.PI * 2); context.fill();
+      context.strokeStyle = 'rgba(146,218,239,0.86)'; context.lineWidth = Math.max(1, unit);
+      context.beginPath(); context.ellipse(x, y - height * 0.3, width * 0.37, height * 0.13, 0, 0, Math.PI * 2); context.stroke();
+      return;
+    }
+  } finally {
+    context.restore();
   }
-  if (/house|building|tower|inn|castle|wall|roof|gate/.test(name)) {
-    context.fillStyle = '#4b3e3d'; context.fillRect(point.x - 12, point.y - 28, 24, 28);
-    context.fillStyle = '#8d5141';
-    context.beginPath(); context.moveTo(point.x - 16, point.y - 27);
-    context.lineTo(point.x, point.y - 41); context.lineTo(point.x + 16, point.y - 27);
-    context.closePath(); context.fill();
-    context.strokeStyle = 'rgba(255,230,190,0.65)'; context.stroke();
-    return;
-  }
-  context.fillStyle = '#665b52';
-  context.beginPath(); context.moveTo(point.x - 9, point.y - 3);
-  context.lineTo(point.x - 7, point.y - 11); context.lineTo(point.x + 1, point.y - 16);
-  context.lineTo(point.x + 9, point.y - 7); context.lineTo(point.x + 7, point.y - 2);
-  context.closePath(); context.fill();
 }
 
 function ro2dDrawableImage(image) {
@@ -1045,9 +1172,9 @@ function renderRoExplorer2DFrame(now) {
     const point = ro2dProject({ x: playerRoot.position.x, y: playerRoot.position.y, z: playerRoot.position.z }, center);
     if (isRoExplorer2DPointVisible(point, width, height, pad)) items.push({ kind: 'player', point, depth: point.y });
   }
-  items.sort((a, b) => a.depth - b.depth);
+  const orderedItems = sortRoExplorer2DSceneItems(items);
   let visibleProps = 0;
-  for (const item of items) {
+  for (const item of orderedItems) {
     if (item.kind === 'prop') { drawRoExplorer2DProp(context, item.prop, item.point); visibleProps++; continue; }
     if (item.kind === 'monster') {
       const entry = item.entry;
@@ -1948,6 +2075,8 @@ async function loadAndPlaceRswModels(rsw, urls, mapRoot, scale, isCurrentRequest
     const transform = makeRswInstanceTransform(placement, scale);
     transform.add(instance);
     transform.userData.rooMapObject = true;
+    transform.userData.rooModelName = String(placement.modelName || '');
+    transform.userData.rooModelScale = Array.isArray(placement.scale) ? placement.scale.slice(0, 3) : [1, 1, 1];
     transform.name = placement.name || placement.modelName;
     mapRoot.add(transform);
     renderedPlacements++;
