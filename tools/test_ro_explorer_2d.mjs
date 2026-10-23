@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   projectRoExplorer2DPoint,
   unprojectRoExplorer2DPoint,
@@ -200,5 +201,9 @@ assert.equal(ringCanvas.events.filter(event => event.type === 'restore').length,
   '繪製目標圈後必須還原 Canvas 狀態');
 assert.equal(drawRoExplorer2DSelectionRing(ringCanvas, 100, 200, NaN), false,
   '無效座標不得繪製目標圈');
+
+const rendererSource = readFileSync(new URL('./ro_explorer.mjs', import.meta.url), 'utf8');
+assert.match(rendererSource, /Root flare ties the proxy to its ground tile/);
+assert.match(rendererSource, /Fine facade seams preserve a clear front plane/);
 
 console.log('ROO 2D 等角投影、點擊反投影與來源貼圖三角形映射測試通過。');
