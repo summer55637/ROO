@@ -1199,9 +1199,14 @@ async function run() {
       .filter(target => !target.dead && target.distance >= 2
         && target.screenX >= 12 && target.screenY >= 12
         && target.screenX <= rect.width - 12 && target.screenY <= rect.height - 12
-        && document.elementFromPoint(rect.left + target.screenX, rect.top + target.screenY) === canvas
-        && api.canApproachMonster(target.spawnKey))
-      .sort((a, b) => a.distance - b.distance);
+        && document.elementFromPoint(rect.left + target.screenX, rect.top + target.screenY) === canvas)
+      .map(target => ({
+        ...target,
+        approachPathLength: api.getMonsterApproachPathLength(target.spawnKey),
+      }))
+      .filter(target => Number.isFinite(target.approachPathLength))
+      // Prefer the shortest real GAT/A* route, not merely the closest monster by grid distance.
+      .sort((a, b) => a.approachPathLength - b.approachPathLength || a.distance - b.distance);
   });
   assert.ok(mobileMonsterTargets.length > 0,
     '手機純 2D 畫面找不到可點擊且可尋路接近的活怪：'
