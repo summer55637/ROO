@@ -724,11 +724,13 @@ async function run() {
     hasTouch: true,
   });
   await context.addInitScript(() => {
+    window.__rooCombatBridgeLog = window.__rooCombatBridgeLog || [];
+    window.__rooCombatBridgeHp = window.__rooCombatBridgeHp || {};
     window.addEventListener('storage', event => {
       if (!event || event.key !== 'roo_explorer_combat_command' || !event.newValue) return;
       let command;
       try { command = JSON.parse(event.newValue); } catch (error) { return; }
-      if (!command || command.type !== 'vitals' || !command.sessionId || !command.requestId) return;
+      if (!command || !command.sessionId || !command.requestId) return;
       const result = {
         requestId: command.requestId,
         requestType: command.type,
@@ -747,6 +749,25 @@ async function run() {
         playerJobExpNeed: 5000,
         playerZeny: 1239999,
       };
+      if (command.type === 'vitals') {
+        // Keep the existing deterministic vital-stat bridge response for layout tests.
+      } else if (command.type === 'attack' || command.type === 'skill') {
+        window.__rooCombatBridgeLog.push({
+          type: command.type, requestId: command.requestId,
+          spawnKey: command.spawnKey, mapId: command.mapId, skillId: command.skillId || null,
+        });
+        const targetKey = command.sessionId + ':' + command.spawnKey;
+        const before = Number.isFinite(window.__rooCombatBridgeHp[targetKey])
+          ? window.__rooCombatBridgeHp[targetKey] : 1000;
+        const after = Math.max(0, before - 37);
+        window.__rooCombatBridgeHp[targetKey] = after;
+        Object.assign(result, {
+          hp: after, maxHp: 1000, damageDealt: before - after,
+          killed: after <= 0, attackIntervalMs: 300,
+        });
+      } else {
+        return;
+      }
       try {
         localStorage.setItem('roo_explorer_combat_result_' + command.sessionId, JSON.stringify(result));
       } catch (error) {}
@@ -1078,7 +1099,7 @@ async function run() {
   const mobileTwoD = await page.evaluate(() => {
     const canvas = document.getElementById('ro-2d-stage');
     const stage = document.getElementById('stage');
-    const rect = stage.getBoundingClientRect();
+    const rect = canvas.getBoundingClientRect();
     const metrics = window.__rooExplorer2DTest.getMetrics();
     const targets = window.__rooExplorer2DTest.getWalkableTargets();
     const visibleTargets = targets.filter(target => {
@@ -1126,11 +1147,74 @@ async function run() {
   await page.locator('#stop-movement').tap();
   await page.locator('#stop-movement').waitFor({ state: 'hidden', timeout: 3000 });
   await page.screenshot({ path: path.join(artifactDir, 'mobile-2d.png'), fullPage: true, animations: 'disabled' });
+
+  // Now exercise the complete mobile 2D monster interaction: tap a monster, approach it,
+  // dispatch one real-shaped combat command across the same-origin storage bridge, then stop.
+  await page.locator('#monster-panel').evaluate(element => { element.hidden = true; });
+  const mobileMonsterTargets = await page.evaluate(() => {
+    const canvas = document.getElementById('ro-2d-stage');
+    const rect = canvas.getBoundingClientRect();
+    const api = window.__rooExplorer2DTest;
+    return api.getMonsterTargets()
+      .filter(target => !target.dead && target.distance >= 2
+        && target.screenX >= 12 && target.screenY >= 12
+        && target.screenX <= rect.width - 12 && target.screenY <= rect.height - 12
+        && document.elementFromPoint(rect.left + target.screenX, rect.top + target.screenY) === canvas
+        && api.canApproachMonster(target.spawnKey))
+      .sort((a, b) => a.distance - b.distance);
+  });
+  assert.ok(mobileMonsterTargets.length > 0,
+    '手機純 2D 畫面找不到可點擊且可尋路接近的活怪：'
+      + JSON.stringify({ viewport: await page.evaluate(() => ({ width: innerWidth, height: innerHeight })),
+        monsters: (await page.evaluate(() => window.__rooExplorer2DTest.getMonsterTargets())).slice(0, 10) }));
+  let selectedMobileMonster = null;
+  for (const target of mobileMonsterTargets) {
+    await page.touchscreen.tap(
+      mobileTwoD.canvasRect.left + target.screenX,
+      mobileTwoD.canvasRect.top + target.screenY
+    );
+    if (await page.locator('#monster-panel').isVisible()) {
+      const title = await page.locator('#monster-title').innerText();
+      if (title.includes(target.name)) { selectedMobileMonster = target; break; }
+      await page.locator('#clear-monster-target').tap();
+    }
+  }
+  assert.ok(selectedMobileMonster, '手機 2D 點選怪物後沒有選取對應目標。');
+  assert.ok(await page.locator('#attack-monster').isVisible(),
+    '選中怪物後沒有顯示「靠近並自動普攻」操作。');
+  const hpBeforeMobileAttack = await page.locator('#monster-hp-value').innerText();
+  await page.locator('#attack-monster').tap();
+  await page.locator('#stop-monster-attack').waitFor({ state: 'visible', timeout: 5000 });
+  await page.waitForFunction(spawnKey => {
+    const targets = window.__rooExplorer2DTest?.getMonsterTargets() || [];
+    return targets.some(target => target.spawnKey === spawnKey && !target.dead && target.distance <= 1);
+  }, selectedMobileMonster.spawnKey, { timeout: 15000 });
+  await page.waitForFunction(() => {
+    const command = (() => {
+      try { return JSON.parse(localStorage.getItem('roo_explorer_combat_command') || 'null'); }
+      catch (error) { return null; }
+    })();
+    return command && command.type === 'attack';
+  }, null, { timeout: 10000 });
+  await page.waitForFunction(previous => {
+    const current = document.getElementById('monster-hp-value')?.textContent || '';
+    return current && current !== previous;
+  }, hpBeforeMobileAttack, { timeout: 7000 });
+  const bridgeLog = await bridgePage.evaluate(() => window.__rooCombatBridgeLog || []);
+  assert.ok(bridgeLog.some(request => request.type === 'attack'
+    && request.spawnKey === selectedMobileMonster.spawnKey
+    && request.mapId === 'tra_fild'),
+    '手機純 2D 點怪、靠近後沒有透過同源橋接送出普攻指令：' + JSON.stringify(bridgeLog.slice(-8)));
+  assert.notEqual(await page.locator('#monster-hp-value').innerText(), hpBeforeMobileAttack,
+    '收到普攻回覆後怪物 HP 顯示沒有更新。');
+  await page.locator('#stop-monster-attack').tap();
+  await page.locator('#stop-monster-attack').waitFor({ state: 'hidden', timeout: 3000 });
+  await page.screenshot({ path: path.join(artifactDir, 'mobile-2d-combat.png'), fullPage: true, animations: 'disabled' });
   await mobileTwoDToggle.tap();
   await page.waitForFunction(() => document.getElementById('ro-2d-stage')?.hidden === true
     && getComputedStyle(Array.from(document.querySelectorAll('#stage > canvas'))
       .find(canvas => canvas.id !== 'ro-2d-stage')).display !== 'none');
-  console.log('手機 Canvas 2D 原型通過：真實 GND 紋理、隱藏 WebGL、觸控點擊尋路、停止移動與返回原生 3D。');
+  console.log('手機純 2D 戰鬥 UI 通過：真實 GND 紋理、觸控地面尋路、點選活怪、靠近至一格、送出普攻橋接、HP 更新及停止普攻。');
 
   assert.deepEqual(pageErrors, [], '瀏覽器出現未處理的 JavaScript 錯誤：' + pageErrors.join(' | '));
   console.log('原生探索瀏覽器驗收通過：公開 tra_fild 3D 地圖、角色素材狀態、HP/SP、基礎／職業經驗、鋅幣、恢復／輔助操作面板、桌面與手機版面、小地圖移動／停止、視角跟隨、通行格切換。');
