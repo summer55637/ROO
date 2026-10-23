@@ -76,6 +76,7 @@ import {
   projectRoExplorer2DPoint,
   unprojectRoExplorer2DPoint,
   drawRoExplorer2DTexturedTriangle,
+  collectRoExplorer2DModelTriangles,
   getRoExplorer2DViewportRadius,
   isRoExplorer2DPointVisible,
   drawRoExplorer2DGroundShadow,
@@ -413,10 +414,18 @@ let ro2dPixelRatio = 1;
 let ro2dMetrics = {
   terrainTiles: 0, texturedTiles: 0, visibleProps: 0, visibleMonsters: 0,
   modelPlacements: 0, loadedModelProps: 0, fallbackProps: 0, propKinds: {},
+  texturedModelProps: 0, proxyModelProps: 0,
   groundDepthMode: 'x-minus-z', rotationDataProps: 0,
   orientationAwareProps: 0, rotatedProps: 0,
 };
 const RO_EXPLORER_2D_PIXELS_PER_WORLD_UNIT = 1.6;
+const RO_EXPLORER_2D_MODEL_TRIANGLE_LIMIT = 12000;
+const RO_EXPLORER_2D_MODEL_SPRITE_EDGE_LIMIT = 640;
+const RO_EXPLORER_2D_MODEL_SPRITE_PIXEL_LIMIT = 400000;
+const RO_EXPLORER_2D_MODEL_SPRITE_CACHE_LIMIT = 32;
+const ro2dModelSpriteCache = new Map();
+const ro2dModelProjectionRetryAt = new Map();
+
 let minimapGatInfo = null;
 let minimapBaseImage = null;
 let minimapBaseWidth = 0;
@@ -726,6 +735,8 @@ function ro2dRefreshSourceImages() {
 }
 
 function rebuildRoExplorer2DSceneIndex() {
+  ro2dModelSpriteCache.clear();
+  ro2dModelProjectionRetryAt.clear();
   ro2dSourceImages = new Map();
   ro2dDecorations = [];
   const renderedPositions = [];
@@ -960,6 +971,107 @@ function drawRoExplorer2DPath(context, center) {
   context.strokeStyle = '#5a4220'; context.lineWidth = 1.5; context.stroke();
 }
 
+function getRoExplorer2DModelSprite(prop, anchorPoint) {
+  const modelRoot = prop && prop.object;
+  if (!modelRoot || !modelRoot.userData || typeof modelRoot.traverse !== 'function') return null;
+  if (modelRoot.userData.roo2dProjectionSkip) return null;
+
+  const cached = ro2dModelSpriteCache.get(modelRoot);
+  if (cached && cached.worldScale === worldScale) {
+    ro2dModelSpriteCache.delete(modelRoot);
+    ro2dModelSpriteCache.set(modelRoot, cached);
+    return cached;
+  }
+  if (cached) ro2dModelSpriteCache.delete(modelRoot);
+
+  const now = performance.now();
+  if ((ro2dModelProjectionRetryAt.get(modelRoot) || 0) > now) return null;
+  let hasAnimation = false;
+  modelRoot.traverse(node => {
+    const data = node && node.userData;
+    if (data && (data.rooRsmAnimation || data.rooRsmTextureAnimation)) hasAnimation = true;
+  });
+  if (hasAnimation) {
+    modelRoot.userData.roo2dProjectionSkip = true;
+    return null;
+  }
+
+  modelRoot.updateMatrixWorld(true);
+  const triangles = collectRoExplorer2DModelTriangles(
+    modelRoot,
+    point => ro2dProject(point, ro2dFrameCenter),
+    anchorPoint,
+    RO_EXPLORER_2D_MODEL_TRIANGLE_LIMIT
+  );
+  if (!triangles) {
+    // A texture may still be loading; retry after a short pause instead of doing work every frame.
+    ro2dModelProjectionRetryAt.set(modelRoot, now + 650);
+    return null;
+  }
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const triangle of triangles) {
+    for (const point of triangle.points) {
+      minX = Math.min(minX, point.x); minY = Math.min(minY, point.y);
+      maxX = Math.max(maxX, point.x); maxY = Math.max(maxY, point.y);
+    }
+  }
+  const padding = 2;
+  const width = Math.ceil(maxX - minX) + padding * 2;
+  const height = Math.ceil(maxY - minY) + padding * 2;
+  if (![minX, minY, maxX, maxY, width, height].every(Number.isFinite)
+    || width < 1 || height < 1
+    || width > RO_EXPLORER_2D_MODEL_SPRITE_EDGE_LIMIT
+    || height > RO_EXPLORER_2D_MODEL_SPRITE_EDGE_LIMIT
+    || width * height > RO_EXPLORER_2D_MODEL_SPRITE_PIXEL_LIMIT) {
+    modelRoot.userData.roo2dProjectionSkip = true;
+    ro2dModelProjectionRetryAt.delete(modelRoot);
+    return null;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    ro2dModelProjectionRetryAt.set(modelRoot, now + 1000);
+    return null;
+  }
+  for (const triangle of triangles) {
+    const points = triangle.points.map(point => ({
+      x: point.x - minX + padding,
+      y: point.y - minY + padding,
+    }));
+    context.globalAlpha = triangle.opacity;
+    if (triangle.image && triangle.sourcePoints) {
+      drawRoExplorer2DTexturedTriangle(context, triangle.image, triangle.sourcePoints, points);
+    } else {
+      context.beginPath();
+      context.moveTo(points[0].x, points[0].y);
+      context.lineTo(points[1].x, points[1].y);
+      context.lineTo(points[2].x, points[2].y);
+      context.closePath();
+      context.fillStyle = triangle.color;
+      context.fill();
+    }
+  }
+  context.globalAlpha = 1;
+
+  const sprite = {
+    canvas,
+    offsetX: minX - padding,
+    offsetY: minY - padding,
+    worldScale,
+  };
+  ro2dModelProjectionRetryAt.delete(modelRoot);
+  ro2dModelSpriteCache.delete(modelRoot);
+  ro2dModelSpriteCache.set(modelRoot, sprite);
+  while (ro2dModelSpriteCache.size > RO_EXPLORER_2D_MODEL_SPRITE_CACHE_LIMIT) {
+    const oldest = ro2dModelSpriteCache.keys().next().value;
+    ro2dModelSpriteCache.delete(oldest);
+  }
+  return sprite;
+}
+
 function drawRoExplorer2DProp(context, prop, point) {
   const style = getRoExplorer2DPropStyle(
     prop.modelName || prop.name, prop.modelScale, prop.modelRotation
@@ -968,6 +1080,13 @@ function drawRoExplorer2DProp(context, prop, point) {
   const anchorX = point.x, anchorY = point.y;
   const width = style.width * unit, height = style.height * unit;
   drawRoExplorer2DGroundShadow(context, anchorX, anchorY, style.shadowWidth * unit);
+  if (prop.object) {
+    const sprite = getRoExplorer2DModelSprite(prop, point);
+    if (sprite) {
+      context.drawImage(sprite.canvas, anchorX + sprite.offsetX, anchorY + sprite.offsetY);
+      return true;
+    }
+  }
   context.save();
   try {
     context.translate(anchorX, anchorY);
@@ -1322,9 +1441,14 @@ function renderRoExplorer2DFrame(now) {
     }
   }
   const orderedItems = sortRoExplorer2DSceneItems(items);
-  let visibleProps = 0;
+  let visibleProps = 0, texturedModelProps = 0, proxyModelProps = 0;
   for (const item of orderedItems) {
-    if (item.kind === 'prop') { drawRoExplorer2DProp(context, item.prop, item.point); visibleProps++; continue; }
+    if (item.kind === 'prop') {
+      if (drawRoExplorer2DProp(context, item.prop, item.point)) texturedModelProps++;
+      else proxyModelProps++;
+      visibleProps++;
+      continue;
+    }
     if (item.kind === 'monster') {
       const entry = item.entry;
       const image = entry.texture && entry.texture.image
@@ -1345,6 +1469,7 @@ function renderRoExplorer2DFrame(now) {
     }
   }
   ro2dMetrics.visibleProps = visibleProps; ro2dMetrics.visibleMonsters = visibleMonsters;
+  ro2dMetrics.texturedModelProps = texturedModelProps; ro2dMetrics.proxyModelProps = proxyModelProps;
   ro2dDrawCombatFeedback(context, center);
   context.fillStyle = 'rgba(8,14,21,0.78)'; context.strokeStyle = 'rgba(151,186,147,0.52)'; context.lineWidth = 1;
   context.beginPath(); context.roundRect(12, 12, Math.min(250, width - 24), 49, 9); context.fill(); context.stroke();
