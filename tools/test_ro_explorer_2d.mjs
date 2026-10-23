@@ -40,7 +40,7 @@ assert.deepEqual(radius, { x: 29, z: 34 });
 assert.equal(isRoExplorer2DPointVisible({ x: 10, y: 20 }, 800, 480), true);
 assert.equal(isRoExplorer2DPointVisible({ x: -100, y: 20 }, 800, 480), false);
 assert.throws(() => projectRoExplorer2DPoint(point, center, 0, 480, 8), /有效的世界座標/);
-console.log('ROO 2D 等角投影、點擊反投影與來源貼圖三角形映射測試通過。');
+
 
 
 // Drawing helpers are exercised against a tiny recording canvas context so visual
@@ -79,3 +79,5 @@ assert.equal(ringCanvas.events.filter(event => event.type === 'restore').length,
   '繪製目標圈後必須還原 Canvas 狀態');
 assert.equal(drawRoExplorer2DSelectionRing(ringCanvas, 100, 200, NaN), false,
   '無效座標不得繪製目標圈');
+
+console.log('ROO 2D 等角投影、點擊反投影與來源貼圖三角形映射測試通過。');
