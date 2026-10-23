@@ -2112,15 +2112,31 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
   window.addEventListener('storage', handleRoExplorerCombatStorage);
 }
 
+// These internal tutorial maps are game-only scenes and do not have public RO GND/GAT assets.
+ // Keep the logical game map in ?map for combat/state validation, while loading a real RO map
+ // separately as the visual ground source through ?nativeMap.
+const RO_EXPLORER_NATIVE_MAP_FALLBACKS = Object.freeze({
+  novice_safe: 'prontera',
+  novice_ground: 'prt_fild08',
+  test_arena: 'prt_fild08',
+});
+function resolveRoExplorerNativeMapId(mapId) {
+  const normalized = String(mapId || 'prontera').trim().toLowerCase();
+  return RO_EXPLORER_NATIVE_MAP_FALLBACKS[normalized] || normalized;
+}
+
 function openRoExplorer(view = '3d') {
   if (!state) return;
   const url = new URL('tools/ro_explorer.html', window.location.href);
   const mapId = String(state.mapId || 'prontera');
+  const nativeMapId = resolveRoExplorerNativeMapId(mapId);
   const progression = buildRoExplorerProgressSnapshot(state);
   url.searchParams.set('mode', 'native');
   if (view === '2d') url.searchParams.set('view', '2d');
   else url.searchParams.delete('view');
   url.searchParams.set('map', mapId);
+  if (nativeMapId !== mapId) url.searchParams.set('nativeMap', nativeMapId);
+  else url.searchParams.delete('nativeMap');
   url.searchParams.set('sprite', getAnimKey());
   for (const [key, value] of [
     ['php', state.hp], ['pmaxhp', state.maxHp],
