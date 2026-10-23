@@ -156,6 +156,8 @@ assertReloaded('Bash 擊殺');
 def.hp = originalMonster.hp;
 def.exp = originalMonster.exp;
 def.jobExp = originalMonster.jobExp;
+def.atk = originalMonster.atk;
+def.element = originalMonster.element;
 def.atkInterval = originalMonster.atkInterval;
 def.drops = JSON.parse(JSON.stringify(originalMonster.drops));
 g.state.hp = g.state.maxHp;
@@ -176,6 +178,8 @@ g.Date = class TestDate extends NativeDate {
 def.hp = originalMonster.hp;
 def.exp = originalMonster.exp;
 def.jobExp = originalMonster.jobExp;
+def.atk = originalMonster.atk;
+def.element = originalMonster.element;
 def.atkInterval = 0.01; // 僅縮短測試所需等待；命中仍使用正式怪物傷害流程。
 def.drops = JSON.parse(JSON.stringify(originalMonster.drops));
 g.Math = Object.create(Math);
