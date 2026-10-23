@@ -454,6 +454,8 @@ try {
       if (def) def.hp = 5000;
       if (spawn.id === defId) spawn.weight = 1000000000;
     }
+    // 載入存檔時未知的原生地圖 ID 可能會被主遊戲正規化；此測試需明確回到 tra_fild。
+    state.mapId = mapId;
     state.hp = state.maxHp;
     state.sp = state.maxSp;
     state.cooldowns = {};
