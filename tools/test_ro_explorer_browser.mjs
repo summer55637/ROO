@@ -381,7 +381,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
               y: box.y + box.height * yRatio,
             };
             const target = await targetPage.evaluate(({ x, y }) => {
-              const canvas = document.querySelector('#stage > canvas');
+              const canvas = document.querySelector('#stage > canvas:not(#ro-2d-stage)');
               const element = document.elementFromPoint(x, y);
               return {
                 isCanvas: Boolean(canvas && element === canvas),
@@ -483,7 +483,7 @@ async function captureGndDebugViews(targetPage, stageBox, mapSlug, options = {})
           if (visitedPoints.has(pointKey)) continue;
           visitedPoints.add(pointKey);
           const pointerTarget = await targetPage.evaluate(({ x, y }) => {
-            const canvas = document.querySelector('#stage > canvas');
+            const canvas = document.querySelector('#stage > canvas:not(#ro-2d-stage)');
             const target = document.elementFromPoint(x, y);
             return {
               isCanvas: Boolean(canvas && target === canvas),
