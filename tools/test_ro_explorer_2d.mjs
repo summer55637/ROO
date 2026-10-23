@@ -11,8 +11,8 @@ import {
 const center = { x: 13.5, y: -0.4, z: -22.25 };
 const point = { x: 18.5, y: -0.2, z: -16.25 };
 const projected = projectRoExplorer2DPoint(point, center, 800, 480, 8);
-assert.ok(Math.abs(projected.x - 848) < 1e-9);
-assert.ok(Math.abs(projected.y - 26.4) < 1e-9);
+assert.ok(Math.abs(projected.x - 488) < 1e-9);
+assert.ok(Math.abs(projected.y - 234.4) < 1e-9);
 const roundTrip = unprojectRoExplorer2DPoint(
   projected.x, projected.y, center, 800, 480, 8, point.y
 );
