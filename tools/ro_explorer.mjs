@@ -1170,22 +1170,37 @@ function drawRoExplorer2DProp(context, prop, point) {
       return;
     }
     if (style.kind === 'rock' || style.kind === 'unknown') {
-      context.fillStyle = style.kind === 'rock' ? '#4e554f' : '#665d50';
+      const rockProfiles = [
+        [[-0.48, 0], [-0.43, -0.48], [-0.12, -0.9], [0.25, -0.8], [0.49, -0.28], [0.39, 0]],
+        [[-0.5, 0], [-0.32, -0.36], [-0.24, -0.72], [0.04, -0.84], [0.38, -0.62], [0.5, -0.15], [0.3, 0]],
+        [[-0.45, 0], [-0.48, -0.22], [-0.18, -0.66], [0.08, -0.92], [0.36, -0.51], [0.44, -0.12], [0.25, 0]],
+      ];
+      const profile = rockProfiles[(style.variant || 0) % rockProfiles.length];
+      const rockColor = style.kind === 'rock' ? '#4e554f' : '#665d50';
+      context.fillStyle = rockColor;
       context.beginPath();
-      context.moveTo(x - width * 0.48, y);
-      context.lineTo(x - width * 0.43, y - height * 0.48);
-      context.lineTo(x - width * 0.12, y - height * 0.9);
-      context.lineTo(x + width * 0.25, y - height * 0.8);
-      context.lineTo(x + width * 0.49, y - height * 0.28);
-      context.lineTo(x + width * 0.39, y);
+      profile.forEach(([px, py], index) => {
+        const pxValue = x + width * px, pyValue = y + height * py;
+        if (index === 0) context.moveTo(pxValue, pyValue);
+        else context.lineTo(pxValue, pyValue);
+      });
       context.closePath(); context.fill();
-      context.fillStyle = style.kind === 'rock' ? '#858b7f' : '#9a8c77';
-      context.beginPath(); context.moveTo(x - width * 0.12, y - height * 0.9);
-      context.lineTo(x + width * 0.25, y - height * 0.8);
-      context.lineTo(x + width * 0.07, y - height * 0.38);
-      context.lineTo(x - width * 0.27, y - height * 0.5);
-      context.closePath(); context.fill();
-      context.strokeStyle = 'rgba(226,230,212,0.55)'; context.stroke();
+
+      const face = profile.filter(([px, py]) => py < -0.25 && px < 0.36)
+        .slice(0, 4);
+      if (face.length >= 3) {
+        context.fillStyle = style.kind === 'rock' ? '#858b7f' : '#9a8c77';
+        context.beginPath();
+        face.forEach(([px, py], index) => {
+          const pxValue = x + width * px, pyValue = y + height * py;
+          if (index === 0) context.moveTo(pxValue, pyValue);
+          else context.lineTo(pxValue, pyValue);
+        });
+        context.closePath(); context.fill();
+      }
+      context.strokeStyle = 'rgba(226,230,212,0.6)';
+      context.lineWidth = Math.max(0.7, unit * 0.55);
+      context.stroke();
       return;
     }
     if (style.kind === 'fixture') {
