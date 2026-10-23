@@ -948,8 +948,10 @@ async function run() {
     '2D 場景物件沒有形成多種類型分類：' + JSON.stringify(twoDReady.metrics.propKinds));
   assert.equal(twoDReady.metrics.groundDepthMode, 'x-minus-z',
     '2D 遮擋排序應使用地面深度，不得把物件海拔當成前後順序：' + JSON.stringify(twoDReady.metrics));
-  assert.ok(twoDReady.metrics.orientationAwareProps > 0,
-    '真實 tra_fild 場景物件沒有接通 RSW 朝向處理：' + JSON.stringify(twoDReady.metrics));
+  assert.ok(twoDReady.metrics.rotationDataProps
+    >= Math.min(450, twoDReady.metrics.modelPlacements),
+    '真實 tra_fild 場景各擺放位置都應保留 RSW 旋轉資料，即使 RSM 沒有載入：'
+      + JSON.stringify(twoDReady.metrics));
   assert.equal(twoDReady.metrics.loadedModelProps + twoDReady.metrics.fallbackProps
     >= Math.min(450, twoDReady.metrics.modelPlacements), true,
     '每個 RSW 模型位置都應由載入物件或 2D 代理圖形呈現：' + JSON.stringify(twoDReady));

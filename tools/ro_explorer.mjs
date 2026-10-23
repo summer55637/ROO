@@ -412,7 +412,8 @@ let ro2dPixelRatio = 1;
 let ro2dMetrics = {
   terrainTiles: 0, texturedTiles: 0, visibleProps: 0, visibleMonsters: 0,
   modelPlacements: 0, loadedModelProps: 0, fallbackProps: 0, propKinds: {},
-  groundDepthMode: 'x-minus-z', orientationAwareProps: 0, rotatedProps: 0,
+  groundDepthMode: 'x-minus-z', rotationDataProps: 0,
+  orientationAwareProps: 0, rotatedProps: 0,
 };
 const RO_EXPLORER_2D_PIXELS_PER_WORLD_UNIT = 1.6;
 let minimapGatInfo = null;
@@ -775,6 +776,10 @@ function rebuildRoExplorer2DSceneIndex() {
     return counts;
   }, {});
   ro2dMetrics.groundDepthMode = 'x-minus-z';
+  ro2dMetrics.rotationDataProps = ro2dDecorations.filter(prop =>
+    Array.isArray(prop.modelRotation) && prop.modelRotation.length >= 3
+    && prop.modelRotation.slice(0, 3).every(Number.isFinite)
+  ).length;
   ro2dMetrics.orientationAwareProps = ro2dDecorations.filter(prop =>
     getRoExplorer2DPropStyle(prop.modelName || prop.name, prop.modelScale, prop.modelRotation)
       .orientationAware
